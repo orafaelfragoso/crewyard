@@ -40,7 +40,10 @@ export function serviceStatus(ctx: RailContext): ServiceStatus {
   };
 }
 
-export function startService(ctx: RailContext, options: { dryRun?: boolean } = {}): ServiceStatus & { command: string[] } {
+export function startService(
+  ctx: RailContext,
+  options: { dryRun?: boolean } = {},
+): ServiceStatus & { command: string[] } {
   const current = serviceStatus(ctx);
   const command = [...railInvocation(), 'service', 'run'];
   if (current.running || options.dryRun) return { ...current, command };
@@ -58,7 +61,10 @@ export function startService(ctx: RailContext, options: { dryRun?: boolean } = {
   return { ...serviceStatus(ctx), pid: child.pid, running: true, command };
 }
 
-export async function stopService(ctx: RailContext, graceMs = 15_000): Promise<{ stopped: boolean; pid: number | null }> {
+export async function stopService(
+  ctx: RailContext,
+  graceMs = 15_000,
+): Promise<{ stopped: boolean; pid: number | null }> {
   const status = serviceStatus(ctx);
   const pids = new Set<number>([...(status.pid ? [status.pid] : []), ...status.workers.map((w) => w.pid)]);
   let stopped = false;
@@ -184,7 +190,9 @@ export async function installServiceUnit(ctx: RailContext, options: { dryRun?: b
   if (existsSync(plan.file)) {
     const existing = readFileSync(plan.file, 'utf8');
     if (!existing.includes('agent-rail') && !existing.includes('Agent Rail') && !existing.includes(SERVICE_LABEL)) {
-      throw new RailError('CONFLICT', `${plan.file} exists and is not owned by Agent Rail`, { suggestion: 'Move it aside and retry.' });
+      throw new RailError('CONFLICT', `${plan.file} exists and is not owned by Agent Rail`, {
+        suggestion: 'Move it aside and retry.',
+      });
     }
   }
   mkdirSync(dirname(plan.file), { recursive: true });
@@ -193,9 +201,13 @@ export async function installServiceUnit(ctx: RailContext, options: { dryRun?: b
   for (const cmd of plan.activate) results.push(await run(cmd, { allowFailure: true, timeoutMs: 30_000 }));
   const failed = results.find((r) => r.exitCode !== 0);
   if (failed) {
-    throw new RailError('EXTERNAL_FAILURE', `Service unit written to ${plan.file} but activation failed: ${failed.stderr.trim()}`, {
-      suggestion: `Activate manually: ${plan.activate.map((c) => c.join(' ')).join(' && ')}`,
-    });
+    throw new RailError(
+      'EXTERNAL_FAILURE',
+      `Service unit written to ${plan.file} but activation failed: ${failed.stderr.trim()}`,
+      {
+        suggestion: `Activate manually: ${plan.activate.map((c) => c.join(' ')).join(' && ')}`,
+      },
+    );
   }
   return { ...plan, applied: true };
 }

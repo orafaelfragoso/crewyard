@@ -1,4 +1,6 @@
+import { userInfo } from 'node:os';
 import { createRailContext } from '@agent-rail/application';
+import type { Actor } from '@agent-rail/core';
 import type { RailContext } from '@agent-rail/storage';
 import { Command, CommanderError, Option } from 'commander';
 import { type GlobalOptions, reportError } from './output.ts';
@@ -75,4 +77,8 @@ export async function runProgram(program: Command, argv: string[]): Promise<numb
   } finally {
     closeContext();
   }
+}
+
+export function operatorActor(): Actor {
+  return { kind: 'operator', id: process.env.RAIL_OPERATOR ?? userInfo().username };
 }
