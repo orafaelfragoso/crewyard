@@ -2,6 +2,7 @@
 import pkg from '../../../package.json' with { type: 'json' };
 import { registerAgentCommands } from './commands/agents.ts';
 import { registerInstallCommands } from './commands/install.ts';
+import { registerServiceCommands } from './commands/service.ts';
 import { registerSystemCommands } from './commands/system.ts';
 import { registerWorkCommands } from './commands/work.ts';
 import { createProgram, runProgram } from './program.ts';
@@ -11,6 +12,7 @@ registerSystemCommands(program, pkg.version);
 registerWorkCommands(program);
 registerAgentCommands(program);
 registerInstallCommands(program);
+registerServiceCommands(program);
 
 program
   .command('mcp')
