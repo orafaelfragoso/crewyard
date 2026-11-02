@@ -1,4 +1,5 @@
 export * from './apply.ts';
+export * from './embedded-skills.ts';
 export {
   detectHosts,
   HOST_SPECS,
