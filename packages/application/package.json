@@ -24,6 +24,7 @@
     "@agent-rail/reviews": "workspace:*",
     "@agent-rail/integration": "workspace:*",
     "@agent-rail/recovery": "workspace:*",
-    "@agent-rail/host-installers": "workspace:*"
+    "@agent-rail/host-installers": "workspace:*",
+    "@agent-rail/tui": "workspace:*"
   }
 }
