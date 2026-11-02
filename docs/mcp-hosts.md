@@ -24,7 +24,7 @@ Formats were verified on 2026-11-02 against the official documentation linked be
   - Files Rail created are deleted.
   - Content shared with a host that is still registered (such as `AGENTS.md` or `.agents/skills`) is kept.
 
-The MCP command is the installed `rail` binary's absolute path plus `mcp`. When `rail` is not on `PATH`, the fallback is `bunx agent-rail mcp`.
+The MCP command is `rail mcp` when `rail` is on `PATH`. Otherwise `rail install` registers the absolute path of the running binary (compiled build) or `bun <checkout>/apps/cli/src/main.ts mcp` (source install), so the host starts exactly the Rail you installed from.
 
 Scopes: `--scope user` (default) writes to your home directory; `--scope project` writes to the repository so the team can share it. Bootstrap instructions in `AGENTS.md`/`CLAUDE.md` are only added with explicit authorization (`--instructions`), and only as a marked block appended to the file.
 

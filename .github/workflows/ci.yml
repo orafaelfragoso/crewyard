@@ -53,6 +53,8 @@ jobs:
         run: bun test tests/contract
       - name: Concurrency tests
         run: bun run test:concurrency
+      - name: Integration, resilience and end-to-end tests
+        run: bun test tests/integration tests/resilience tests/e2e
 
   audit:
     name: Dependency audit
