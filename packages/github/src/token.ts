@@ -1,4 +1,4 @@
-import { RailError, run } from '@agent-rail/core';
+import { CrewError, run } from '@crewyard/core';
 
 export type TokenProvider = () => Promise<string>;
 
@@ -47,7 +47,7 @@ async function readGhToken(options: GhTokenOptions): Promise<string> {
   });
   const token = result.stdout.trim();
   if (result.exitCode !== 0 || token === '') {
-    throw new RailError('UNAUTHENTICATED', `GitHub CLI has no token for ${options.host}`, {
+    throw new CrewError('UNAUTHENTICATED', `GitHub CLI has no token for ${options.host}`, {
       retryable: false,
       details: { host: options.host, configDir: options.configDir ?? null },
       suggestion: options.configDir

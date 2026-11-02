@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { RailConfig } from '@agent-rail/config';
-import { type Actor, ensureDir, git, nowIso, RailError, sha256 } from '@agent-rail/core';
+import type { CrewConfig } from '@crewyard/config';
+import { type Actor, CrewError, ensureDir, git, nowIso, sha256 } from '@crewyard/core';
 import {
   assertRemoteMatches,
   type ConditionalCache,
@@ -10,23 +10,23 @@ import {
   ghTokenProvider,
   type RepositoryCoordinates,
   type TokenProvider,
-} from '@agent-rail/github';
-import { getProject, getRepository, projectConfig, type Repository } from '@agent-rail/projects';
-import { one, type RailContext, recordTransition } from '@agent-rail/storage';
+} from '@crewyard/github';
+import { getProject, getRepository, projectConfig, type Repository } from '@crewyard/projects';
+import { type CrewContext, one, recordTransition } from '@crewyard/storage';
 import type { GitHubClientFactory, IntegrationEnv, TaskHookEvent, TaskHooks } from './types.ts';
 
-export const RAIL_INTEGRATION_ACTOR: Actor = { kind: 'service', id: 'integration' };
+export const CREW_INTEGRATION_ACTOR: Actor = { kind: 'service', id: 'integration' };
 
 export function coordinates(repository: Repository): RepositoryCoordinates {
   if (!repository.remoteOwner || !repository.remoteName) {
-    throw new RailError('INVALID_INPUT', `Repository ${repository.id} has no GitHub remote`, {
-      suggestion: 'Add a GitHub `origin` remote and run `rail project sync`.',
+    throw new CrewError('INVALID_INPUT', `Repository ${repository.id} has no GitHub remote`, {
+      suggestion: 'Add a GitHub `origin` remote and run `crew project sync`.',
     });
   }
   return { host: repository.remoteHost ?? 'github.com', owner: repository.remoteOwner, name: repository.remoteName };
 }
 
-export function syncStateCache(ctx: RailContext, repositoryId: string): ConditionalCache {
+export function syncStateCache(ctx: CrewContext, repositoryId: string): ConditionalCache {
   const dir = join(ctx.dirs.data, 'cache', 'github', repositoryId);
   const fileFor = (key: string) => join(dir, `${sha256(key).slice(0, 40)}.json`);
   const stateKey = (key: string) => `github:etag:${repositoryId}:${sha256(key).slice(0, 40)}`;
@@ -64,7 +64,7 @@ export interface ClientFactoryOptions extends Partial<Omit<GitHubClientOptions, 
   conditional?: boolean;
 }
 
-export function createClientFactory(ctx: RailContext, options: ClientFactoryOptions = {}): GitHubClientFactory {
+export function createClientFactory(ctx: CrewContext, options: ClientFactoryOptions = {}): GitHubClientFactory {
   const clients = new Map<string, GitHubClient>();
   return (repository) => {
     const existing = clients.get(repository.id);
@@ -82,15 +82,15 @@ export function createClientFactory(ctx: RailContext, options: ClientFactoryOpti
   };
 }
 
-export function repositoryFor(ctx: RailContext, repositoryId: string): Repository {
+export function repositoryFor(ctx: CrewContext, repositoryId: string): Repository {
   return getRepository(ctx, repositoryId);
 }
 
-export function configFor(ctx: RailContext, env: IntegrationEnv, projectId: string): RailConfig {
+export function configFor(ctx: CrewContext, env: IntegrationEnv, projectId: string): CrewConfig {
   return env.config ?? projectConfig(ctx, projectId);
 }
 
-export function autonomyFor(ctx: RailContext, projectId: string) {
+export function autonomyFor(ctx: CrewContext, projectId: string) {
   return getProject(ctx, projectId).autonomy;
 }
 
@@ -99,7 +99,7 @@ export async function configuredRemoteUrl(repoPath: string, remote = 'origin'): 
   return result.exitCode === 0 ? result.stdout.trim() : null;
 }
 
-export async function clientFor(ctx: RailContext, env: IntegrationEnv, repository: Repository): Promise<GitHubClient> {
+export async function clientFor(ctx: CrewContext, env: IntegrationEnv, repository: Repository): Promise<GitHubClient> {
   const remoteUrl = env.remoteUrl
     ? await env.remoteUrl(repository)
     : await configuredRemoteUrl(repository.canonicalPath);
@@ -115,7 +115,7 @@ export type PendingHook = {
   [K in keyof TaskHooks]-?: { name: K; event: Parameters<NonNullable<TaskHooks[K]>>[0] };
 }[keyof TaskHooks];
 
-export async function runHooks(ctx: RailContext, hooks: TaskHooks | undefined, pending: PendingHook[]): Promise<void> {
+export async function runHooks(ctx: CrewContext, hooks: TaskHooks | undefined, pending: PendingHook[]): Promise<void> {
   if (!hooks) return;
   for (const call of pending) {
     const fn = hooks[call.name] as ((event: TaskHookEvent) => void | Promise<void>) | undefined;
@@ -131,7 +131,7 @@ export async function runHooks(ctx: RailContext, hooks: TaskHooks | undefined, p
           db,
           {
             type: 'integration.hook_failed',
-            actor: RAIL_INTEGRATION_ACTOR,
+            actor: CREW_INTEGRATION_ACTOR,
             taskId: call.event.taskId,
             prId: call.event.prId,
             payload: { hook: call.name, error: message },

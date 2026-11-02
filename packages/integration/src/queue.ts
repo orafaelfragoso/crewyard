@@ -1,8 +1,8 @@
 import type { Database } from 'bun:sqlite';
-import type { RailConfig } from '@agent-rail/config';
-import { type Actor, newId, nowIso, RailError } from '@agent-rail/core';
-import { requestInterventionInTx } from '@agent-rail/reviews';
-import { all, type RailContext, recordTransition } from '@agent-rail/storage';
+import type { CrewConfig } from '@crewyard/config';
+import { type Actor, CrewError, newId, nowIso } from '@crewyard/core';
+import { requestInterventionInTx } from '@crewyard/reviews';
+import { all, type CrewContext, recordTransition } from '@crewyard/storage';
 import { classifyPullRequest } from './eligibility.ts';
 import { configFor, type PendingHook, repositoryFor, runHooks } from './env.ts';
 import {
@@ -31,9 +31,9 @@ import type {
   QueueMode,
 } from './types.ts';
 
-export function resolveQueueMode(config: Pick<RailConfig, 'integration'>, pr: PullRequestRecord | null): QueueMode {
+export function resolveQueueMode(config: Pick<CrewConfig, 'integration'>, pr: PullRequestRecord | null): QueueMode {
   if (config.integration.mode !== 'auto') return config.integration.mode;
-  return pr?.governance?.requirements?.mergeQueue ? 'github-managed' : 'rail-managed';
+  return pr?.governance?.requirements?.mergeQueue ? 'github-managed' : 'crew-managed';
 }
 
 export function integrationBaseOf(pr: PullRequestRecord): string {
@@ -69,7 +69,7 @@ export interface RequestIntegrationResult {
 }
 
 export async function requestIntegration(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: RequestIntegrationInput,
   env: IntegrationEnv = {},
 ): Promise<RequestIntegrationResult> {
@@ -79,8 +79,8 @@ export async function requestIntegration(
       const pr = pullRequestByNumber(db, input.repositoryId, input.number);
       if (pr) return pr;
     }
-    throw new RailError('NOT_FOUND', 'Pull request not found', {
-      suggestion: 'Pass a known prId, or run `rail pr sync` before requesting integration.',
+    throw new CrewError('NOT_FOUND', 'Pull request not found', {
+      suggestion: 'Pass a known prId, or run `crew pr sync` before requesting integration.',
     });
   };
   const initial = lookup(ctx.store.db);
@@ -88,14 +88,14 @@ export async function requestIntegration(
   const config = configFor(ctx, env, repository.projectId);
   const priority = input.priority ?? 50;
   if (!Number.isInteger(priority) || priority < 0 || priority > 100) {
-    throw new RailError('INVALID_INPUT', 'priority must be an integer between 0 and 100');
+    throw new CrewError('INVALID_INPUT', 'priority must be an integer between 0 and 100');
   }
   const at = nowIso(ctx.clock);
   const hooks: PendingHook[] = [];
   const result = ctx.store.immediate((db) => {
     const pr = lookup(db);
     if (pr.state !== 'open') {
-      throw new RailError('INVALID_TRANSITION', `Pull request #${pr.number} is ${pr.state}`, { retryable: false });
+      throw new CrewError('INVALID_TRANSITION', `Pull request #${pr.number} is ${pr.state}`, { retryable: false });
     }
     const queue = ensureQueueInTx(
       db,
@@ -151,11 +151,11 @@ export async function requestIntegration(
   return result;
 }
 
-export function setQueuePaused(ctx: RailContext, queueId: string, paused: boolean, actor: Actor): IntegrationQueue {
+export function setQueuePaused(ctx: CrewContext, queueId: string, paused: boolean, actor: Actor): IntegrationQueue {
   const at = nowIso(ctx.clock);
   return ctx.store.immediate((db) => {
     const queue = queueById(db, queueId);
-    if (!queue) throw new RailError('NOT_FOUND', `Queue not found: ${queueId}`);
+    if (!queue) throw new CrewError('NOT_FOUND', `Queue not found: ${queueId}`);
     db.query('UPDATE integration_queues SET paused = ?, updated_at = ? WHERE id = ?').run(paused ? 1 : 0, at, queueId);
     recordTransition(
       db,
@@ -170,7 +170,7 @@ export function setQueuePaused(ctx: RailContext, queueId: string, paused: boolea
 export type EntryAction = 'quarantine' | 'escalate' | 'retry' | 'remove';
 
 export async function updateQueueEntry(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: { entryId: string; action: EntryAction; reason: string },
   actor: Actor,
   env: IntegrationEnv = {},
@@ -179,12 +179,12 @@ export async function updateQueueEntry(
   const hooks: PendingHook[] = [];
   const entry = ctx.store.immediate((db) => {
     const entry = entryById(db, input.entryId);
-    if (!entry) throw new RailError('NOT_FOUND', `Queue entry not found: ${input.entryId}`);
+    if (!entry) throw new CrewError('NOT_FOUND', `Queue entry not found: ${input.entryId}`);
     if (entry.status === 'merged' || entry.status === 'removed') {
-      throw new RailError('INVALID_TRANSITION', `Entry is already ${entry.status}`, { retryable: false });
+      throw new CrewError('INVALID_TRANSITION', `Entry is already ${entry.status}`, { retryable: false });
     }
     if (entry.status === 'merging' && input.action !== 'escalate') {
-      throw new RailError('INVALID_TRANSITION', 'Entry has a merge in flight; wait for reconciliation', {
+      throw new CrewError('INVALID_TRANSITION', 'Entry has a merge in flight; wait for reconciliation', {
         retryable: true,
       });
     }
@@ -341,7 +341,7 @@ export function queueStatusFor(db: Database, queue: IntegrationQueue, now: Date,
 }
 
 export function getQueueStatus(
-  ctx: RailContext,
+  ctx: CrewContext,
   selector: { queueId?: string; repositoryId?: string; baseBranch?: string; prId?: string },
   env: IntegrationEnv = {},
 ): QueueStatus {
@@ -355,13 +355,13 @@ export function getQueueStatus(
     const repository = repositoryFor(ctx, selector.repositoryId);
     queue = queueFor(db, selector.repositoryId, selector.baseBranch ?? repository.defaultBase);
   }
-  if (!queue) throw new RailError('NOT_FOUND', 'Integration queue not found');
+  if (!queue) throw new CrewError('NOT_FOUND', 'Integration queue not found');
   const repository = repositoryFor(ctx, queue.repositoryId);
   const config = configFor(ctx, env, repository.projectId);
   return queueStatusFor(db, queue, ctx.clock.now(), config.scheduler.max_queue_age_minutes);
 }
 
-export function listQueues(ctx: RailContext, repositoryId?: string): IntegrationQueue[] {
+export function listQueues(ctx: CrewContext, repositoryId?: string): IntegrationQueue[] {
   if (repositoryId) return queuesForRepository(ctx.store.db, repositoryId);
   return all<{ id: string }>(ctx.store.db, 'SELECT id FROM integration_queues ORDER BY repository_id, base_branch').map(
     (r) => queueById(ctx.store.db, r.id)!,

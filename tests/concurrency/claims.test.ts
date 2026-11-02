@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { addTask } from '@agent-rail/tasks';
+import { addTask } from '@crewyard/tasks';
 import { createTestContext, type TestContext } from '../helpers/index.ts';
 import { operator, seedProject, testConfig } from '../unit/tasks/fixtures.ts';
 import type { WorkerReport } from './claim-worker.ts';

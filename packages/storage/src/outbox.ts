@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import { backoffWithJitter, newId, nowIso, redactObject, sha256, stableStringify, toIso } from '@agent-rail/core';
+import { backoffWithJitter, newId, nowIso, redactObject, sha256, stableStringify, toIso } from '@crewyard/core';
 import { all, one, parseJson, type Store } from './db.ts';
 
 export type OutboxStatus = 'pending' | 'attempted' | 'succeeded' | 'failed' | 'ambiguous' | 'cancelled';

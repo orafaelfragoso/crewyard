@@ -1,19 +1,19 @@
-import type { RailConfig } from '@agent-rail/config';
+import type { CrewConfig } from '@crewyard/config';
 import {
   type Actor,
+  CrewError,
   DEFAULT_ENV_ALLOWLIST,
   ensureDir,
   fingerprint,
   newId,
   nowIso,
-  RailError,
   REDACTED,
   redact,
   safeJoin,
   sha256,
   shellCommand,
-} from '@agent-rail/core';
-import { exec, one, type RailContext, recordTransition } from '@agent-rail/storage';
+} from '@crewyard/core';
+import { type CrewContext, exec, one, recordTransition } from '@crewyard/storage';
 import { runBounded } from './bounded.ts';
 import { assertManagedWorkspacePath, repositoryConfig, requireRepository, requireWorkspace } from './model.ts';
 
@@ -45,7 +45,7 @@ function scrub(text: string, secrets: readonly string[]): string {
 }
 
 function ensureHookApproval(
-  ctx: RailContext,
+  ctx: CrewContext,
   repo: { id: string; projectId: string },
   commands: readonly string[],
   actor: Actor,
@@ -87,16 +87,16 @@ function ensureHookApproval(
     return { approved: false, approvalId: id, status: 'pending' as const };
   });
   if (outcome.approved) return;
-  throw new RailError('APPROVAL_REQUIRED', 'Repository is untrusted; bootstrap commands need operator approval', {
+  throw new CrewError('APPROVAL_REQUIRED', 'Repository is untrusted; bootstrap commands need operator approval', {
     details: { approvalId: outcome.approvalId, subjectId, status: outcome.status, commands },
     suggestion: `Approve ${outcome.approvalId} or mark the repository trusted.`,
   });
 }
 
 export async function bootstrapWorkspace(
-  ctx: RailContext,
+  ctx: CrewContext,
   workspaceId: string,
-  input: { actor: Actor; resolveSecret: SecretResolver; config?: RailConfig; maxOutputBytes?: number },
+  input: { actor: Actor; resolveSecret: SecretResolver; config?: CrewConfig; maxOutputBytes?: number },
 ): Promise<BootstrapResult> {
   const ws = requireWorkspace(ctx, workspaceId);
   const repo = requireRepository(ctx, ws.repositoryId);
@@ -130,7 +130,7 @@ export async function bootstrapWorkspace(
   for (const ref of config.workspace.secret_refs) {
     const value = await input.resolveSecret(ref);
     if (value === null) {
-      throw new RailError('NOT_FOUND', `Secret reference ${ref} could not be resolved`, {
+      throw new CrewError('NOT_FOUND', `Secret reference ${ref} could not be resolved`, {
         suggestion: 'Store it in the system secret store or remove it from workspace.secret_refs.',
       });
     }

@@ -1,18 +1,18 @@
 import type { Database } from 'bun:sqlite';
-import type { RailConfig } from '@agent-rail/config';
+import type { CrewConfig } from '@crewyard/config';
 import {
   type Actor,
+  CrewError,
   canonicalPath,
   ensureDir,
   git,
   gitText,
   newId,
   nowIso,
-  RailError,
   revParse,
   safeJoin,
-} from '@agent-rail/core';
-import { exec, one, type RailContext, recordTransition } from '@agent-rail/storage';
+} from '@crewyard/core';
+import { type CrewContext, exec, one, recordTransition } from '@crewyard/storage';
 import {
   assertManagedWorkspacePath,
   mapWorkspace,
@@ -44,13 +44,13 @@ export function formatBranchName(format: string, task: { id: string; title: stri
 async function assertValidBranch(repoPath: string, branch: string): Promise<void> {
   const result = await git(repoPath, ['check-ref-format', '--branch', branch], { allowFailure: true });
   if (result.exitCode !== 0) {
-    throw new RailError('CONFIG_INVALID', `Invalid branch name "${branch}"`, {
+    throw new CrewError('CONFIG_INVALID', `Invalid branch name "${branch}"`, {
       suggestion: 'Fix integration.branch_name_format.',
     });
   }
 }
 
-export function hooksDisabledArgs(ctx: RailContext, repo: RepositoryInfo): string[] {
+export function hooksDisabledArgs(ctx: CrewContext, repo: RepositoryInfo): string[] {
   if (repo.trusted) return [];
   return ['-c', `core.hooksPath=${ensureDir(safeJoin(ctx.dirs.run, 'empty-hooks'))}`];
 }
@@ -77,7 +77,7 @@ export interface AllocateInput {
   actor: Actor;
   baseRef?: string;
   baseSha?: string;
-  config?: RailConfig;
+  config?: CrewConfig;
 }
 
 export interface AllocateResult {
@@ -87,15 +87,15 @@ export interface AllocateResult {
 
 const ACTIVE_STATES: readonly WorkspaceState[] = ['allocating', 'ready', 'in_use', 'preserved', 'needs_reconciliation'];
 
-export async function allocateWorkspace(ctx: RailContext, input: AllocateInput): Promise<AllocateResult> {
+export async function allocateWorkspace(ctx: CrewContext, input: AllocateInput): Promise<AllocateResult> {
   const task = one<{ id: string; title: string; repository_id: string | null; base_branch: string | null }>(
     ctx.store.db,
     'SELECT id, title, repository_id, base_branch FROM tasks WHERE id = ?',
     input.taskId,
   );
-  if (!task) throw new RailError('NOT_FOUND', `Task not found: ${input.taskId}`);
+  if (!task) throw new CrewError('NOT_FOUND', `Task not found: ${input.taskId}`);
   if (!task.repository_id) {
-    throw new RailError('INVALID_INPUT', `Task ${task.id} has no repository; no workspace is needed`);
+    throw new CrewError('INVALID_INPUT', `Task ${task.id} has no repository; no workspace is needed`);
   }
   const existing = one<WorkspaceRow>(
     ctx.store.db,
@@ -114,7 +114,7 @@ export async function allocateWorkspace(ctx: RailContext, input: AllocateInput):
     (await revParse(repo.canonicalPath, `refs/remotes/origin/${baseRef}`)) ??
     (await revParse(repo.canonicalPath, baseRef));
   if (!baseSha) {
-    throw new RailError('NOT_FOUND', `Base ref ${baseRef} not found in ${repo.canonicalPath}`, {
+    throw new CrewError('NOT_FOUND', `Base ref ${baseRef} not found in ${repo.canonicalPath}`, {
       suggestion: 'Fetch the base branch or set the task base branch.',
     });
   }
@@ -180,7 +180,7 @@ export async function allocateWorkspace(ctx: RailContext, input: AllocateInput):
         at,
       );
     });
-    throw new RailError('EXTERNAL_FAILURE', `git worktree add failed: ${result.stderr.trim().slice(0, 500)}`, {
+    throw new CrewError('EXTERNAL_FAILURE', `git worktree add failed: ${result.stderr.trim().slice(0, 500)}`, {
       retryable: false,
     });
   }
@@ -203,7 +203,7 @@ const STATE_TRANSITIONS: Readonly<Record<WorkspaceState, readonly WorkspaceState
 };
 
 export function setWorkspaceState(
-  ctx: RailContext,
+  ctx: CrewContext,
   workspaceId: string,
   to: WorkspaceState,
   input: { actor: Actor; reason: string },
@@ -215,7 +215,7 @@ export function setWorkspaceState(
     const current = requireWorkspace(ctx, workspaceId);
     if (current.state === to) return current;
     if (!STATE_TRANSITIONS[current.state].includes(to)) {
-      throw new RailError('INVALID_TRANSITION', `Workspace ${workspaceId} cannot move from ${current.state} to ${to}`, {
+      throw new CrewError('INVALID_TRANSITION', `Workspace ${workspaceId} cannot move from ${current.state} to ${to}`, {
         details: { from: current.state, to, allowed: STATE_TRANSITIONS[current.state] },
       });
     }
@@ -234,7 +234,7 @@ export function setWorkspaceState(
 }
 
 export function markWorkspacesForReconciliation(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: { taskId: string; actor: Actor; reason: string },
 ): Workspace[] {
   return ctx.store
@@ -249,7 +249,7 @@ export function markWorkspacesForReconciliation(
     .map(({ id }) => setWorkspaceState(ctx, id, 'needs_reconciliation', input));
 }
 
-export async function recordWorkspaceHead(ctx: RailContext, workspaceId: string, actor: Actor): Promise<Workspace> {
+export async function recordWorkspaceHead(ctx: CrewContext, workspaceId: string, actor: Actor): Promise<Workspace> {
   const ws = requireWorkspace(ctx, workspaceId);
   const repo = requireRepository(ctx, ws.repositoryId);
   const path = assertManagedWorkspacePath(ctx, ws, repo);
@@ -265,7 +265,7 @@ export async function recordWorkspaceHead(ctx: RailContext, workspaceId: string,
 }
 
 export function setExpectedRemoteHead(
-  ctx: RailContext,
+  ctx: CrewContext,
   workspaceId: string,
   input: { sha: string; expectedPrevious: string | null; actor: Actor },
 ): Workspace {
@@ -274,7 +274,7 @@ export function setExpectedRemoteHead(
     const at = nowIso(ctx.clock);
     const ws = requireWorkspace(ctx, workspaceId);
     if (ws.expectedRemoteHead !== input.expectedPrevious) {
-      throw new RailError('HEAD_MISMATCH', `Expected remote head for ${ws.branch} changed concurrently`, {
+      throw new CrewError('HEAD_MISMATCH', `Expected remote head for ${ws.branch} changed concurrently`, {
         details: { expected: input.expectedPrevious, actual: ws.expectedRemoteHead },
         suggestion: 'Reconcile with the observed remote branch before pushing.',
       });
@@ -294,26 +294,26 @@ export function setExpectedRemoteHead(
 }
 
 export function assertRemoteHeadMatches(
-  ctx: RailContext,
+  ctx: CrewContext,
   workspaceId: string,
   observedRemoteHead: string | null,
 ): void {
   const ws = requireWorkspace(ctx, workspaceId);
   if (ws.expectedRemoteHead === observedRemoteHead) return;
-  throw new RailError('HEAD_MISMATCH', `Remote branch ${ws.branch} moved outside Agent Rail`, {
+  throw new CrewError('HEAD_MISMATCH', `Remote branch ${ws.branch} moved outside Crewyard`, {
     details: { expected: ws.expectedRemoteHead, observed: observedRemoteHead },
     suggestion: 'Treat the remote change as external; reconcile before updating the PR.',
   });
 }
 
-export function resolveWorkspacePath(ctx: RailContext, workspaceId: string, relativePath: string): string {
+export function resolveWorkspacePath(ctx: CrewContext, workspaceId: string, relativePath: string): string {
   const ws = requireWorkspace(ctx, workspaceId);
   const root = assertManagedWorkspacePath(ctx, ws, requireRepository(ctx, ws.repositoryId));
   return safeJoin(root, relativePath);
 }
 
 export async function writeWorkspaceFile(
-  ctx: RailContext,
+  ctx: CrewContext,
   workspaceId: string,
   relativePath: string,
   content: string | Uint8Array,

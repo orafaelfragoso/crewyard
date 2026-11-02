@@ -1,31 +1,23 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import {
-  type Clock,
-  canonicalPath,
-  git,
-  type RailDirs,
-  resolveDirs,
-  silentLogger,
-  systemClock,
-} from '@agent-rail/core';
-import { openRailStore, type RailContext } from '@agent-rail/storage';
+import { type Clock, type CrewDirs, canonicalPath, git, resolveDirs, silentLogger, systemClock } from '@crewyard/core';
+import { type CrewContext, openCrewStore } from '@crewyard/storage';
 
-export interface TestContext extends RailContext {
+export interface TestContext extends CrewContext {
   root: string;
   cleanup(): void;
 }
 
-export function tempDir(prefix = 'rail-test-'): string {
+export function tempDir(prefix = 'crew-test-'): string {
   return canonicalPath(mkdtempSync(join(tmpdir(), prefix)));
 }
 
 export function createTestContext(options: { clock?: Clock; durability?: 'full' | 'normal' } = {}): TestContext {
   const root = tempDir();
-  const dirs: RailDirs = resolveDirs({ RAIL_DATA_DIR: join(root, 'data') } as NodeJS.ProcessEnv);
+  const dirs: CrewDirs = resolveDirs({ CREW_DATA_DIR: join(root, 'data') } as NodeJS.ProcessEnv);
   const clock = options.clock ?? systemClock;
-  const store = openRailStore({ dirs, clock, durability: options.durability ?? 'normal' });
+  const store = openCrewStore({ dirs, clock, durability: options.durability ?? 'normal' });
   return {
     root,
     dirs,
@@ -51,10 +43,10 @@ export async function createTempGitRepo(
   files: Record<string, string>,
   options: { branch?: string; remote?: string } = {},
 ): Promise<string> {
-  const dir = tempDir('rail-repo-');
+  const dir = tempDir('crew-repo-');
   await git(dir, ['init', '-q', '-b', options.branch ?? 'main']);
-  await git(dir, ['config', 'user.email', 'test@agent-rail.local']);
-  await git(dir, ['config', 'user.name', 'Rail Test']);
+  await git(dir, ['config', 'user.email', 'test@crewyard.local']);
+  await git(dir, ['config', 'user.name', 'Crewyard Test']);
   await git(dir, ['config', 'commit.gpgsign', 'false']);
   await git(dir, ['config', 'core.autocrlf', 'false']);
   writeFiles(dir, files);

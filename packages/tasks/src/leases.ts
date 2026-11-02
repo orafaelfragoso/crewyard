@@ -1,20 +1,20 @@
 import type { Database } from 'bun:sqlite';
-import type { RailConfig } from '@agent-rail/config';
+import type { CrewConfig } from '@crewyard/config';
 import {
   type Actor,
   addSeconds,
   allowedNextStates,
+  CrewError,
   hashToken,
   LEASED_TASK_STATES,
   newId,
   newSecretToken,
   nowIso,
-  RailError,
   SYSTEM_ACTOR,
   type TaskState,
   timingSafeEqualHex,
-} from '@agent-rail/core';
-import { all, exec, one, type RailContext, recordTransition } from '@agent-rail/storage';
+} from '@crewyard/core';
+import { all, type CrewContext, exec, one, recordTransition } from '@crewyard/storage';
 import { resolveTaskConfig } from './config.ts';
 import {
   type LeaseHolder,
@@ -51,7 +51,7 @@ export interface ClaimInput {
   holder: LeaseHolder;
   impactScopes?: string[];
   leaseSeconds?: number;
-  config?: RailConfig;
+  config?: CrewConfig;
 }
 
 export interface ClaimResult {
@@ -98,7 +98,7 @@ function agentWipLimit(db: Database, agentId: string, fallback: number): number 
   return row ? Math.max(row.max_parallel, 1) : fallback;
 }
 
-function assertWipLimits(db: Database, task: Task, holder: LeaseHolder, config: RailConfig): void {
+function assertWipLimits(db: Database, task: Task, holder: LeaseHolder, config: CrewConfig): void {
   const wip = config.scheduler.wip;
   const checks: { scope: string; limit: number | undefined; used: () => number }[] = [
     { scope: 'global', limit: wip.global, used: () => countActiveLeases(db, '1 = 1') },
@@ -118,7 +118,7 @@ function assertWipLimits(db: Database, task: Task, holder: LeaseHolder, config: 
     if (check.limit === undefined) continue;
     const used = check.used();
     if (used >= check.limit) {
-      throw new RailError('POLICY_DENIED', `WIP limit reached for ${check.scope} (${used}/${check.limit})`, {
+      throw new CrewError('POLICY_DENIED', `WIP limit reached for ${check.scope} (${used}/${check.limit})`, {
         details: { reason: 'wip_limit', scope: check.scope, used, limit: check.limit },
         suggestion: 'Finish or release in-progress work before claiming more.',
         retryable: true,
@@ -130,20 +130,20 @@ function assertWipLimits(db: Database, task: Task, holder: LeaseHolder, config: 
 function assertClaimable(db: Database, task: Task, holder: LeaseHolder): void {
   const active = activeLeaseRow(db, task.id);
   if (active) {
-    throw new RailError('LEASE_CONFLICT', `Task ${task.id} is already claimed (generation ${active.generation})`, {
+    throw new CrewError('LEASE_CONFLICT', `Task ${task.id} is already claimed (generation ${active.generation})`, {
       details: { taskId: task.id, generation: active.generation, expiresAt: active.expires_at },
-      suggestion: 'Pick another task with rail_get_next_action.',
+      suggestion: 'Pick another task with crew_get_next_action.',
     });
   }
   const claimable = task.state === 'READY' || task.state === 'REVISION';
   if (!claimable) {
     if (LEASED_TASK_STATES.has(task.state) || task.state === 'CANCEL_REQUESTED') {
-      throw new RailError('LEASE_CONFLICT', `Task ${task.id} is ${task.state} and awaiting lease reconciliation`, {
+      throw new CrewError('LEASE_CONFLICT', `Task ${task.id} is ${task.state} and awaiting lease reconciliation`, {
         details: { taskId: task.id, state: task.state, reason: 'awaiting_reconciliation' },
         suggestion: 'Recovery must reconcile the previous holder before the task can be claimed again.',
       });
     }
-    throw new RailError(
+    throw new CrewError(
       'INVALID_TRANSITION',
       `Task ${task.id} is ${task.state}; only READY or REVISION tasks can be claimed`,
       {
@@ -152,26 +152,26 @@ function assertClaimable(db: Database, task: Task, holder: LeaseHolder): void {
     );
   }
   if (task.paused) {
-    throw new RailError('POLICY_DENIED', `Task ${task.id} is paused`, {
+    throw new CrewError('POLICY_DENIED', `Task ${task.id} is paused`, {
       details: { reason: 'task_paused' },
       suggestion: 'An operator must resume the task first.',
     });
   }
   const flags = projectFlags(db, task.projectId);
   if (flags.intakePaused) {
-    throw new RailError('POLICY_DENIED', 'Project intake is paused', {
+    throw new CrewError('POLICY_DENIED', 'Project intake is paused', {
       details: { reason: 'intake_paused' },
       retryable: true,
     });
   }
   if (flags.autonomy === 'observe') {
-    throw new RailError('POLICY_DENIED', 'Project is in observe mode; no code changes are dispatched', {
+    throw new CrewError('POLICY_DENIED', 'Project is in observe mode; no code changes are dispatched', {
       details: { reason: 'autonomy_observe' },
     });
   }
   const blockedBy = dependencyStatuses(db, task.id).filter((d) => !d.satisfied);
   if (blockedBy.length > 0) {
-    throw new RailError('CONFLICT', `Task ${task.id} has unsatisfied dependencies`, {
+    throw new CrewError('CONFLICT', `Task ${task.id} has unsatisfied dependencies`, {
       details: { reason: 'dependencies_unsatisfied', blockedBy },
       suggestion: 'Dependencies must be MERGED or DONE first.',
     });
@@ -181,29 +181,29 @@ function assertClaimable(db: Database, task: Task, holder: LeaseHolder): void {
     !(holder.kind === 'agent' && holder.id === task.assignedAgentId) &&
     holder.kind !== 'operator'
   ) {
-    throw new RailError('POLICY_DENIED', `Task ${task.id} is assigned to agent ${task.assignedAgentId}`, {
+    throw new CrewError('POLICY_DENIED', `Task ${task.id} is assigned to agent ${task.assignedAgentId}`, {
       details: { reason: 'assigned_elsewhere', assignedAgentId: task.assignedAgentId },
     });
   }
   const approval = taskApprovalSatisfied(db, task);
   if (!approval.satisfied) {
-    throw new RailError('APPROVAL_REQUIRED', `Task ${task.id} requires operator approval before it can be claimed`, {
+    throw new CrewError('APPROVAL_REQUIRED', `Task ${task.id} requires operator approval before it can be claimed`, {
       details: {
         approvalId: approval.approval?.id ?? null,
         status: approval.approval?.status ?? null,
         classes: task.artifacts.approval?.requiredClasses ?? [],
       },
-      suggestion: `Run \`rail task approve ${task.id}\`.`,
+      suggestion: `Run \`crew task approve ${task.id}\`.`,
     });
   }
 }
 
-export function claimTask(ctx: RailContext, input: ClaimInput): ClaimResult {
+export function claimTask(ctx: CrewContext, input: ClaimInput): ClaimResult {
   const projectId = requireTask(ctx.store.db, input.taskId).projectId;
   const config = resolveTaskConfig(ctx, projectId, input.config);
   const leaseSeconds = input.leaseSeconds ?? config.agents.default_task_lease_seconds;
   if (!(Number.isInteger(leaseSeconds) && leaseSeconds >= 30)) {
-    throw new RailError('INVALID_INPUT', 'leaseSeconds must be an integer of at least 30');
+    throw new CrewError('INVALID_INPUT', 'leaseSeconds must be an integer of at least 30');
   }
   const token = newSecretToken();
   const actor = holderActor(input.holder);
@@ -216,7 +216,7 @@ export function claimTask(ctx: RailContext, input: ClaimInput): ClaimResult {
     const requests = requestedScopes(task, config, input.impactScopes);
     const conflicts = findScopeConflicts(requests, activeHoldings(db, task.projectId), task.id);
     if (conflicts.exclusive.length > 0) {
-      throw new RailError('RESERVATION_CONFLICT', `Task ${task.id} conflicts with exclusive reservations`, {
+      throw new CrewError('RESERVATION_CONFLICT', `Task ${task.id} conflicts with exclusive reservations`, {
         details: {
           conflictingTaskIds: [...new Set(conflicts.exclusive.map((c) => c.conflictingTaskId))].sort(),
           conflicts: conflicts.exclusive,
@@ -246,7 +246,7 @@ export function claimTask(ctx: RailContext, input: ClaimInput): ClaimResult {
       );
     } catch (error) {
       if (isConstraintError(error)) {
-        throw new RailError('LEASE_CONFLICT', `Task ${task.id} is already claimed`, { cause: error });
+        throw new CrewError('LEASE_CONFLICT', `Task ${task.id} is already claimed`, { cause: error });
       }
       throw error;
     }
@@ -280,7 +280,7 @@ export function claimTask(ctx: RailContext, input: ClaimInput): ClaimResult {
           task.projectId,
           request.scope,
         );
-        throw new RailError('RESERVATION_CONFLICT', `Scope ${request.scope} is exclusively reserved`, {
+        throw new CrewError('RESERVATION_CONFLICT', `Scope ${request.scope} is exclusively reserved`, {
           details: { scope: request.scope, conflictingTaskIds: holder ? [holder.task_id] : [] },
           cause: error,
           retryable: true,
@@ -374,7 +374,7 @@ export function verifyLeaseInTx(db: Database, credentials: LeaseCredentials, at:
     credentials.generation,
   );
   const stale = (reason: string) =>
-    new RailError(
+    new CrewError(
       'STALE_LEASE',
       `Lease generation ${credentials.generation} for ${task.id} is no longer valid (${reason})`,
       {
@@ -384,13 +384,13 @@ export function verifyLeaseInTx(db: Database, credentials: LeaseCredentials, at:
           currentGeneration: task.leaseGeneration,
           reason,
         },
-        suggestion: 'Stop working on this task; call rail_get_next_action for new work.',
+        suggestion: 'Stop working on this task; call crew_get_next_action for new work.',
         retryable: false,
       },
     );
   if (!lease) throw stale('unknown_generation');
   if (!timingSafeEqualHex(lease.token_hash, hashToken(credentials.token))) {
-    throw new RailError('NOT_AUTHORIZED', `Invalid lease token for ${task.id}`, {
+    throw new CrewError('NOT_AUTHORIZED', `Invalid lease token for ${task.id}`, {
       details: { taskId: task.id, generation: credentials.generation },
     });
   }
@@ -436,9 +436,9 @@ export interface HeartbeatResult {
 }
 
 export function heartbeat(
-  ctx: RailContext,
+  ctx: CrewContext,
   credentials: LeaseCredentials,
-  options: { leaseSeconds?: number; config?: RailConfig } = {},
+  options: { leaseSeconds?: number; config?: CrewConfig } = {},
 ): HeartbeatResult {
   const projectId = requireTask(ctx.store.db, credentials.taskId).projectId;
   const leaseSeconds =
@@ -460,14 +460,14 @@ export function heartbeat(
 
 function assertAgentMutable(task: Task): void {
   if (task.state === 'CANCEL_REQUESTED') {
-    throw new RailError('INVALID_TRANSITION', `Task ${task.id} has a pending cancellation`, {
+    throw new CrewError('INVALID_TRANSITION', `Task ${task.id} has a pending cancellation`, {
       details: { from: task.state, allowed: allowedNextStates(task.state) },
       suggestion: 'Stop work and release the lease.',
     });
   }
 }
 
-export function startTask(ctx: RailContext, credentials: LeaseCredentials & { sessionId?: string }): TaskView {
+export function startTask(ctx: CrewContext, credentials: LeaseCredentials & { sessionId?: string }): TaskView {
   return ctx.store.immediate((db) => {
     const at = nowIso(ctx.clock);
     const verified = verifyLeaseInTx(db, credentials, at);
@@ -494,13 +494,13 @@ export interface ProgressInput extends LeaseCredentials {
 }
 
 export function reportProgress(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: ProgressInput,
-  options: { leaseSeconds?: number; config?: RailConfig } = {},
+  options: { leaseSeconds?: number; config?: CrewConfig } = {},
 ): HeartbeatResult & { task: TaskView } {
-  if (input.summary.trim() === '') throw new RailError('INVALID_INPUT', 'summary is required');
+  if (input.summary.trim() === '') throw new CrewError('INVALID_INPUT', 'summary is required');
   if (input.percent !== undefined && !(input.percent >= 0 && input.percent <= 100)) {
-    throw new RailError('INVALID_INPUT', 'percent must be between 0 and 100');
+    throw new CrewError('INVALID_INPUT', 'percent must be between 0 and 100');
   }
   const projectId = requireTask(ctx.store.db, input.taskId).projectId;
   const leaseSeconds =
@@ -553,7 +553,7 @@ function releaseTarget(state: TaskState): TaskState {
   return state === 'CANCEL_REQUESTED' ? 'CANCELLED' : 'READY';
 }
 
-export function releaseLease(ctx: RailContext, credentials: LeaseCredentials & { reason?: string }): TransitionResult {
+export function releaseLease(ctx: CrewContext, credentials: LeaseCredentials & { reason?: string }): TransitionResult {
   return ctx.store.immediate((db) => {
     const at = nowIso(ctx.clock);
     const verified = verifyLeaseInTx(db, credentials, at);
@@ -604,7 +604,7 @@ function toExpired(row: LeaseRow & { project_id: string; state: TaskState }): Ex
   };
 }
 
-export function findExpiredLeases(ctx: RailContext, options: { projectId?: string } = {}): ExpiredLease[] {
+export function findExpiredLeases(ctx: CrewContext, options: { projectId?: string } = {}): ExpiredLease[] {
   return expiredRows(ctx.store.db, nowIso(ctx.clock), options.projectId).map(toExpired);
 }
 
@@ -640,7 +640,7 @@ function expireInTx(
   );
 }
 
-export function expireLeases(ctx: RailContext, options: { projectId?: string; actor?: Actor } = {}): ExpiredLease[] {
+export function expireLeases(ctx: CrewContext, options: { projectId?: string; actor?: Actor } = {}): ExpiredLease[] {
   return ctx.store.immediate((db) => {
     const at = nowIso(ctx.clock);
     const rows = expiredRows(db, at, options.projectId);
@@ -655,7 +655,7 @@ export interface ReconciliationCandidate {
 }
 
 export function listTasksNeedingReconciliation(
-  ctx: RailContext,
+  ctx: CrewContext,
   options: { projectId?: string } = {},
 ): ReconciliationCandidate[] {
   const db = ctx.store.db;
@@ -687,7 +687,7 @@ export interface ReconcileResult {
 }
 
 export function reconcileExpiredLease(
-  ctx: RailContext,
+  ctx: CrewContext,
   taskId: string,
   input: { processAlive: boolean; worktreeDirty: boolean; actor?: Actor; note?: string },
 ): ReconcileResult {
@@ -698,7 +698,7 @@ export function reconcileExpiredLease(
     const active = activeLeaseRow(db, taskId);
     if (active) {
       if (Date.parse(active.expires_at) > Date.parse(at)) {
-        throw new RailError('LEASE_CONFLICT', `Task ${taskId} still holds a live lease`, {
+        throw new CrewError('LEASE_CONFLICT', `Task ${taskId} still holds a live lease`, {
           details: { generation: active.generation, expiresAt: active.expires_at },
           suggestion: 'Only expired leases can be reconciled; use forceReleaseLease for operator intervention.',
           retryable: false,
@@ -754,22 +754,22 @@ export function reconcileExpiredLease(
 }
 
 export function forceReleaseLease(
-  ctx: RailContext,
+  ctx: CrewContext,
   taskId: string,
   input: { reason: string; actor: Actor; to?: 'READY' | 'BLOCKED' },
 ): TransitionResult {
   if (input.actor.kind !== 'operator') {
-    throw new RailError('NOT_AUTHORIZED', 'Only an operator can force-release a lease', {
+    throw new CrewError('NOT_AUTHORIZED', 'Only an operator can force-release a lease', {
       details: { actorKind: input.actor.kind },
     });
   }
-  if (input.reason.trim() === '') throw new RailError('INVALID_INPUT', 'A reason is required to force-release a lease');
+  if (input.reason.trim() === '') throw new CrewError('INVALID_INPUT', 'A reason is required to force-release a lease');
   return ctx.store.immediate((db) => {
     const at = nowIso(ctx.clock);
     const task = requireTask(db, taskId);
     const active = activeLeaseRow(db, taskId);
     if (!LEASED_TASK_STATES.has(task.state) && task.state !== 'CANCEL_REQUESTED') {
-      throw new RailError('INVALID_TRANSITION', `Task ${taskId} is ${task.state}; nothing to force-release`, {
+      throw new CrewError('INVALID_TRANSITION', `Task ${taskId} is ${task.state}; nothing to force-release`, {
         details: { from: task.state, allowed: allowedNextStates(task.state) },
       });
     }

@@ -1,6 +1,6 @@
 # Finding format
 
-Each finding is one object. Rail deduplicates findings by location plus semantic signature, so keep `title` stable when re-reporting the same issue.
+Each finding is one object. Crewyard deduplicates findings by location plus semantic signature, so keep `title` stable when re-reporting the same issue.
 
 ```json
 {

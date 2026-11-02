@@ -2,11 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus, freemem, platform, release, tmpdir, totalmem } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { buildContextPack } from '@agent-rail/context';
-import { canonicalPath, git, resolveDirs, silentLogger, systemClock } from '@agent-rail/core';
-import { findSymbol, indexRepository, type SearchMode, search } from '@agent-rail/indexing';
-import { registerProject } from '@agent-rail/projects';
-import { openRailStore, type RailContext } from '@agent-rail/storage';
+import { buildContextPack } from '@crewyard/context';
+import { canonicalPath, git, resolveDirs, silentLogger, systemClock } from '@crewyard/core';
+import { findSymbol, indexRepository, type SearchMode, search } from '@crewyard/indexing';
+import { registerProject } from '@crewyard/projects';
+import { type CrewContext, openCrewStore } from '@crewyard/storage';
 
 const { values } = parseArgs({
   options: {
@@ -58,7 +58,7 @@ function syntheticFile(i: number): [string, string] {
 }
 
 async function generateRepo(n: number): Promise<string> {
-  const root = canonicalPath(mkdtempSync(join(values.workdir, 'rail-bench-repo-')));
+  const root = canonicalPath(mkdtempSync(join(values.workdir, 'crew-bench-repo-')));
   write(
     root,
     'package.json',
@@ -77,8 +77,8 @@ async function generateRepo(n: number): Promise<string> {
     write(root, path, content);
   }
   await git(root, ['init', '-q', '-b', 'main']);
-  await git(root, ['config', 'user.email', 'bench@agent-rail.local']);
-  await git(root, ['config', 'user.name', 'Rail Bench']);
+  await git(root, ['config', 'user.email', 'bench@crewyard.local']);
+  await git(root, ['config', 'user.name', 'Crewyard Bench']);
   await git(root, ['config', 'commit.gpgsign', 'false']);
   await git(root, ['add', '-A']);
   await git(root, ['commit', '-q', '-m', 'bench'], { timeoutMs: 600_000 });
@@ -132,10 +132,10 @@ function round(n: number): number {
 
 const generated = values.repo === undefined;
 const repoPath = values.repo ? canonicalPath(values.repo) : await generateRepo(fileCount);
-const dataDir = mkdtempSync(join(values.workdir, 'rail-bench-data-'));
-const dirs = resolveDirs({ RAIL_DATA_DIR: dataDir } as NodeJS.ProcessEnv);
-const store = openRailStore({ dirs, durability: values.durability === 'normal' ? 'normal' : 'full' });
-const ctx: RailContext = { store, dirs, logger: silentLogger, clock: systemClock };
+const dataDir = mkdtempSync(join(values.workdir, 'crew-bench-data-'));
+const dirs = resolveDirs({ CREW_DATA_DIR: dataDir } as NodeJS.ProcessEnv);
+const store = openCrewStore({ dirs, durability: values.durability === 'normal' ? 'normal' : 'full' });
+const ctx: CrewContext = { store, dirs, logger: silentLogger, clock: systemClock };
 
 try {
   const baseBranch = (await git(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim();

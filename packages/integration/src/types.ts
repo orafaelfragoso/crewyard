@@ -1,5 +1,5 @@
-import type { RailConfig } from '@agent-rail/config';
-import type { Risk } from '@agent-rail/core';
+import type { CrewConfig } from '@crewyard/config';
+import type { Risk } from '@crewyard/core';
 import type {
   BranchRequirements,
   CheckResult,
@@ -8,8 +8,8 @@ import type {
   PullRequestFile,
   PullRequestReview,
   StackInfo,
-} from '@agent-rail/github';
-import type { Repository } from '@agent-rail/projects';
+} from '@crewyard/github';
+import type { Repository } from '@crewyard/projects';
 
 export interface TaskHookEvent {
   taskId: string;
@@ -34,7 +34,7 @@ export type GitHubClientFactory = (repository: Repository) => GitHubClient;
 export interface IntegrationEnv {
   github?: GitHubClientFactory;
   hooks?: TaskHooks;
-  config?: RailConfig;
+  config?: CrewConfig;
   remoteUrl?: (repository: Repository) => Promise<string | null>;
   leaseTtlSeconds?: number;
 }
@@ -42,8 +42,8 @@ export interface IntegrationEnv {
 export type DivergenceKind =
   | 'force_push'
   | 'external_push'
-  | 'merged_outside_rail'
-  | 'closed_outside_rail'
+  | 'merged_outside_crew'
+  | 'closed_outside_crew'
   | 'rules_changed'
   | 'reviewers_changed'
   | 'base_retargeted';
@@ -104,7 +104,7 @@ export interface PullRequestRecord {
   updatedAt: string;
 }
 
-export type BlockerSource = 'github' | 'policy' | 'rail' | 'stack' | 'queue' | 'sync';
+export type BlockerSource = 'github' | 'policy' | 'crew' | 'stack' | 'queue' | 'sync';
 
 export interface Blocker {
   code: string;
@@ -114,7 +114,7 @@ export interface Blocker {
   details?: Record<string, unknown>;
 }
 
-export type QueueMode = 'github-managed' | 'rail-managed';
+export type QueueMode = 'github-managed' | 'crew-managed';
 export type QueueEntryStatus =
   | 'waiting'
   | 'eligible'

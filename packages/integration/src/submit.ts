@@ -1,5 +1,5 @@
-import { type Actor, nowIso, RailError, type Risk } from '@agent-rail/core';
-import { getOutbox, type OutboxOperation, type RailContext, recordTransition } from '@agent-rail/storage';
+import { type Actor, CrewError, nowIso, type Risk } from '@crewyard/core';
+import { type CrewContext, getOutbox, type OutboxOperation, recordTransition } from '@crewyard/storage';
 import { type Explanation, explainPullRequest } from './eligibility.ts';
 import { repositoryFor } from './env.ts';
 import { type CreatePullRequestIntent, enqueueOrReviveInTx, processIntegrationOutbox } from './outbox.ts';
@@ -26,12 +26,12 @@ export interface SubmitPullRequestResult {
 }
 
 export async function submitPullRequest(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: SubmitPullRequestInput,
   options: { leaderId: string; env?: IntegrationEnv; execute?: boolean },
 ): Promise<SubmitPullRequestResult> {
   if (!/^[A-Za-z0-9._/-]+$/.test(input.headRef) || input.headRef.includes('..')) {
-    throw new RailError('INVALID_INPUT', `Invalid head branch name: ${input.headRef}`);
+    throw new CrewError('INVALID_INPUT', `Invalid head branch name: ${input.headRef}`);
   }
   const repository = repositoryFor(ctx, input.repositoryId);
   const baseRef = input.baseRef ?? repository.defaultBase;
@@ -106,13 +106,13 @@ export interface ImportResult {
 }
 
 export async function importPullRequests(
-  ctx: RailContext,
+  ctx: CrewContext,
   repositoryId: string,
   env: IntegrationEnv = {},
 ): Promise<ImportResult> {
   const sync = await syncRepository(ctx, repositoryId, env, { imported: true });
   if (!sync.ok) {
-    throw new RailError(
+    throw new CrewError(
       sync.offline ? 'OFFLINE' : 'RATE_LIMITED',
       `Import needs GitHub: ${sync.error ?? 'unavailable'}`,
       {

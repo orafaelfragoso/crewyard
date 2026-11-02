@@ -1,12 +1,13 @@
 import type { Database } from 'bun:sqlite';
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { findSecretKeys } from '@agent-rail/config';
+import { findSecretKeys } from '@crewyard/config';
 import {
   type AccountProfile,
   type Actor,
   type AuthMechanism,
   type Capabilities,
+  CrewError,
   canonicalPath,
   ensureDir,
   isExpired,
@@ -16,10 +17,9 @@ import {
   type ProfileHealth,
   type ProfileHealthStatus,
   type ProviderId,
-  RailError,
   SYSTEM_ACTOR,
-} from '@agent-rail/core';
-import { all, one, parseJson, type RailContext, recordTransition } from '@agent-rail/storage';
+} from '@crewyard/core';
+import { all, type CrewContext, one, parseJson, recordTransition } from '@crewyard/storage';
 import { createProviderRegistry, type LoginCommand, type ProviderRegistry, providerManifest } from './registry.ts';
 import { type SecretStore, systemSecretStore } from './secrets.ts';
 
@@ -128,18 +128,18 @@ export function findProfileRow(db: Database, ref: string): ProfileRow | null {
 export function requireProfileRow(db: Database, ref: string): ProfileRow {
   const row = findProfileRow(db, ref);
   if (!row) {
-    throw new RailError('NOT_FOUND', `Account profile not found: ${ref}`, {
-      suggestion: 'Run `rail account list`; profiles are referenced by id or provider/name.',
+    throw new CrewError('NOT_FOUND', `Account profile not found: ${ref}`, {
+      suggestion: 'Run `crew account list`; profiles are referenced by id or provider/name.',
     });
   }
   return row;
 }
 
-export function getProfile(ctx: RailContext, ref: string): ProfileView {
+export function getProfile(ctx: CrewContext, ref: string): ProfileView {
   return ctx.store.read((db) => viewOf(db, requireProfileRow(db, ref)));
 }
 
-export function listProfiles(ctx: RailContext, filter: { providerId?: ProviderId } = {}): ProfileView[] {
+export function listProfiles(ctx: CrewContext, filter: { providerId?: ProviderId } = {}): ProfileView[] {
   return ctx.store.read((db) =>
     (filter.providerId
       ? all<ProfileRow>(db, 'SELECT * FROM provider_profiles WHERE provider_id = ? ORDER BY name', filter.providerId)
@@ -156,7 +156,7 @@ export function profileSecretName(providerId: ProviderId, name: string): string 
   return `profile.${providerId}.${name}`;
 }
 
-export function defaultProfileConfigRoot(ctx: RailContext, providerId: ProviderId, name: string): string {
+export function defaultProfileConfigRoot(ctx: CrewContext, providerId: ProviderId, name: string): string {
   return join(ctx.dirs.data, 'profiles', providerId, name);
 }
 
@@ -180,38 +180,38 @@ function validateSettings(settings: Record<string, unknown>): void {
   const scrubbed = Object.fromEntries(Object.entries(settings).filter(([k]) => !NON_SECRET_SETTING_KEYS.has(k)));
   const secrets = findSecretKeys(scrubbed);
   if (secrets.length > 0) {
-    throw new RailError('INVALID_INPUT', `Profile settings must not contain secrets: ${secrets.join(', ')}`, {
+    throw new CrewError('INVALID_INPUT', `Profile settings must not contain secrets: ${secrets.join(', ')}`, {
       suggestion: 'Use an api-key profile so the credential is stored in the OS secret store.',
     });
   }
 }
 
 export async function addProfile(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: AddProfileInput,
   options: { secrets?: SecretStore } = {},
 ): Promise<ProfileView> {
   const manifest = providerManifest(input.providerId);
   if (!PROFILE_NAME_PATTERN.test(input.name)) {
-    throw new RailError('INVALID_INPUT', `Invalid profile name ${input.name}`, {
+    throw new CrewError('INVALID_INPUT', `Invalid profile name ${input.name}`, {
       suggestion: 'Use lowercase letters, digits, dot, underscore or dash.',
     });
   }
   const authMechanism = input.authMechanism ?? manifest.defaultAuth;
   if (!manifest.authMechanisms.includes(authMechanism)) {
-    throw new RailError('INVALID_INPUT', `${manifest.displayName} does not support ${authMechanism} authentication`, {
+    throw new CrewError('INVALID_INPUT', `${manifest.displayName} does not support ${authMechanism} authentication`, {
       details: { supported: manifest.authMechanisms },
     });
   }
   if (authMechanism === 'api-key' && !input.apiKey) {
-    throw new RailError('INVALID_INPUT', 'api-key profiles require an API key');
+    throw new CrewError('INVALID_INPUT', 'api-key profiles require an API key');
   }
   if (authMechanism !== 'api-key' && input.apiKey) {
-    throw new RailError('INVALID_INPUT', `An API key is only accepted for api-key profiles, not ${authMechanism}`);
+    throw new CrewError('INVALID_INPUT', `An API key is only accepted for api-key profiles, not ${authMechanism}`);
   }
   const maxConcurrency = input.maxConcurrency ?? 1;
   if (!Number.isInteger(maxConcurrency) || maxConcurrency < 1 || maxConcurrency > 64) {
-    throw new RailError('INVALID_INPUT', 'maxConcurrency must be an integer between 1 and 64');
+    throw new CrewError('INVALID_INPUT', 'maxConcurrency must be an integer between 1 and 64');
   }
   const settings = input.settings ?? {};
   validateSettings(settings);
@@ -221,7 +221,7 @@ export async function addProfile(
   if (manifest.configRootIsolation && !input.useProviderDefaultConfig) {
     configRoot = canonicalPath(input.configRoot ?? defaultProfileConfigRoot(ctx, input.providerId, input.name));
   } else if (input.configRoot) {
-    throw new RailError('INVALID_INPUT', `${manifest.displayName} has no documented config-root isolation`);
+    throw new CrewError('INVALID_INPUT', `${manifest.displayName} has no documented config-root isolation`);
   }
 
   const existing = ctx.store.read((db) => {
@@ -240,7 +240,7 @@ export async function addProfile(
     }
     return null;
   });
-  if (existing) throw new RailError('CONFLICT', existing);
+  if (existing) throw new CrewError('CONFLICT', existing);
 
   if (configRoot) ensureDir(configRoot);
   const secrets = options.secrets ?? systemSecretStore;
@@ -295,7 +295,7 @@ export interface RemoveProfileInput {
 }
 
 export async function removeProfile(
-  ctx: RailContext,
+  ctx: CrewContext,
   ref: string,
   input: RemoveProfileInput = {},
   options: { secrets?: SecretStore } = {},
@@ -309,8 +309,8 @@ export async function removeProfile(
       row.id,
     )!.n;
     if (active > 0) {
-      throw new RailError('CONFLICT', `Profile ${ref} has ${active} active session(s)`, {
-        suggestion: 'Stop the sessions first with `rail agent stop`.',
+      throw new CrewError('CONFLICT', `Profile ${ref} has ${active} active session(s)`, {
+        suggestion: 'Stop the sessions first with `crew agent stop`.',
       });
     }
     const policies = all<{ id: string; name: string; profile_ids: string }>(
@@ -408,7 +408,7 @@ export function writeProfileHealth(db: Database, profileId: string, update: Heal
 }
 
 export function setProfileHealth(
-  ctx: RailContext,
+  ctx: CrewContext,
   ref: string,
   update: { status: ProfileHealthStatus; detail: string; rateLimitedUntil?: string | null },
 ): ProfileView {
@@ -430,7 +430,7 @@ export function setProfileHealth(
 }
 
 export async function testProfile(
-  ctx: RailContext,
+  ctx: CrewContext,
   ref: string,
   options: { registry?: ProviderRegistry; secrets?: SecretStore } = {},
 ): Promise<{ profile: ProfileView; health: ProfileHealth; capabilities: Capabilities; login: LoginCommand | null }> {

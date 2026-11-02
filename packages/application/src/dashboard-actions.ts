@@ -1,29 +1,29 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { stopSession } from '@agent-rail/agents';
-import { type Actor, nowIso, toRailError } from '@agent-rail/core';
-import { setProjectFlags } from '@agent-rail/projects';
-import type { RailContext } from '@agent-rail/storage';
-import { decideTaskApproval, forceReleaseLease, showTask, transitionTask } from '@agent-rail/tasks';
-import type { ActionResult, ContextSearchResult, DashboardActions } from '@agent-rail/tui';
+import { stopSession } from '@crewyard/agents';
+import { type Actor, nowIso, toCrewError } from '@crewyard/core';
+import { setProjectFlags } from '@crewyard/projects';
+import type { CrewContext } from '@crewyard/storage';
+import { decideTaskApproval, forceReleaseLease, showTask, transitionTask } from '@crewyard/tasks';
+import type { ActionResult, ContextSearchResult, DashboardActions } from '@crewyard/tui';
 import { runDoctor } from './doctor.ts';
 import { exportEvents, metrics } from './events.ts';
 import { searchContext } from './retrieval.ts';
 
 export interface QueueActions {
-  retry(ctx: RailContext, entryId: string, reason: string, actor: Actor): Promise<string> | string;
-  escalate(ctx: RailContext, entryId: string, reason: string, actor: Actor): Promise<string> | string;
+  retry(ctx: CrewContext, entryId: string, reason: string, actor: Actor): Promise<string> | string;
+  escalate(ctx: CrewContext, entryId: string, reason: string, actor: Actor): Promise<string> | string;
 }
 
 async function attempt(fn: () => Promise<string> | string): Promise<ActionResult> {
   try {
     return { ok: true, message: await fn() };
   } catch (error) {
-    return { ok: false, message: toRailError(error).message };
+    return { ok: false, message: toCrewError(error).message };
   }
 }
 
-export function createDashboardActions(ctx: RailContext, actor: Actor, queue: QueueActions | null): DashboardActions {
+export function createDashboardActions(ctx: CrewContext, actor: Actor, queue: QueueActions | null): DashboardActions {
   return {
     pauseProject: (projectId, paused) =>
       attempt(

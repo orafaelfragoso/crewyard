@@ -1,5 +1,5 @@
 import { createInterface } from 'node:readline/promises';
-import { RailError, redactObject, toRailError } from '@agent-rail/core';
+import { CrewError, redactObject, toCrewError } from '@crewyard/core';
 
 export interface GlobalOptions {
   json?: boolean;
@@ -53,7 +53,7 @@ export function keyValues(record: Record<string, unknown>): string {
 export async function confirm(opts: GlobalOptions, message: string): Promise<void> {
   if (opts.yes) return;
   if (opts.json || !process.stdin.isTTY) {
-    throw new RailError('APPROVAL_REQUIRED', `${message} — confirmation required`, {
+    throw new CrewError('APPROVAL_REQUIRED', `${message} — confirmation required`, {
       suggestion: 'Re-run with --yes to confirm, or use --dry-run to preview.',
     });
   }
@@ -61,27 +61,27 @@ export async function confirm(opts: GlobalOptions, message: string): Promise<voi
   try {
     const answer = (await rl.question(`${message} [y/N] `)).trim().toLowerCase();
     if (answer !== 'y' && answer !== 'yes')
-      throw new RailError('APPROVAL_REQUIRED', 'Cancelled by operator', { retryable: false });
+      throw new CrewError('APPROVAL_REQUIRED', 'Cancelled by operator', { retryable: false });
   } finally {
     rl.close();
   }
 }
 
 export function reportError(error: unknown, json: boolean): number {
-  const rail = toRailError(error);
+  const crew = toCrewError(error);
   if (json) {
-    writeJson({ ok: false, error: rail.toJSON() });
+    writeJson({ ok: false, error: crew.toJSON() });
   } else {
-    process.stderr.write(`error ${rail.code}: ${rail.message}\n`);
-    if (rail.suggestion) process.stderr.write(`hint: ${rail.suggestion}\n`);
-    const issues = rail.details?.issues;
+    process.stderr.write(`error ${crew.code}: ${crew.message}\n`);
+    if (crew.suggestion) process.stderr.write(`hint: ${crew.suggestion}\n`);
+    const issues = crew.details?.issues;
     if (Array.isArray(issues)) {
       for (const issue of issues as { path: string; message: string }[])
         process.stderr.write(`  - ${issue.path}: ${issue.message}\n`);
     }
-    if (rail.code === 'INTERNAL' && process.env.RAIL_DEBUG && rail.cause instanceof Error) {
-      process.stderr.write(`${rail.cause.stack ?? ''}\n`);
+    if (crew.code === 'INTERNAL' && process.env.CREW_DEBUG && crew.cause instanceof Error) {
+      process.stderr.write(`${crew.cause.stack ?? ''}\n`);
     }
   }
-  return rail.exitCode;
+  return crew.exitCode;
 }

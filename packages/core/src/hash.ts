@@ -22,7 +22,7 @@ export function fingerprint(value: unknown): string {
 }
 
 export function hashToken(token: string): string {
-  return sha256(`agent-rail-token:${token}`);
+  return sha256(`crewyard-token:${token}`);
 }
 
 export function timingSafeEqualHex(a: string, b: string): boolean {

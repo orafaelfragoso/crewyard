@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import { type Actor, fingerprint, newId, nowIso, redactObject } from '@agent-rail/core';
+import { type Actor, fingerprint, newId, nowIso, redactObject } from '@crewyard/core';
 import { all, one, parseJson, type Store } from './db.ts';
 
 export const EVENT_SCHEMA_VERSION = 1;
@@ -16,7 +16,7 @@ export interface EventInput {
   payload?: Record<string, unknown>;
 }
 
-export interface RailEvent {
+export interface CrewEvent {
   seq: number;
   id: string;
   schemaVersion: number;
@@ -49,7 +49,7 @@ interface EventRow {
   at: string;
 }
 
-function mapEvent(row: EventRow): RailEvent {
+function mapEvent(row: EventRow): CrewEvent {
   return {
     seq: row.seq,
     id: row.id,
@@ -67,7 +67,7 @@ function mapEvent(row: EventRow): RailEvent {
   };
 }
 
-export function appendEvent(db: Database, input: EventInput, at: string = nowIso()): RailEvent {
+export function appendEvent(db: Database, input: EventInput, at: string = nowIso()): CrewEvent {
   const id = newId('evt');
   const payload = redactObject(input.payload ?? {});
   const row = one<EventRow>(
@@ -136,7 +136,7 @@ export function recordTransition(
     taskId?: string | null;
   },
   at: string = nowIso(),
-): RailEvent {
+): CrewEvent {
   const evt = appendEvent(db, event, at);
   appendAudit(
     db,
@@ -165,7 +165,7 @@ export interface EventQuery {
   order?: 'asc' | 'desc';
 }
 
-export function listEvents(store: Store, query: EventQuery = {}): RailEvent[] {
+export function listEvents(store: Store, query: EventQuery = {}): CrewEvent[] {
   const where: string[] = [];
   const params: (string | number)[] = [];
   if (query.afterSeq !== undefined) {

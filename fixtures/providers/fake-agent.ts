@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Fake coding agent for Agent Rail tests. Speaks the generic JSONL protocol v1 (docs/provider-adapters/generic.md).
+// Fake coding agent for Crewyard tests. Speaks the generic JSONL protocol v1 (docs/provider-adapters/generic.md).
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -156,7 +156,7 @@ if (options.usage && !options.text) {
     input_tokens: options.usage.input,
     output_tokens: options.usage.output,
     ...(options.usage.cost === null ? {} : { cost_usd: options.usage.cost }),
-    model: process.env.RAIL_MODEL ?? 'fake-model',
+    model: process.env.CREW_MODEL ?? 'fake-model',
   });
 }
 if (options.error && !options.text) {

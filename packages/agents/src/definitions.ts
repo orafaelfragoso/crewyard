@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
-import { type Actor, newId, nowIso, type ProviderId, RailError, SYSTEM_ACTOR } from '@agent-rail/core';
-import { all, one, parseJson, type RailContext, recordTransition } from '@agent-rail/storage';
+import { type Actor, CrewError, newId, nowIso, type ProviderId, SYSTEM_ACTOR } from '@crewyard/core';
+import { all, type CrewContext, one, parseJson, recordTransition } from '@crewyard/storage';
 import { findPolicy } from './policies.ts';
 import { isProviderId } from './registry.ts';
 
@@ -12,8 +12,8 @@ const NETWORK_POLICIES: readonly NetworkPolicy[] = ['provider-and-github-only', 
 const AGENT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/;
 
 export const UNMANAGED_AGENT_LIMITATIONS: readonly string[] = [
-  'No automatic cancellation: Agent Rail did not start the process and cannot terminate it.',
-  'No workspace enforcement: the agent works wherever it runs; Rail cannot confine it to a worktree.',
+  'No automatic cancellation: Crewyard did not start the process and cannot terminate it.',
+  'No workspace enforcement: the agent works wherever it runs; Crewyard cannot confine it to a worktree.',
   'No usage accounting: token and cost usage are unknown unless the agent reports them.',
   'Authorization comes only from operator-configured tools and scopes, never from the agent id string.',
 ];
@@ -121,17 +121,17 @@ export function findAgent(db: Database, idOrName: string): AgentDefinition | nul
 export function requireAgent(db: Database, idOrName: string): AgentDefinition {
   const agent = findAgent(db, idOrName);
   if (!agent) {
-    throw new RailError('NOT_FOUND', `Agent not found: ${idOrName}`, { suggestion: 'Run `rail agent list`.' });
+    throw new CrewError('NOT_FOUND', `Agent not found: ${idOrName}`, { suggestion: 'Run `crew agent list`.' });
   }
   return agent;
 }
 
-export function getAgent(ctx: RailContext, idOrName: string): AgentDefinition {
+export function getAgent(ctx: CrewContext, idOrName: string): AgentDefinition {
   return ctx.store.read((db) => requireAgent(db, idOrName));
 }
 
 export function listAgents(
-  ctx: RailContext,
+  ctx: CrewContext,
   filter: { projectId?: string; managed?: boolean } = {},
 ): AgentDefinition[] {
   return ctx.store.read((db) => {
@@ -155,7 +155,7 @@ function resolveProjectIds(db: Database, refs: readonly string[]): string[] {
     ...new Set(
       refs.map((ref) => {
         const row = one<{ id: string }>(db, 'SELECT id FROM projects WHERE id = ? OR name = ?', ref, ref);
-        if (!row) throw new RailError('NOT_FOUND', `Project not found: ${ref}`);
+        if (!row) throw new CrewError('NOT_FOUND', `Project not found: ${ref}`);
         return row.id;
       }),
     ),
@@ -164,7 +164,7 @@ function resolveProjectIds(db: Database, refs: readonly string[]): string[] {
 
 function stringList(values: readonly string[] | undefined, label: string): string[] {
   const out = [...new Set((values ?? []).map((v) => v.trim()).filter(Boolean))];
-  if (out.some((v) => v.length > 200)) throw new RailError('INVALID_INPUT', `${label} entries must be short names`);
+  if (out.some((v) => v.length > 200)) throw new CrewError('INVALID_INPUT', `${label} entries must be short names`);
   return out;
 }
 
@@ -172,7 +172,7 @@ function validateBudget(budget: AgentBudget | undefined): AgentBudget | null {
   if (!budget) return null;
   for (const [key, value] of Object.entries(budget)) {
     if (value !== undefined && (!Number.isFinite(value) || value <= 0)) {
-      throw new RailError('INVALID_INPUT', `budget.${key} must be a positive number`);
+      throw new CrewError('INVALID_INPUT', `budget.${key} must be a positive number`);
     }
   }
   return budget;
@@ -213,27 +213,27 @@ interface InsertAgent {
   actor: Actor;
 }
 
-function insertAgent(ctx: RailContext, input: InsertAgent): AgentDefinition {
+function insertAgent(ctx: CrewContext, input: InsertAgent): AgentDefinition {
   if (!AGENT_NAME_PATTERN.test(input.name)) {
-    throw new RailError('INVALID_INPUT', `Invalid agent name ${input.name}`, {
+    throw new CrewError('INVALID_INPUT', `Invalid agent name ${input.name}`, {
       suggestion: 'Use letters, digits, dot, underscore or dash (max 63 characters).',
     });
   }
   if (!REVIEW_AUTHORITIES.includes(input.reviewAuthority)) {
-    throw new RailError('INVALID_INPUT', `reviewAuthority must be one of ${REVIEW_AUTHORITIES.join(', ')}`);
+    throw new CrewError('INVALID_INPUT', `reviewAuthority must be one of ${REVIEW_AUTHORITIES.join(', ')}`);
   }
   if (!NETWORK_POLICIES.includes(input.networkPolicy)) {
-    throw new RailError('INVALID_INPUT', `networkPolicy must be one of ${NETWORK_POLICIES.join(', ')}`);
+    throw new CrewError('INVALID_INPUT', `networkPolicy must be one of ${NETWORK_POLICIES.join(', ')}`);
   }
   if (!Number.isInteger(input.maxParallel) || input.maxParallel < 1 || input.maxParallel > 64) {
-    throw new RailError('INVALID_INPUT', 'maxParallel must be an integer between 1 and 64');
+    throw new CrewError('INVALID_INPUT', 'maxParallel must be an integer between 1 and 64');
   }
   for (const pref of input.providerPreferences) {
-    if (!isProviderId(pref.provider)) throw new RailError('INVALID_INPUT', `Unknown provider ${pref.provider}`);
+    if (!isProviderId(pref.provider)) throw new CrewError('INVALID_INPUT', `Unknown provider ${pref.provider}`);
   }
   const at = nowIso(ctx.clock);
   return ctx.store.immediate((db) => {
-    if (findAgent(db, input.name)) throw new RailError('CONFLICT', `Agent ${input.name} already exists`);
+    if (findAgent(db, input.name)) throw new CrewError('CONFLICT', `Agent ${input.name} already exists`);
     const projectIds = resolveProjectIds(db, input.projectRefs);
     const id = newId('agt');
     db.query(
@@ -287,11 +287,11 @@ function insertAgent(ctx: RailContext, input: InsertAgent): AgentDefinition {
   });
 }
 
-export function createAgent(ctx: RailContext, input: CreateAgentInput): AgentDefinition {
+export function createAgent(ctx: CrewContext, input: CreateAgentInput): AgentDefinition {
   const accountPolicyId = input.accountPolicy
     ? ctx.store.read((db) => {
         const policy = findPolicy(db, input.accountPolicy!);
-        if (!policy) throw new RailError('NOT_FOUND', `Account policy not found: ${input.accountPolicy}`);
+        if (!policy) throw new CrewError('NOT_FOUND', `Account policy not found: ${input.accountPolicy}`);
         return policy.id;
       })
     : null;
@@ -324,7 +324,7 @@ export interface RegisterUnmanagedAgentInput {
   actor?: Actor;
 }
 
-export function registerUnmanagedAgent(ctx: RailContext, input: RegisterUnmanagedAgentInput): AgentDefinition {
+export function registerUnmanagedAgent(ctx: CrewContext, input: RegisterUnmanagedAgentInput): AgentDefinition {
   const scopes = stringList(input.scopes, 'scopes');
   return insertAgent(ctx, {
     name: input.name,
@@ -381,11 +381,11 @@ function findTeam(db: Database, idOrName: string): Team | null {
   return row ? mapTeam(db, row) : null;
 }
 
-export function createTeam(ctx: RailContext, input: { name: string; description?: string; actor?: Actor }): Team {
-  if (!AGENT_NAME_PATTERN.test(input.name)) throw new RailError('INVALID_INPUT', `Invalid team name ${input.name}`);
+export function createTeam(ctx: CrewContext, input: { name: string; description?: string; actor?: Actor }): Team {
+  if (!AGENT_NAME_PATTERN.test(input.name)) throw new CrewError('INVALID_INPUT', `Invalid team name ${input.name}`);
   const at = nowIso(ctx.clock);
   return ctx.store.immediate((db) => {
-    if (findTeam(db, input.name)) throw new RailError('CONFLICT', `Team ${input.name} already exists`);
+    if (findTeam(db, input.name)) throw new CrewError('CONFLICT', `Team ${input.name} already exists`);
     const id = newId('team');
     db.query('INSERT INTO teams (id, name, description, created_at) VALUES (?, ?, ?, ?)').run(
       id,
@@ -403,7 +403,7 @@ export function createTeam(ctx: RailContext, input: { name: string; description?
   });
 }
 
-export function listTeams(ctx: RailContext): Team[] {
+export function listTeams(ctx: CrewContext): Team[] {
   return ctx.store.read((db) =>
     all<{ id: string; name: string; description: string; created_at: string }>(
       db,
@@ -413,14 +413,14 @@ export function listTeams(ctx: RailContext): Team[] {
 }
 
 export function assignAgentToTeam(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: { agent: string; team: string; role?: string | null; actor?: Actor },
 ): Team {
   const at = nowIso(ctx.clock);
   return ctx.store.immediate((db) => {
     const agent = requireAgent(db, input.agent);
     const team = findTeam(db, input.team);
-    if (!team) throw new RailError('NOT_FOUND', `Team not found: ${input.team}`);
+    if (!team) throw new CrewError('NOT_FOUND', `Team not found: ${input.team}`);
     db.query(
       `INSERT INTO agent_team_memberships (agent_id, team_id, role, created_at) VALUES (?, ?, ?, ?)
        ON CONFLICT(agent_id, team_id) DO UPDATE SET role = excluded.role`,

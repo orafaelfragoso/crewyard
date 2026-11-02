@@ -1,5 +1,5 @@
-import { nowIso } from '@agent-rail/core';
-import { all, one, type RailContext } from '@agent-rail/storage';
+import { nowIso } from '@crewyard/core';
+import { all, type CrewContext, one } from '@crewyard/storage';
 
 export type Measured<T> = { value: T; status: 'measured' } | { value: null; status: 'unknown'; reason: string };
 
@@ -55,7 +55,7 @@ const round = (n: number) => Math.round(n * 100) / 100;
 const hoursBetween = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 3_600_000;
 
 export function computeMetrics(
-  ctx: RailContext,
+  ctx: CrewContext,
   options: { projectId?: string | null; sinceDays?: number } = {},
 ): MetricsReport {
   const db = ctx.store.db;
@@ -188,7 +188,7 @@ function safeParse(text: string): Record<string, unknown> | null {
   }
 }
 
-export function usageBreakdown(ctx: RailContext, since: string, projectId: string | null = null): UsageBreakdown[] {
+export function usageBreakdown(ctx: CrewContext, since: string, projectId: string | null = null): UsageBreakdown[] {
   const rows = all<{
     provider_id: string;
     profile_id: string | null;

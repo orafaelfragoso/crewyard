@@ -1,5 +1,5 @@
-import { nowIso, type TaskState } from '@agent-rail/core';
-import { all, latestSeq, listWorkers, one, parseJson, type RailContext } from '@agent-rail/storage';
+import { nowIso, type TaskState } from '@crewyard/core';
+import { all, type CrewContext, latestSeq, listWorkers, one, parseJson } from '@crewyard/storage';
 
 export interface Alert {
   level: 'info' | 'warning' | 'error' | 'action_required';
@@ -24,7 +24,7 @@ export interface OverviewProjection {
   alerts: Alert[];
 }
 
-export function overviewProjection(ctx: RailContext, projectId?: string | null): OverviewProjection {
+export function overviewProjection(ctx: CrewContext, projectId?: string | null): OverviewProjection {
   const db = ctx.store.db;
   const pf = projectId ? 'WHERE project_id = ?' : '';
   const params = projectId ? [projectId] : [];
@@ -125,7 +125,7 @@ export interface TaskBoardRow {
 }
 
 export function taskBoard(
-  ctx: RailContext,
+  ctx: CrewContext,
   options: { projectId?: string | null; search?: string; limit?: number; offset?: number } = {},
 ): TaskBoardRow[] {
   const where: string[] = [];
@@ -199,7 +199,7 @@ export interface SessionRow {
   lastOutput: string | null;
 }
 
-export function sessionRows(ctx: RailContext, options: { active?: boolean; limit?: number } = {}): SessionRow[] {
+export function sessionRows(ctx: CrewContext, options: { active?: boolean; limit?: number } = {}): SessionRow[] {
   const rows = all<{
     id: string;
     agent: string | null;
@@ -268,7 +268,7 @@ export interface QueueRow {
   blockers: { code: string; message: string }[];
 }
 
-export function queueRows(ctx: RailContext, projectId?: string | null): QueueRow[] {
+export function queueRows(ctx: CrewContext, projectId?: string | null): QueueRow[] {
   return all<{
     id: string;
     queue_id: string;
@@ -327,7 +327,7 @@ export interface ProjectRow {
   policyRevision: number;
 }
 
-export function projectRows(ctx: RailContext): ProjectRow[] {
+export function projectRows(ctx: CrewContext): ProjectRow[] {
   return all<{
     id: string;
     name: string;

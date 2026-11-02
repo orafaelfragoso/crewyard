@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import { type Actor, newId, nowIso, RailError } from '@agent-rail/core';
+import { type Actor, CrewError, newId, nowIso } from '@crewyard/core';
 import type {
   BranchRequirements,
   CheckResult,
@@ -9,9 +9,9 @@ import type {
   PullRequestGraphState,
   PullRequestReview,
   WorkflowRun,
-} from '@agent-rail/github';
-import { invalidateReviewsInTx } from '@agent-rail/reviews';
-import { all, one, type RailContext, recordTransition, toJson } from '@agent-rail/storage';
+} from '@crewyard/github';
+import { invalidateReviewsInTx } from '@crewyard/reviews';
+import { all, type CrewContext, one, recordTransition, toJson } from '@crewyard/storage';
 import { clientFor, type PendingHook, repositoryFor, runHooks } from './env.ts';
 import {
   activeEntryForPr,
@@ -31,7 +31,7 @@ import type {
   PullRequestRecord,
 } from './types.ts';
 
-export const RAIL_MERGE_KINDS = ['github.merge', 'github.merge_async', 'github.enqueue'] as const;
+export const CREW_MERGE_KINDS = ['github.merge', 'github.merge_async', 'github.enqueue'] as const;
 
 export interface ObservedPullRequest {
   pr: GitHubPullRequest;
@@ -59,7 +59,7 @@ export interface SyncResult {
   rateLimited: boolean;
   observed: number;
   changed: PullRequestChange[];
-  merged: { prId: string; number: number; mergeCommitSha: string | null; outsideRail: boolean }[];
+  merged: { prId: string; number: number; mergeCommitSha: string | null; outsideCrew: boolean }[];
   freshness: RemoteFreshness;
   error: string | null;
 }
@@ -76,8 +76,8 @@ async function detectForcePush(client: GitHubClient, previous: string, next: str
     const result = await client.compareCommits(previous, next);
     return result.status !== 'ahead' && result.status !== 'identical';
   } catch (error) {
-    if (error instanceof RailError && error.code === 'NOT_FOUND') return true;
-    if (error instanceof RailError && (error.code === 'OFFLINE' || error.code === 'RATE_LIMITED')) throw error;
+    if (error instanceof CrewError && error.code === 'NOT_FOUND') return true;
+    if (error instanceof CrewError && (error.code === 'OFFLINE' || error.code === 'RATE_LIMITED')) throw error;
     return null;
   }
 }
@@ -119,13 +119,13 @@ export async function observePullRequest(
   return { pr, files, reviews, checks, workflowRuns, graph, requirements, integrationBase, forcePushed };
 }
 
-function railMergeRecorded(db: Database, prId: string): boolean {
+function crewMergeRecorded(db: Database, prId: string): boolean {
   return (
     one(
       db,
-      `SELECT 1 FROM outbox WHERE subject_id = ? AND kind IN (${RAIL_MERGE_KINDS.map(() => '?').join(',')}) AND status NOT IN ('failed', 'cancelled') LIMIT 1`,
+      `SELECT 1 FROM outbox WHERE subject_id = ? AND kind IN (${CREW_MERGE_KINDS.map(() => '?').join(',')}) AND status NOT IN ('failed', 'cancelled') LIMIT 1`,
       prId,
-      ...RAIL_MERGE_KINDS,
+      ...CREW_MERGE_KINDS,
     ) !== null
   );
 }
@@ -210,15 +210,15 @@ export function applyObservation(
   if (previous && previous.mergeable !== pr.mergeable) changes.push('mergeability_changed');
   const becameMerged = pr.state === 'merged' && previous?.state !== 'merged';
   const becameClosed = pr.state === 'closed' && previous?.state === 'open';
-  let outsideRail = false;
+  let outsideCrew = false;
   if (becameMerged) {
     changes.push('merged');
-    outsideRail = !previous || !railMergeRecorded(db, previous.id);
-    if (outsideRail && previous) kinds.push('merged_outside_rail');
+    outsideCrew = !previous || !crewMergeRecorded(db, previous.id);
+    if (outsideCrew && previous) kinds.push('merged_outside_crew');
   }
   if (becameClosed) {
     changes.push('closed');
-    kinds.push('closed_outside_rail');
+    kinds.push('closed_outside_crew');
   }
   if (!previous) changes.push('discovered');
 
@@ -335,7 +335,7 @@ export function applyObservation(
           rulesFingerprint: nextRules,
           remoteUpdatedAt: pr.updatedAt,
           divergence: kinds,
-          outsideRail,
+          outsideCrew,
         },
       },
       { action: 'github.observe', input: { number: pr.number, headSha: pr.headSha }, decision: changes.join(',') },
@@ -432,7 +432,7 @@ export interface SyncOptions {
 }
 
 export async function syncRepository(
-  ctx: RailContext,
+  ctx: CrewContext,
   repositoryId: string,
   env: IntegrationEnv = {},
   options: SyncOptions = {},
@@ -481,7 +481,7 @@ export async function syncRepository(
   } catch (error) {
     ctx.store.immediate((db) => markSyncFailure(db, repositoryId, error, attemptAt));
     const freshness = readFreshness(ctx.store.db, repositoryId);
-    if (error instanceof RailError && (error.code === 'OFFLINE' || error.code === 'RATE_LIMITED')) {
+    if (error instanceof CrewError && (error.code === 'OFFLINE' || error.code === 'RATE_LIMITED')) {
       return {
         repositoryId,
         ok: false,
@@ -515,7 +515,7 @@ export async function syncRepository(
         prId: c.prId,
         number: c.number,
         mergeCommitSha: record.mergeCommitSha,
-        outsideRail: c.divergence.includes('merged_outside_rail'),
+        outsideCrew: c.divergence.includes('merged_outside_crew'),
       };
     });
   return {

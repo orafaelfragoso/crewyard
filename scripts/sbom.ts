@@ -147,8 +147,8 @@ export function generateSbom(
       const scoped = pkg.name.startsWith('@');
       const group = scoped ? pkg.name.slice(0, pkg.name.indexOf('/')) : undefined;
       const properties = [
-        ...(pkg.workspacePath === null ? [] : [{ name: 'agent-rail:workspace', value: pkg.workspacePath }]),
-        ...(pkg.key === pkg.name ? [] : [{ name: 'agent-rail:lockfile-key', value: pkg.key }]),
+        ...(pkg.workspacePath === null ? [] : [{ name: 'crewyard:workspace', value: pkg.workspacePath }]),
+        ...(pkg.key === pkg.name ? [] : [{ name: 'crewyard:lockfile-key', value: pkg.key }]),
         ...(runtime.has(pkg.key) ? [] : [{ name: 'cdx:npm:package:development', value: 'true' }]),
       ];
       const hashes = hashOf(pkg.integrity);
@@ -188,7 +188,7 @@ export function generateSbom(
     metadata: {
       timestamp: options.timestamp ?? new Date().toISOString(),
       lifecycles: [{ phase: 'build' }],
-      tools: { components: [{ type: 'application', name: 'agent-rail scripts/sbom.ts', version: rootVersion }] },
+      tools: { components: [{ type: 'application', name: 'crewyard scripts/sbom.ts', version: rootVersion }] },
       component: {
         type: 'application',
         'bom-ref': rootRef,

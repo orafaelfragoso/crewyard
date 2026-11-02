@@ -9,7 +9,7 @@ import {
   ghTokenProvider,
   graphqlUrlFor,
   staticTokenProvider,
-} from '@agent-rail/github';
+} from '@crewyard/github';
 import { tempDir } from '../../helpers/index.ts';
 import { type MockGitHub, startMockGitHub } from '../../helpers/mock-github.ts';
 

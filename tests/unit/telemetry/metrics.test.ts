@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { appendEvent } from '@agent-rail/storage';
-import { computeMetrics, pageEvents, percentile } from '@agent-rail/telemetry';
+import { appendEvent } from '@crewyard/storage';
+import { computeMetrics, pageEvents, percentile } from '@crewyard/telemetry';
 import { createTestContext, type TestContext } from '../../helpers/index.ts';
 
 let ctx: TestContext | undefined;

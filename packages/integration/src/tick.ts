@@ -1,10 +1,10 @@
 import type { Database } from 'bun:sqlite';
-import type { RailConfig } from '@agent-rail/config';
-import { type Actor, type AutonomyMode, gitText, nowIso, RailError } from '@agent-rail/core';
-import type { GitHubClient } from '@agent-rail/github';
-import type { Repository } from '@agent-rail/projects';
-import { requestInterventionInTx } from '@agent-rail/reviews';
-import { acquireLeadership, getOutbox, isLeader, one, type RailContext, recordTransition } from '@agent-rail/storage';
+import type { CrewConfig } from '@crewyard/config';
+import { type Actor, type AutonomyMode, CrewError, gitText, nowIso } from '@crewyard/core';
+import type { GitHubClient } from '@crewyard/github';
+import type { Repository } from '@crewyard/projects';
+import { requestInterventionInTx } from '@crewyard/reviews';
+import { acquireLeadership, type CrewContext, getOutbox, isLeader, one, recordTransition } from '@crewyard/storage';
 import { buildAndValidateCandidate, createCandidate, fetchIntegrationRefs } from './candidates.ts';
 import { eligibilityInputFor, evaluateEligibility, mergeApprovalSubject } from './eligibility.ts';
 import {
@@ -85,10 +85,10 @@ export interface QueueTickResult {
 }
 
 interface TickScope {
-  ctx: RailContext;
+  ctx: CrewContext;
   env: IntegrationEnv;
   repository: Repository;
-  config: RailConfig;
+  config: CrewConfig;
   autonomy: AutonomyMode;
   leaderId: string;
   hooks: PendingHook[];
@@ -241,7 +241,7 @@ function filesOf(pr: PullRequestRecord): Set<string> {
   return new Set((pr.changedFiles ?? []).map((f) => f.path));
 }
 
-export function selectGroup(items: readonly OrderItem[], config: RailConfig, capacity: number): OrderItem[] {
+export function selectGroup(items: readonly OrderItem[], config: CrewConfig, capacity: number): OrderItem[] {
   const first = items.find((i) => i.eligible && i.dependsOn.length === 0);
   if (!first) return [];
   const group = [first];
@@ -322,7 +322,7 @@ async function verifyStep(
   return null;
 }
 
-function invalidate(ctx: RailContext, candidateId: string, reason: string): void {
+function invalidate(ctx: CrewContext, candidateId: string, reason: string): void {
   const at = nowIso(ctx.clock);
   ctx.store.immediate((db) => invalidateCandidatesInTx(db, { candidateId }, reason, TICK_ACTOR, at));
 }
@@ -425,7 +425,7 @@ async function mergeCandidate(
   return 'merged';
 }
 
-async function railManaged(
+async function crewManaged(
   scope: TickScope,
   client: GitHubClient,
   queue: IntegrationQueue,
@@ -626,7 +626,7 @@ function retargetChildren(db: Database, queue: IntegrationQueue, guard: { genera
 }
 
 export async function queueTick(
-  ctx: RailContext,
+  ctx: CrewContext,
   repositoryId: string,
   options: QueueTickOptions,
 ): Promise<QueueTickResult> {
@@ -691,9 +691,9 @@ export async function queueTick(
     try {
       const client = await clientFor(ctx, env, repository);
       if (queue.mode === 'github-managed') await githubManaged(scope, queue, guard, result);
-      else await railManaged(scope, client, queue, guard, result, options.maxCandidates ?? 3);
+      else await crewManaged(scope, client, queue, guard, result, options.maxCandidates ?? 3);
     } catch (error) {
-      if (error instanceof RailError && (error.code === 'OFFLINE' || error.code === 'RATE_LIMITED')) {
+      if (error instanceof CrewError && (error.code === 'OFFLINE' || error.code === 'RATE_LIMITED')) {
         result.notes.push(`paused: ${error.message}`);
         continue;
       }

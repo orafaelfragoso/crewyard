@@ -1,4 +1,4 @@
-import type { RailContext } from '@agent-rail/storage';
+import type { CrewContext } from '@crewyard/storage';
 import { requireSnapshot, type SnapshotRequest } from './freshness.ts';
 import { snapshotModel } from './graph.ts';
 import { type DiscoveredCommand, discoverCommands, type PackageInfo } from './manifests.ts';
@@ -17,7 +17,7 @@ export interface RepositoryProfile extends ResultEnvelope {
   commands: DiscoveredCommand[];
 }
 
-export async function repositoryProfile(ctx: RailContext, request: SnapshotRequest): Promise<RepositoryProfile> {
+export async function repositoryProfile(ctx: CrewContext, request: SnapshotRequest): Promise<RepositoryProfile> {
   const { snapshot, envelope } = await requireSnapshot(ctx, request);
   const model = snapshotModel(ctx.store, snapshot);
   const languages: Record<string, number> = {};

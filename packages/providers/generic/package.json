@@ -1,5 +1,5 @@
 {
-  "name": "@agent-rail/provider-generic",
+  "name": "@crewyard/provider-generic",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,6 +9,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@agent-rail/core": "workspace:*"
+    "@crewyard/core": "workspace:*"
   }
 }

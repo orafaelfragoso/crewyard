@@ -16,10 +16,10 @@ import {
   removeProfile,
   stopSession,
   testProfile,
-} from '@agent-rail/agents';
-import { dispatchTask } from '@agent-rail/application';
-import { type AuthMechanism, type ProviderId, RailError } from '@agent-rail/core';
-import { resolveProject } from '@agent-rail/projects';
+} from '@crewyard/agents';
+import { dispatchTask } from '@crewyard/application';
+import { type AuthMechanism, CrewError, type ProviderId } from '@crewyard/core';
+import { resolveProject } from '@crewyard/projects';
 import type { Command } from 'commander';
 import { confirm, emit, keyValues, table, writeLine } from '../output.ts';
 import { action, operatorActor, withMutationOptions } from '../program.ts';
@@ -35,7 +35,7 @@ const list = (value: string, previous: string[] = []) => [
 async function readSecret(opts: Record<string, unknown>): Promise<string | undefined> {
   if (opts.apiKeyEnv) {
     const value = process.env[String(opts.apiKeyEnv)];
-    if (!value) throw new RailError('INVALID_INPUT', `Environment variable ${String(opts.apiKeyEnv)} is empty`);
+    if (!value) throw new CrewError('INVALID_INPUT', `Environment variable ${String(opts.apiKeyEnv)} is empty`);
     return value;
   }
   if (!opts.apiKeyStdin) return undefined;
@@ -185,7 +185,7 @@ export function registerAgentCommands(program: Command): void {
     .option('--tools <names>', 'allowed MCP tools (default: all agent tools)', list)
     .option('--review-authority <level>', 'none | advisory | required')
     .option('--max-parallel <n>', 'max concurrent sessions', Number)
-    .option('--unmanaged', 'register an external agent that Rail does not launch')
+    .option('--unmanaged', 'register an external agent that Crewyard does not launch')
     .action(
       action(async (ctx, opts) => {
         const project = opts.project

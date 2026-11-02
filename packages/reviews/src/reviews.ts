@@ -1,16 +1,7 @@
 import type { Database } from 'bun:sqlite';
-import type { RailConfig } from '@agent-rail/config';
-import {
-  type Actor,
-  addSeconds,
-  fingerprint,
-  newId,
-  nowIso,
-  RailError,
-  type Risk,
-  SYSTEM_ACTOR,
-} from '@agent-rail/core';
-import { all, one, parseJson, type RailContext, recordTransition, toJson } from '@agent-rail/storage';
+import type { CrewConfig } from '@crewyard/config';
+import { type Actor, addSeconds, CrewError, fingerprint, newId, nowIso, type Risk, SYSTEM_ACTOR } from '@crewyard/core';
+import { all, type CrewContext, one, parseJson, recordTransition, toJson } from '@crewyard/storage';
 import { type CacheCandidate, type CacheDecisionResult, decideReviewCache, evidenceFingerprint } from './cache.ts';
 import { classifyPaths } from './classify.ts';
 import { normalizePatch, parseUnifiedDiff } from './patch.ts';
@@ -142,7 +133,7 @@ export function findingSignature(finding: FindingInput): string {
 
 export interface ReviewDeps {
   reviewers: Partial<Record<ReviewType, Reviewer>>;
-  config: Pick<RailConfig, 'review' | 'security'>;
+  config: Pick<CrewConfig, 'review' | 'security'>;
   context?: ContextFingerprintProvider;
   minConfidence?: number;
 }
@@ -342,7 +333,7 @@ function insertArtifact(
 }
 
 export async function requestReview(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: RequestReviewInput,
   deps: ReviewDeps,
 ): Promise<RequestReviewResult> {
@@ -585,9 +576,9 @@ export async function requestReview(
   return { risk: classification.risk, securityClasses: classification.classes, integrationRequired, outcomes };
 }
 
-export function getReview(ctx: RailContext, id: string): ReviewArtifact {
+export function getReview(ctx: CrewContext, id: string): ReviewArtifact {
   const row = one<ReviewRow>(ctx.store.db, 'SELECT * FROM review_artifacts WHERE id = ?', id);
-  if (!row) throw new RailError('NOT_FOUND', `Review not found: ${id}`);
+  if (!row) throw new CrewError('NOT_FOUND', `Review not found: ${id}`);
   return mapReview(ctx.store.db, row);
 }
 
@@ -601,7 +592,7 @@ export interface ReviewQuery {
   limit?: number;
 }
 
-export function listReviews(ctx: RailContext, query: ReviewQuery = {}): ReviewArtifact[] {
+export function listReviews(ctx: CrewContext, query: ReviewQuery = {}): ReviewArtifact[] {
   return listReviewsInTx(ctx.store.db, query);
 }
 
@@ -691,7 +682,7 @@ export function invalidateReviewsInTx(db: Database, input: InvalidateReviewsInpu
     params.push(...input.reviewTypes);
   }
   if (!input.prId && !input.taskId && !input.repositoryId) {
-    throw new RailError('INVALID_INPUT', 'Invalidation requires a pr, task or repository scope');
+    throw new CrewError('INVALID_INPUT', 'Invalidation requires a pr, task or repository scope');
   }
   const ids = all<{ id: string }>(db, `SELECT id FROM review_artifacts WHERE ${where.join(' AND ')}`, ...params).map(
     (r) => r.id,
@@ -717,7 +708,7 @@ export function invalidateReviewsInTx(db: Database, input: InvalidateReviewsInpu
 }
 
 export function invalidateReviews(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: InvalidateReviewsInput,
   actor: Actor = SYSTEM_ACTOR,
 ): string[] {
@@ -726,7 +717,7 @@ export function invalidateReviews(
 }
 
 export function listFindings(
-  ctx: RailContext,
+  ctx: CrewContext,
   query: { prId?: string; reviewId?: string; status?: FindingStatus },
 ): Finding[] {
   const where: string[] = [];
@@ -755,7 +746,7 @@ export function listFindings(
 }
 
 export function updateFindingStatus(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: { findingId: string; status: FindingStatus; note?: string },
   actor: Actor,
 ): Finding {
@@ -766,7 +757,7 @@ export function updateFindingStatus(
       'SELECT f.*, r.pr_id, r.task_id FROM review_findings f JOIN review_artifacts r ON r.id = f.review_id WHERE f.id = ?',
       input.findingId,
     );
-    if (!row) throw new RailError('NOT_FOUND', `Finding not found: ${input.findingId}`);
+    if (!row) throw new CrewError('NOT_FOUND', `Finding not found: ${input.findingId}`);
     db.query('UPDATE review_findings SET status = ?, updated_at = ? WHERE id = ?').run(input.status, at, row.id);
     const review = one<ReviewRow>(db, 'SELECT * FROM review_artifacts WHERE id = ?', row.review_id)!;
     if (review.status === 'changes_requested' || review.status === 'passed') {

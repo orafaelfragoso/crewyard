@@ -1,5 +1,5 @@
 import { hostname } from 'node:os';
-import { newId, nowIso } from '@agent-rail/core';
+import { newId, nowIso } from '@crewyard/core';
 import { all, parseJson, type Store } from './db.ts';
 
 export type WorkerKind = 'service' | 'mcp' | 'cli' | 'dashboard';

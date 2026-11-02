@@ -1,6 +1,6 @@
-import type { RailConfig } from '@agent-rail/config';
+import type { CrewConfig } from '@crewyard/config';
 
-export type IndexConfig = RailConfig['index'];
+export type IndexConfig = CrewConfig['index'];
 
 export type SnapshotStatus = 'building' | 'available' | 'failed' | 'stale';
 export type IndexStatus = 'fresh' | 'stale' | 'building' | 'missing' | 'failed';

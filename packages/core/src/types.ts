@@ -1,4 +1,4 @@
-import type { SerializedRailError } from './errors.ts';
+import type { SerializedCrewError } from './errors.ts';
 
 export type Risk = 'low' | 'medium' | 'high';
 export const RISKS: readonly Risk[] = ['low', 'medium', 'high'];
@@ -16,7 +16,7 @@ export interface Actor {
   id: string;
 }
 
-export const SYSTEM_ACTOR: Actor = { kind: 'system', id: 'agent-rail' };
+export const SYSTEM_ACTOR: Actor = { kind: 'system', id: 'crewyard' };
 
 export type ConfidenceTier = 'exact' | 'structural' | 'heuristic';
 
@@ -155,7 +155,7 @@ export interface ToolSuccess<T> {
 export interface ToolFailure {
   ok: false;
   operationId: string;
-  error: SerializedRailError;
+  error: SerializedCrewError;
   revision?: number;
 }
 

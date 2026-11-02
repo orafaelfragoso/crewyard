@@ -1,5 +1,5 @@
-import type { RailConfig } from '@agent-rail/config';
-import type { Risk } from '@agent-rail/core';
+import type { CrewConfig } from '@crewyard/config';
+import type { Risk } from '@crewyard/core';
 
 const globCache = new Map<string, Bun.Glob>();
 
@@ -16,7 +16,7 @@ export function matchesAny(patterns: readonly string[], path: string): boolean {
   return patterns.some((pattern) => matchesGlob(pattern, path));
 }
 
-export type SecurityPolicy = Pick<RailConfig['security'], 'sensitive_paths' | 'require_approval_for'>;
+export type SecurityPolicy = Pick<CrewConfig['security'], 'sensitive_paths' | 'require_approval_for'>;
 
 export interface PathClassification {
   classes: string[];

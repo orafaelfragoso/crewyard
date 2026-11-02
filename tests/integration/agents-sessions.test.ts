@@ -16,8 +16,8 @@ import {
   SessionSupervisor,
   stopSession,
   verifySessionToken,
-} from '@agent-rail/agents';
-import { isProcessAlive, nowIso, RailError } from '@agent-rail/core';
+} from '@crewyard/agents';
+import { CrewError, isProcessAlive, nowIso } from '@crewyard/core';
 import { createTestContext, ManualClock, type TestContext, tempDir } from '../helpers/index.ts';
 import { seedAgent, seedLeasedTask, testConfig } from '../unit/agents/setup.ts';
 
@@ -58,7 +58,7 @@ describe('managed session supervision', () => {
     const runs = await Promise.all(
       prompts.map(async (prompt, i) => {
         const task = seedLeasedTask(ctx!);
-        const cwd = tempDir('rail-wt-');
+        const cwd = tempDir('crew-wt-');
         const started = await supervisor.start({
           agentId,
           taskId: task.taskId,
@@ -110,7 +110,7 @@ describe('managed session supervision', () => {
     const { agentId } = await seedAgent(ctx);
     const task = seedLeasedTask(ctx, { leaseSeconds: 7200 });
     const supervisor = new SessionSupervisor(ctx, { config: testConfig() });
-    const cwd = tempDir('rail-wt-');
+    const cwd = tempDir('crew-wt-');
     const tokenFile = join(cwd, 'token');
     const ready = join(cwd, 'ready');
     const started = await supervisor.start({
@@ -119,18 +119,18 @@ describe('managed session supervision', () => {
       cwd,
       mode: 'execute',
       timeoutMinutes: 5,
-      prompt: `FAKE:${JSON.stringify(['--echo-env', 'RAIL_SESSION_TOKEN', '--dump-env', `RAIL_SESSION_TOKEN=${tokenFile}`, '--ready', ready, '--sleep', '1500'])}`,
+      prompt: `FAKE:${JSON.stringify(['--echo-env', 'CREW_SESSION_TOKEN', '--dump-env', `CREW_SESSION_TOKEN=${tokenFile}`, '--ready', ready, '--sleep', '1500'])}`,
     });
     const echoedMessage = () =>
       listSessionEvents(ctx!, started.sessionId, { types: ['agent.message'] })
         .map((m) => String(m.payload.text))
-        .find((t) => t.startsWith('RAIL_SESSION_TOKEN='));
+        .find((t) => t.startsWith('CREW_SESSION_TOKEN='));
     await waitFor(async () => (await Bun.file(ready).exists()) && echoedMessage() !== undefined);
     const echoed = echoedMessage();
-    expect(echoed).toBe('RAIL_SESSION_TOKEN=[REDACTED]');
+    expect(echoed).toBe('CREW_SESSION_TOKEN=[REDACTED]');
 
     const token = readFileSync(tokenFile, 'utf8');
-    expect(token).toStartWith('rail_');
+    expect(token).toStartWith('crew_');
     expect(verifySessionToken(ctx, token)).toMatchObject({
       sessionId: started.sessionId,
       agentId,
@@ -138,8 +138,8 @@ describe('managed session supervision', () => {
       taskId: task.taskId,
       leaseGeneration: 1,
     });
-    expect(() => verifySessionToken(ctx!, agentId)).toThrow(RailError);
-    expect(() => verifySessionToken(ctx!, 'rail_forged-token-value-0000000000000000000000')).toThrow('invalid');
+    expect(() => verifySessionToken(ctx!, agentId)).toThrow(CrewError);
+    expect(() => verifySessionToken(ctx!, 'crew_forged-token-value-0000000000000000000000')).toThrow('invalid');
 
     clock.advance(5 * 60 + 120);
     expect(() => verifySessionToken(ctx!, token)).toThrow(expect.objectContaining({ code: 'NOT_AUTHORIZED' }));
@@ -153,7 +153,7 @@ describe('managed session supervision', () => {
     expect(readFileSync(started.logPath, 'utf8')).not.toContain(token);
     expect(JSON.stringify(ctx.store.db.query('SELECT * FROM events').all())).not.toContain(token);
     expect(JSON.stringify(ctx.store.db.query('SELECT * FROM sessions').all())).not.toContain(token);
-    expect(readSessionLog(ctx, started.sessionId).content).toContain('RAIL_SESSION_TOKEN=[REDACTED]');
+    expect(readSessionLog(ctx, started.sessionId).content).toContain('CREW_SESSION_TOKEN=[REDACTED]');
     expect(() => verifySessionToken(ctx!, token)).toThrow(expect.objectContaining({ code: 'NOT_AUTHORIZED' }));
   });
 
@@ -161,7 +161,7 @@ describe('managed session supervision', () => {
     ctx = createTestContext();
     const { agentId } = await seedAgent(ctx);
     const supervisor = new SessionSupervisor(ctx, { config: testConfig({ cancel_grace_seconds: 1 }) });
-    const cwd = tempDir('rail-wt-');
+    const cwd = tempDir('crew-wt-');
     const pidFile = join(cwd, 'child.pid');
     const ready = join(cwd, 'ready');
     const started = await supervisor.start({
@@ -187,7 +187,7 @@ describe('managed session supervision', () => {
     const supervisor = new SessionSupervisor(ctx, { config: testConfig() });
     const started = await supervisor.start({
       agentId,
-      cwd: tempDir('rail-wt-'),
+      cwd: tempDir('crew-wt-'),
       mode: 'execute',
       prompt: 'FAKE:["--error","Rate limit exceeded, retry after 120 seconds","--exit","1"]',
     });
@@ -198,7 +198,7 @@ describe('managed session supervision', () => {
     expect(health.status).toBe('rate_limited');
     expect(Date.parse(health.rateLimitedUntil!) - Date.now()).toBeGreaterThan(100_000);
     await expect(
-      supervisor.start({ agentId, cwd: tempDir('rail-wt-'), mode: 'execute', prompt: 'again' }),
+      supervisor.start({ agentId, cwd: tempDir('crew-wt-'), mode: 'execute', prompt: 'again' }),
     ).rejects.toMatchObject({ code: 'RATE_LIMITED' });
   });
 
@@ -209,7 +209,7 @@ describe('managed session supervision', () => {
     const agent = createAgent(ctx, { name: 'broken-agent', accountPolicy: 'broken-policy' });
     const supervisor = new SessionSupervisor(ctx, { config: testConfig() });
     await expect(
-      supervisor.start({ agentId: agent.id, cwd: tempDir('rail-wt-'), mode: 'execute', prompt: 'x' }),
+      supervisor.start({ agentId: agent.id, cwd: tempDir('crew-wt-'), mode: 'execute', prompt: 'x' }),
     ).rejects.toMatchObject({ code: 'UNAVAILABLE' });
     expect(getProfile(ctx, 'generic/broken').health.status).toBe('unavailable');
   });
@@ -272,7 +272,7 @@ describe('orphan reaping', () => {
     const supervisor = new SessionSupervisor(ctx, { config: testConfig() });
     const started = await supervisor.start({
       agentId,
-      cwd: tempDir('rail-wt-'),
+      cwd: tempDir('crew-wt-'),
       mode: 'execute',
       prompt: 'FAKE: --sleep 500',
     });

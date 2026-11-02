@@ -1,6 +1,6 @@
 # Ollama adapter
 
-Package: `@agent-rail/provider-ollama`. Verified against Ollama `0.40.6`.
+Package: `@crewyard/provider-ollama`. Verified against Ollama `0.40.6`.
 
 Ollama serves model-backed planning and review over its local HTTP API. It has no tool runtime, so coding execution is
 refused with `UNSUPPORTED_CAPABILITY` unless the profile sets `allowCodingExecution: true`; even then an `execute`

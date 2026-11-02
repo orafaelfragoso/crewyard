@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Actor, gitText, RailError, sha256 } from '@agent-rail/core';
-import { registerProject } from '@agent-rail/projects';
-import { addTask, decideApproval, transitionTask } from '@agent-rail/tasks';
+import { type Actor, CrewError, gitText, sha256 } from '@crewyard/core';
+import { registerProject } from '@crewyard/projects';
+import { addTask, decideApproval, transitionTask } from '@crewyard/tasks';
 import {
   allocateWorkspace,
   applyCleanup,
@@ -18,7 +18,7 @@ import {
   resolveWorkspacePath,
   runBounded,
   writeWorkspaceFile,
-} from '@agent-rail/workspaces';
+} from '@crewyard/workspaces';
 import {
   commitFiles,
   createTempGitRepo,
@@ -48,12 +48,12 @@ async function setup(config = testConfig()) {
   return { ctx, repo, project, repository, newTask, config };
 }
 
-function errorOf(error: unknown): RailError {
-  if (error instanceof RailError) return error;
+function errorOf(error: unknown): CrewError {
+  if (error instanceof CrewError) return error;
   throw error;
 }
 
-async function rejection(promise: Promise<unknown>): Promise<RailError> {
+async function rejection(promise: Promise<unknown>): Promise<CrewError> {
   try {
     await promise;
   } catch (error) {
@@ -83,9 +83,9 @@ describe('workspaces', () => {
       workspaces.push((await allocateWorkspace(ctx, { taskId: task.id, actor: operator, config })).workspace);
     }
     expect(workspaces.map((w) => w.branch)).toEqual([
-      'rail/task-1-add-login',
-      'rail/task-2-add-search',
-      'rail/task-3-fix-typo',
+      'crew/task-1-add-login',
+      'crew/task-2-add-search',
+      'crew/task-3-fix-typo',
     ]);
     expect(new Set(workspaces.map((w) => w.baseSha))).toEqual(new Set([before.head]));
 
@@ -148,7 +148,7 @@ describe('workspaces', () => {
     const artifacts = listWorkspaceArtifacts(ctx, workspace.id);
     expect(artifacts.map((a) => a.kind).sort()).toEqual(['backup_bundle', 'backup_patch']);
 
-    const restore = join(tempDir('rail-restore-'), 'wt');
+    const restore = join(tempDir('crew-restore-'), 'wt');
     cleanups.push(() => rmSync(restore, { recursive: true, force: true }));
     const bundle = artifacts.find((a) => a.kind === 'backup_bundle')!.path;
     const patch = artifacts.find((a) => a.kind === 'backup_patch')!.path;
@@ -165,12 +165,12 @@ describe('workspaces', () => {
   test.skipIf(!posix)('path traversal and symlink escapes are rejected for workspace file operations', async () => {
     const { ctx, newTask, config } = await setup();
     const { workspace } = await allocateWorkspace(ctx, { taskId: newTask('Paths').id, actor: operator, config });
-    const outside = tempDir('rail-outside-');
+    const outside = tempDir('crew-outside-');
     cleanups.push(() => rmSync(outside, { recursive: true, force: true }));
     mkdirSync(join(workspace.path, 'nested'));
     symlinkSync(outside, join(workspace.path, 'nested', 'escape'));
 
-    expect(() => resolveWorkspacePath(ctx, workspace.id, '../../etc/passwd')).toThrow(RailError);
+    expect(() => resolveWorkspacePath(ctx, workspace.id, '../../etc/passwd')).toThrow(CrewError);
     expect(await writeWorkspaceFile(ctx, workspace.id, 'nested/escape/pwned.txt', 'x').catch(errorOf)).toMatchObject({
       code: 'POLICY_DENIED',
     });
@@ -217,17 +217,17 @@ describe('workspaces', () => {
   );
 
   test.skipIf(!posix)('bounded execution enforces timeouts, output limits and env sanitisation', async () => {
-    const root = tempDir('rail-bounded-');
+    const root = tempDir('crew-bounded-');
     cleanups.push(() => rmSync(root, { recursive: true, force: true }));
-    process.env.RAIL_TEST_LEAK = 'should-not-pass';
-    const env = await runBounded(['/bin/sh', '-c', 'echo "[$RAIL_TEST_LEAK]"; yes | head -c 100000'], {
+    process.env.CREW_TEST_LEAK = 'should-not-pass';
+    const env = await runBounded(['/bin/sh', '-c', 'echo "[$CREW_TEST_LEAK]"; yes | head -c 100000'], {
       cwd: root,
       permittedRoots: [root],
       timeoutMs: 5_000,
       maxOutputBytes: 64,
       network: 'offline',
     });
-    delete process.env.RAIL_TEST_LEAK;
+    delete process.env.CREW_TEST_LEAK;
     expect(env.stdout.startsWith('[]')).toBe(true);
     expect(env.truncated).toBe(true);
     expect(env.network.enforced).toBe(false);

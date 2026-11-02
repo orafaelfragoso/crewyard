@@ -55,11 +55,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, binary: rail-linux-x64 }
-          - { os: ubuntu-24.04-arm, binary: rail-linux-arm64 }
-          - { os: macos-latest, binary: rail-darwin-arm64 }
-          - { os: macos-15-intel, binary: rail-darwin-x64 }
-          - { os: windows-latest, binary: rail-windows-x64.exe }
+          - { os: ubuntu-latest, binary: crew-linux-x64 }
+          - { os: ubuntu-24.04-arm, binary: crew-linux-arm64 }
+          - { os: macos-latest, binary: crew-darwin-arm64 }
+          - { os: macos-15-intel, binary: crew-darwin-x64 }
+          - { os: windows-latest, binary: crew-windows-x64.exe }
     defaults:
       run:
         shell: bash
@@ -104,7 +104,7 @@ jobs:
       - name: SBOM attestation for the binaries
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: dist/rail-*
+          subject-path: dist/crew-*
           sbom-path: dist/sbom.cdx.json
       - name: Create GitHub Release
         env:

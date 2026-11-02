@@ -1,6 +1,6 @@
 import { join } from 'node:path';
-import { railInvocation } from '@agent-rail/application';
-import { isGitRepository, RailError, repositoryRoot } from '@agent-rail/core';
+import { crewInvocation } from '@crewyard/application';
+import { CrewError, isGitRepository, repositoryRoot } from '@crewyard/core';
 import {
   applyPlan,
   applyUninstall,
@@ -11,8 +11,8 @@ import {
   materializeSkills,
   planInstall,
   planUninstall,
-} from '@agent-rail/host-installers';
-import type { RailContext } from '@agent-rail/storage';
+} from '@crewyard/host-installers';
+import type { CrewContext } from '@crewyard/storage';
 import type { Command } from 'commander';
 import { confirm, emit, table } from '../output.ts';
 import { action, withMutationOptions } from '../program.ts';
@@ -23,18 +23,18 @@ function parseTargets(value: string | undefined): HostId[] {
   const targets = (value ?? HOSTS.join(',')).split(',').map((s) => s.trim()) as HostId[];
   const unknown = targets.filter((t) => !HOSTS.includes(t));
   if (unknown.length > 0)
-    throw new RailError('INVALID_INPUT', `Unknown target(s): ${unknown.join(', ')}`, {
+    throw new CrewError('INVALID_INPUT', `Unknown target(s): ${unknown.join(', ')}`, {
       suggestion: `Supported: ${HOSTS.join(', ')}`,
     });
   return targets;
 }
 
-async function common(ctx: RailContext, opts: Record<string, unknown>) {
+async function common(ctx: CrewContext, opts: Record<string, unknown>) {
   const scope = opts.scope === 'project' ? ('project' as const) : ('user' as const);
   let projectRoot: string | undefined;
   if (scope === 'project' || opts.instructions) {
     if (!(await isGitRepository(process.cwd())))
-      throw new RailError('INVALID_INPUT', 'Project scope requires running inside a repository');
+      throw new CrewError('INVALID_INPUT', 'Project scope requires running inside a repository');
     projectRoot = await repositoryRoot(process.cwd());
   }
   const skillsSourceDir = bundledSkillsDir() ?? materializeSkills(join(ctx.dirs.data, 'skills', 'bundled'));
@@ -44,7 +44,7 @@ async function common(ctx: RailContext, opts: Record<string, unknown>) {
     ...(projectRoot ? { projectRoot } : {}),
     skillsSourceDir,
     includeInstructions: Boolean(opts.instructions),
-    ...(Bun.which('rail') ? {} : { railCommand: railInvocation() }),
+    ...(Bun.which('crew') ? {} : { crewCommand: crewInvocation() }),
     dirs: ctx.dirs,
   };
 }
@@ -76,8 +76,8 @@ export function registerInstallCommands(program: Command): void {
         .command(kind)
         .description(
           kind === 'install'
-            ? 'register the Rail MCP server and Skills with agent hosts'
-            : 'remove only Rail-owned host configuration and restore backups',
+            ? 'register the Crewyard MCP server and Skills with agent hosts'
+            : 'remove only Crewyard-owned host configuration and restore backups',
         )
         .option('--target <hosts>', 'codex,claude,opencode (default: all)')
         .option('--scope <scope>', 'user | project', 'user')
@@ -103,7 +103,7 @@ export function registerInstallCommands(program: Command): void {
   }
   program
     .command('hosts')
-    .description('detect supported agent hosts and their Rail registration')
+    .description('detect supported agent hosts and their Crewyard registration')
     .action(
       action(async (ctx, opts) => {
         const hosts = await detectHosts({ dirs: ctx.dirs });

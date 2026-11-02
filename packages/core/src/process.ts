@@ -1,4 +1,4 @@
-import { RailError } from './errors.ts';
+import { CrewError } from './errors.ts';
 
 export const DEFAULT_ENV_ALLOWLIST: readonly string[] = [
   'PATH',
@@ -93,7 +93,7 @@ export async function run(cmd: readonly string[], options: RunOptions = {}): Pro
       ...(options.verbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
   } catch (error) {
-    throw new RailError('UNAVAILABLE', `Cannot execute ${cmd[0]}: ${(error as Error).message}`, {
+    throw new CrewError('UNAVAILABLE', `Cannot execute ${cmd[0]}: ${(error as Error).message}`, {
       cause: error,
       suggestion: `Install ${cmd[0]} or add it to PATH.`,
     });
@@ -125,7 +125,7 @@ export async function run(cmd: readonly string[], options: RunOptions = {}): Pro
     truncated: stdout.truncated || stderr.truncated,
   };
   if (!options.allowFailure && (exitCode !== 0 || timedOut)) {
-    throw new RailError(
+    throw new CrewError(
       'EXTERNAL_FAILURE',
       `${cmd.slice(0, 3).join(' ')} failed (${timedOut ? 'timeout' : `exit ${exitCode}`}): ${result.stderr.trim().slice(0, 500)}`,
       { details: { exitCode, timedOut }, retryable: timedOut },

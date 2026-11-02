@@ -1,21 +1,21 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { buildContextPack } from '@agent-rail/context';
-import { git, isRailError, type RailError } from '@agent-rail/core';
-import { indexRepository, indexStatus, search } from '@agent-rail/indexing';
+import { buildContextPack } from '@crewyard/context';
+import { type CrewError, git, isCrewError } from '@crewyard/core';
+import { indexRepository, indexStatus, search } from '@crewyard/indexing';
 import { commitFiles } from '../helpers/index.ts';
 import { createIndexFixture, type IndexFixture } from '../unit/indexing/fixture.ts';
 
 let fx: IndexFixture | undefined;
 afterEach(() => fx?.cleanup());
 
-async function expectRailError(promise: Promise<unknown>): Promise<RailError> {
+async function expectCrewError(promise: Promise<unknown>): Promise<CrewError> {
   try {
     await promise;
   } catch (error) {
-    if (isRailError(error)) return error;
+    if (isCrewError(error)) return error;
     throw error;
   }
-  throw new Error('expected a RailError');
+  throw new Error('expected a CrewError');
 }
 
 describe('AT-19 branch-specific context', () => {
@@ -27,11 +27,11 @@ describe('AT-19 branch-specific context', () => {
     const branchSha = await commitFiles(fx.repoPath, { 'src/feature.ts': 'export const flag = "branch-version";\n' });
     await git(fx.repoPath, ['checkout', '-q', 'main']);
 
-    const stale = await expectRailError(
+    const stale = await expectCrewError(
       search(fx.ctx, { repositoryId: fx.repositoryId, sha: branchSha, query: 'flag', mode: 'fts' }),
     );
     expect(stale.code).toBe('INDEX_STALE');
-    expect(stale.suggestion).toBe(`rail index update --repo ${fx.repositoryId} --ref ${branchSha}`);
+    expect(stale.suggestion).toBe(`crew index update --repo ${fx.repositoryId} --ref ${branchSha}`);
     expect((await indexStatus(fx.ctx, { repositoryId: fx.repositoryId, ref: 'feature/x' })).status).toBe('stale');
 
     const branch = await indexRepository(fx.ctx, { repositoryId: fx.repositoryId, ref: 'feature/x' });

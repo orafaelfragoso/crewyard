@@ -1,5 +1,5 @@
-import { nowIso, RailError } from '@agent-rail/core';
-import type { RailContext } from '@agent-rail/storage';
+import { CrewError, nowIso } from '@crewyard/core';
+import type { CrewContext } from '@crewyard/storage';
 import { type IndexOptions, indexRepository, resolveCommit } from './build.ts';
 import {
   DEFAULT_INDEX_CONFIG,
@@ -22,10 +22,10 @@ export interface ResolvedSnapshot {
 }
 
 export function indexCommand(repositoryId: string, sha: string, force = false): string {
-  return `rail index update --repo ${repositoryId} --ref ${sha}${force ? ' --force' : ''}`;
+  return `crew index update --repo ${repositoryId} --ref ${sha}${force ? ' --force' : ''}`;
 }
 
-function envelopeFor(ctx: RailContext, snapshot: Snapshot): ResultEnvelope {
+function envelopeFor(ctx: CrewContext, snapshot: Snapshot): ResultEnvelope {
   return {
     repositoryId: snapshot.repositoryId,
     commitSha: snapshot.commitSha,
@@ -35,7 +35,7 @@ function envelopeFor(ctx: RailContext, snapshot: Snapshot): ResultEnvelope {
   };
 }
 
-export async function requireSnapshot(ctx: RailContext, request: SnapshotRequest): Promise<ResolvedSnapshot> {
+export async function requireSnapshot(ctx: CrewContext, request: SnapshotRequest): Promise<ResolvedSnapshot> {
   const { repo, commitSha } = await resolveCommit(ctx, request);
   let snapshot = snapshotByCommit(ctx.store.db, repo.id, commitSha);
   if (snapshot?.status !== 'available' && request.onDemand) {
@@ -49,7 +49,7 @@ export async function requireSnapshot(ctx: RailContext, request: SnapshotRequest
   }
   if (snapshot?.status !== 'available') {
     const status: IndexStatus = snapshot ? snapshot.status : 'missing';
-    throw new RailError('INDEX_STALE', `No available index for ${repo.id}@${commitSha} (status: ${status})`, {
+    throw new CrewError('INDEX_STALE', `No available index for ${repo.id}@${commitSha} (status: ${status})`, {
       details: { repositoryId: repo.id, commitSha, status },
       suggestion: indexCommand(repo.id, commitSha, status === 'stale'),
     });
@@ -68,7 +68,7 @@ export interface IndexStatusReport {
   checkedAt: string;
 }
 
-export async function indexStatus(ctx: RailContext, selector: SnapshotSelector): Promise<IndexStatusReport> {
+export async function indexStatus(ctx: CrewContext, selector: SnapshotSelector): Promise<IndexStatusReport> {
   const repo = loadRepository(ctx.store.db, selector.repositoryId);
   const ref = selector.sha ?? selector.ref ?? (selector.worktreePath ? 'HEAD' : repo.defaultBase);
   const { commitSha } = await resolveCommit(ctx, selector);

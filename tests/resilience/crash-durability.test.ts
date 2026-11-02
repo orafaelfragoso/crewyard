@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { resolveDirs } from '@agent-rail/core';
-import { openRailStore } from '@agent-rail/storage';
+import { resolveDirs } from '@crewyard/core';
+import { openCrewStore } from '@crewyard/storage';
 import { tempDir } from '../helpers/index.ts';
 
 const WORKER = join(import.meta.dir, 'crash-worker.ts');
@@ -30,11 +30,11 @@ async function crashRun(dataDir: string, runId: number): Promise<number> {
 
 describe('crash durability', () => {
   test('no acknowledged transition is lost across 100 SIGKILL crashes (synchronous=FULL)', async () => {
-    const dataDir = join(tempDir('rail-crash-'), 'data');
-    openRailStore({ dirs: resolveDirs({ RAIL_DATA_DIR: dataDir } as NodeJS.ProcessEnv) }).close();
+    const dataDir = join(tempDir('crew-crash-'), 'data');
+    openCrewStore({ dirs: resolveDirs({ CREW_DATA_DIR: dataDir } as NodeJS.ProcessEnv) }).close();
     const acks: number[] = [];
     for (let run = 0; run < 100; run++) acks.push(await crashRun(dataDir, run));
-    const store = openRailStore({ dirs: resolveDirs({ RAIL_DATA_DIR: dataDir } as NodeJS.ProcessEnv) });
+    const store = openCrewStore({ dirs: resolveDirs({ CREW_DATA_DIR: dataDir } as NodeJS.ProcessEnv) });
     try {
       expect((store.db.query('PRAGMA integrity_check').get() as { integrity_check: string }).integrity_check).toBe(
         'ok',

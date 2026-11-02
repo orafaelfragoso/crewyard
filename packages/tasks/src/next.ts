@@ -1,6 +1,6 @@
-import type { RailConfig } from '@agent-rail/config';
-import { addSeconds, isRailError, nowIso, type TaskState } from '@agent-rail/core';
-import { all, type RailContext } from '@agent-rail/storage';
+import type { CrewConfig } from '@crewyard/config';
+import { addSeconds, isCrewError, nowIso, type TaskState } from '@crewyard/core';
+import { all, type CrewContext } from '@crewyard/storage';
 import { resolveTaskConfig } from './config.ts';
 import { type LeaseCredentials, verifyLeaseInTx } from './leases.ts';
 import { compareTaskIds, type LeaseRow, mapTask, type TaskRow, type TaskView } from './model.ts';
@@ -9,7 +9,7 @@ import { findScopeConflicts, requestedScopes, type ScopeHolding } from './scopes
 
 export interface NextTaskOptions {
   projectId?: string;
-  config?: RailConfig;
+  config?: CrewConfig;
 }
 
 export interface NextTaskSuggestion {
@@ -28,7 +28,7 @@ function compareCandidates(a: TaskView, b: TaskView): number {
   return compareTaskIds(a.id, b.id);
 }
 
-export function nextTask(ctx: RailContext, agentId: string, options: NextTaskOptions = {}): NextTaskSuggestion | null {
+export function nextTask(ctx: CrewContext, agentId: string, options: NextTaskOptions = {}): NextTaskSuggestion | null {
   const db = ctx.store.db;
   const rows = all<TaskRow>(
     db,
@@ -36,7 +36,7 @@ export function nextTask(ctx: RailContext, agentId: string, options: NextTaskOpt
        AND (assigned_agent_id IS NULL OR assigned_agent_id = ?) ${options.projectId ? 'AND project_id = ?' : ''}`,
     ...(options.projectId ? [agentId, options.projectId] : [agentId]),
   );
-  const configs = new Map<string, RailConfig | null>();
+  const configs = new Map<string, CrewConfig | null>();
   const holdings = new Map<string, ScopeHolding[]>();
   const candidates: TaskView[] = [];
   for (const row of rows) {
@@ -51,7 +51,7 @@ export function nextTask(ctx: RailContext, agentId: string, options: NextTaskOpt
       try {
         configs.set(task.projectId, resolveTaskConfig(ctx, task.projectId, options.config));
       } catch (error) {
-        if (!isRailError(error)) throw error;
+        if (!isCrewError(error)) throw error;
         configs.set(task.projectId, null);
       }
     }
@@ -93,8 +93,8 @@ export type NextAction =
   | { action: 'wait'; reason: 'no_dispatchable_tasks'; retryAfterSeconds: number };
 
 export function getNextAction(
-  ctx: RailContext,
-  input: { agentId: string; lease?: LeaseCredentials; projectId?: string; config?: RailConfig },
+  ctx: CrewContext,
+  input: { agentId: string; lease?: LeaseCredentials; projectId?: string; config?: CrewConfig },
 ): NextAction {
   const db = ctx.store.db;
   const at = nowIso(ctx.clock);
@@ -121,7 +121,7 @@ export function getNextAction(
         expiresAt: lease.expires_at,
       };
     } catch (error) {
-      if (!isRailError(error)) throw error;
+      if (!isCrewError(error)) throw error;
       if (error.code === 'STALE_LEASE') {
         return { action: 'stop', taskId: input.lease.taskId, reason: 'stale_lease', detail: error.message };
       }

@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
-import { RailError } from '@agent-rail/core';
-import { one } from '@agent-rail/storage';
+import { CrewError } from '@crewyard/core';
+import { one } from '@crewyard/storage';
 
 export interface RemoteFreshness {
   key: string;
@@ -43,10 +43,10 @@ export function markSyncSuccess(db: Database, repositoryId: string, at: string):
 }
 
 export function markSyncFailure(db: Database, repositoryId: string, error: unknown, at: string): void {
-  const rail = error instanceof RailError ? error : null;
-  const offline = rail?.code === 'OFFLINE' ? 1 : 0;
+  const crew = error instanceof CrewError ? error : null;
+  const offline = crew?.code === 'OFFLINE' ? 1 : 0;
   const resetAt =
-    rail?.code === 'RATE_LIMITED' && typeof rail.details?.resetAt === 'string' ? rail.details.resetAt : null;
+    crew?.code === 'RATE_LIMITED' && typeof crew.details?.resetAt === 'string' ? crew.details.resetAt : null;
   const message = error instanceof Error ? error.message : String(error);
   db.query(
     `INSERT INTO sync_state (key, last_attempt_at, last_error, offline, rate_limit_reset_at) VALUES (?, ?, ?, ?, ?)

@@ -1,30 +1,20 @@
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import type { RailConfig } from '@agent-rail/config';
-import {
-  type Actor,
-  addSeconds,
-  ensureDir,
-  fingerprint,
-  git,
-  gitText,
-  newId,
-  nowIso,
-  RailError,
-} from '@agent-rail/core';
-import type { Repository } from '@agent-rail/projects';
-import { runValidation, selectValidation, type ValidationRun } from '@agent-rail/reviews';
-import { type RailContext, recordTransition, toJson } from '@agent-rail/storage';
+import type { CrewConfig } from '@crewyard/config';
+import { type Actor, addSeconds, CrewError, ensureDir, fingerprint, git, gitText, newId, nowIso } from '@crewyard/core';
+import type { Repository } from '@crewyard/projects';
+import { runValidation, selectValidation, type ValidationRun } from '@crewyard/reviews';
+import { type CrewContext, recordTransition, toJson } from '@crewyard/storage';
 import type { PendingHook } from './env.ts';
 import { applyEntryFailure } from './failures.ts';
 import { candidateById, entryById, pullRequestById, setEntryStatus } from './records.ts';
 import type { CandidateStep, IntegrationCandidate, PullRequestRecord, QueueEntry } from './types.ts';
 
 const SYNTH_ENV = {
-  GIT_AUTHOR_NAME: 'Agent Rail',
-  GIT_AUTHOR_EMAIL: 'rail@agent-rail.local',
-  GIT_COMMITTER_NAME: 'Agent Rail',
-  GIT_COMMITTER_EMAIL: 'rail@agent-rail.local',
+  GIT_AUTHOR_NAME: 'Crewyard',
+  GIT_AUTHOR_EMAIL: 'crew@crewyard.local',
+  GIT_COMMITTER_NAME: 'Crewyard',
+  GIT_COMMITTER_EMAIL: 'crew@crewyard.local',
   GIT_AUTHOR_DATE: '2000-01-01T00:00:00+0000',
   GIT_COMMITTER_DATE: '2000-01-01T00:00:00+0000',
 };
@@ -38,11 +28,11 @@ export async function fetchIntegrationRefs(
   baseBranch: string,
   prs: readonly Pick<PullRequestRecord, 'number' | 'headRef' | 'headSha'>[],
 ): Promise<string> {
-  const baseRef = `refs/rail/base/${baseBranch}`;
+  const baseRef = `refs/crew/base/${baseBranch}`;
   await git(repoPath, ['fetch', '--no-tags', '--quiet', 'origin', `+refs/heads/${baseBranch}:${baseRef}`]);
   for (const pr of prs) {
     if (await hasCommit(repoPath, pr.headSha)) continue;
-    const target = `refs/rail/pr/${pr.number}`;
+    const target = `refs/crew/pr/${pr.number}`;
     const viaPull = await git(
       repoPath,
       ['fetch', '--no-tags', '--quiet', 'origin', `+refs/pull/${pr.number}/head:${target}`],
@@ -59,7 +49,7 @@ export async function fetchIntegrationRefs(
       await git(repoPath, ['fetch', '--no-tags', '--quiet', 'origin', pr.headSha], { allowFailure: true });
     }
     if (!(await hasCommit(repoPath, pr.headSha))) {
-      throw new RailError('EXTERNAL_FAILURE', `Head ${pr.headSha} of #${pr.number} is not available locally`, {
+      throw new CrewError('EXTERNAL_FAILURE', `Head ${pr.headSha} of #${pr.number} is not available locally`, {
         retryable: true,
         details: { number: pr.number, headSha: pr.headSha },
       });
@@ -91,14 +81,14 @@ export async function synthesizeCandidate(
       return { ok: false, conflict: { prId: step.prId, number: step.number, files }, steps: out };
     }
     if (result.exitCode !== 0) {
-      throw new RailError('EXTERNAL_FAILURE', `git merge-tree failed: ${result.stderr.trim().slice(0, 300)}`, {
+      throw new CrewError('EXTERNAL_FAILURE', `git merge-tree failed: ${result.stderr.trim().slice(0, 300)}`, {
         retryable: false,
       });
     }
     tree = result.stdout.trim().split('\n')[0]!;
     current = await gitText(
       repoPath,
-      ['commit-tree', tree, '-p', current, '-p', step.headSha, '-m', `rail candidate: #${step.number}`],
+      ['commit-tree', tree, '-p', current, '-p', step.headSha, '-m', `crew candidate: #${step.number}`],
       { env: SYNTH_ENV },
     );
     out.push({ ...step, treeSha: tree, commitSha: current });
@@ -115,7 +105,7 @@ export interface CandidatePlan {
 }
 
 export function createCandidate(
-  ctx: RailContext,
+  ctx: CrewContext,
   plan: CandidatePlan,
   actor: Actor,
   ttlSeconds: number,
@@ -169,7 +159,7 @@ export function createCandidate(
 
 export interface ValidateCandidateDeps {
   repository: Repository;
-  config: RailConfig;
+  config: CrewConfig;
   actor: Actor;
   hooks: PendingHook[];
 }
@@ -181,13 +171,13 @@ export interface CandidateOutcome {
 }
 
 export async function buildAndValidateCandidate(
-  ctx: RailContext,
+  ctx: CrewContext,
   candidateId: string,
   deps: ValidateCandidateDeps,
 ): Promise<CandidateOutcome> {
   const { repository, config, actor } = deps;
   const candidate = candidateById(ctx.store.db, candidateId);
-  if (!candidate) throw new RailError('NOT_FOUND', `Candidate not found: ${candidateId}`);
+  if (!candidate) throw new CrewError('NOT_FOUND', `Candidate not found: ${candidateId}`);
   const synthesis = await synthesizeCandidate(repository.canonicalPath, candidate.baseSha, candidate.entries);
   const at = nowIso(ctx.clock);
   if (!synthesis.ok) {

@@ -1,13 +1,13 @@
 export * from './apply.ts';
 export * from './embedded-skills.ts';
 export {
+  crewServerEntry,
   detectHosts,
   HOST_SPECS,
   hostConfigPaths,
   instructionFile,
   isRegistered,
-  railServerEntry,
-  resolveRailCommand,
+  resolveCrewCommand,
 } from './hosts.ts';
 export * from './jsonc-edit.ts';
 export { type BackupManifest, listManifests, type ManifestEntry } from './manifest.ts';

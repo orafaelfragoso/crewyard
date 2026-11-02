@@ -1,18 +1,18 @@
 import type { Database, SQLQueryBindings } from 'bun:sqlite';
-import type { RailConfig } from '@agent-rail/config';
+import type { CrewConfig } from '@crewyard/config';
 import {
   type Actor,
+  CrewError,
   nowIso,
   type Page,
-  RailError,
   RISKS,
   type Risk,
   type TaskOrigin,
   type TaskState,
   TERMINAL_TASK_STATES,
   type WorkItemKind,
-} from '@agent-rail/core';
-import { all, exec, nextSequence, one, type RailContext, recordTransition } from '@agent-rail/storage';
+} from '@crewyard/core';
+import { all, type CrewContext, exec, nextSequence, one, recordTransition } from '@crewyard/storage';
 import { applyRiskInTx } from './approvals.ts';
 import { resolveTaskConfig } from './config.ts';
 import { assertAcyclicWith } from './dag.ts';
@@ -77,8 +77,8 @@ export const MIN_PRIORITY = 0;
 export const MAX_PRIORITY = 100;
 const KINDS: readonly WorkItemKind[] = ['epic', 'task', 'subtask'];
 
-function invalid(message: string, details?: Record<string, unknown>): RailError {
-  return new RailError('INVALID_INPUT', message, details ? { details } : {});
+function invalid(message: string, details?: Record<string, unknown>): CrewError {
+  return new CrewError('INVALID_INPUT', message, details ? { details } : {});
 }
 
 function assertStringList(name: string, value: unknown): void {
@@ -141,7 +141,7 @@ export function assertKnownDependencies(db: Database, projectId: string, depende
     if (!row || row.project_id !== projectId) unknown.push(dep);
   }
   if (unknown.length > 0) {
-    throw new RailError('NOT_FOUND', `Unknown dependencies: ${unknown.join(', ')}`, {
+    throw new CrewError('NOT_FOUND', `Unknown dependencies: ${unknown.join(', ')}`, {
       details: { unknown },
       suggestion: 'Dependencies must reference existing tasks of the same project.',
     });
@@ -155,10 +155,10 @@ function replaceDependencies(db: Database, taskId: string, dependencies: readonl
   }
 }
 
-export function insertTaskInTx(db: Database, input: AddTaskInput, config: RailConfig, at: string): TaskView {
+export function insertTaskInTx(db: Database, input: AddTaskInput, config: CrewConfig, at: string): TaskView {
   validateTaskInput(input);
   if (!one(db, 'SELECT 1 FROM projects WHERE id = ?', input.projectId)) {
-    throw new RailError('NOT_FOUND', `Project not found: ${input.projectId}`);
+    throw new CrewError('NOT_FOUND', `Project not found: ${input.projectId}`);
   }
   const repositoryId = resolveRepository(db, input.projectId, input.repositoryId);
   const dependencies = [...new Set(input.dependencies ?? [])];
@@ -227,7 +227,7 @@ export function insertTaskInTx(db: Database, input: AddTaskInput, config: RailCo
   return toView(db, requireTask(db, id));
 }
 
-export function addTask(ctx: RailContext, input: AddTaskInput, options: { config?: RailConfig } = {}): TaskView {
+export function addTask(ctx: CrewContext, input: AddTaskInput, options: { config?: CrewConfig } = {}): TaskView {
   const config = resolveTaskConfig(ctx, input.projectId, options.config);
   return ctx.store.immediate((db) => {
     const at = nowIso(ctx.clock);
@@ -249,7 +249,7 @@ export interface TaskFilter {
 
 const ID_ORDER = 'CAST(substr(id, 6) AS INTEGER)';
 
-export function listTasks(ctx: RailContext, filter: TaskFilter = {}): Page<TaskView> {
+export function listTasks(ctx: CrewContext, filter: TaskFilter = {}): Page<TaskView> {
   const where: string[] = [];
   const params: SQLQueryBindings[] = [];
   for (const [column, value] of [
@@ -311,7 +311,7 @@ export function needsReconciliation(
   return leasedState && active === null && last?.releaseReason === 'expired';
 }
 
-export function showTask(ctx: RailContext, taskId: string): TaskDetail {
+export function showTask(ctx: CrewContext, taskId: string): TaskDetail {
   const db = ctx.store.db;
   const task = requireTask(db, taskId);
   const active = activeLeaseRow(db, taskId);
@@ -335,7 +335,7 @@ export function showTask(ctx: RailContext, taskId: string): TaskDetail {
 
 function assertMutable(task: Task): void {
   if (TERMINAL_TASK_STATES.has(task.state)) {
-    throw new RailError('CONFLICT', `Task ${task.id} is ${task.state} and can no longer be changed`, {
+    throw new CrewError('CONFLICT', `Task ${task.id} is ${task.state} and can no longer be changed`, {
       details: { state: task.state },
     });
   }
@@ -343,7 +343,7 @@ function assertMutable(task: Task): void {
 
 function assertRevision(task: Task, expected: number | undefined): void {
   if (expected === undefined || expected === task.revision) return;
-  throw new RailError('CONFLICT', `Task ${task.id} changed (revision ${task.revision}, expected ${expected})`, {
+  throw new CrewError('CONFLICT', `Task ${task.id} changed (revision ${task.revision}, expected ${expected})`, {
     details: { currentRevision: task.revision, expectedRevision: expected },
     suggestion: 'Reload the task and retry with the current revision.',
     retryable: true,
@@ -352,7 +352,7 @@ function assertRevision(task: Task, expected: number | undefined): void {
 
 function denyGithub(actor: Actor, action: string): void {
   if (actor.kind === 'github') {
-    throw new RailError('POLICY_DENIED', `GitHub observations cannot ${action}`, {
+    throw new CrewError('POLICY_DENIED', `GitHub observations cannot ${action}`, {
       suggestion: 'Record observed PR status separately; task ownership is changed by operators or lease holders.',
     });
   }
@@ -393,12 +393,12 @@ export interface UpdateTaskInput {
   patch: Partial<TaskInput>;
   expectedRevision: number;
   actor: Actor;
-  config?: RailConfig;
+  config?: CrewConfig;
 }
 
 const DEPENDENCY_EDITABLE_STATES: ReadonlySet<TaskState> = new Set(['DRAFT', 'READY', 'BLOCKED']);
 
-export function updateTask(ctx: RailContext, taskId: string, input: UpdateTaskInput): TaskView {
+export function updateTask(ctx: CrewContext, taskId: string, input: UpdateTaskInput): TaskView {
   denyGithub(input.actor, 'edit tasks');
   validateTaskInput(input.patch, true);
   const projectId = requireTask(ctx.store.db, taskId).projectId;
@@ -430,7 +430,7 @@ export function updateTask(ctx: RailContext, taskId: string, input: UpdateTaskIn
       fields.artifacts = JSON.stringify({ ...task.artifacts, scopeReason: p.scopeReason });
     if (p.dependencies !== undefined) {
       if (!DEPENDENCY_EDITABLE_STATES.has(task.state)) {
-        throw new RailError('CONFLICT', `Dependencies of ${task.id} cannot change while it is ${task.state}`, {
+        throw new CrewError('CONFLICT', `Dependencies of ${task.id} cannot change while it is ${task.state}`, {
           details: { state: task.state, editableStates: [...DEPENDENCY_EDITABLE_STATES] },
         });
       }
@@ -458,7 +458,7 @@ export function updateTask(ctx: RailContext, taskId: string, input: UpdateTaskIn
 }
 
 export function setPriorityOverride(
-  ctx: RailContext,
+  ctx: CrewContext,
   taskId: string,
   priority: number | null,
   actor: Actor,
@@ -477,7 +477,7 @@ export function setPriorityOverride(
 }
 
 export function reorderTasks(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: { projectId: string; taskIds: string[]; actor: Actor },
 ): TaskView[] {
   denyGithub(input.actor, 'reorder tasks');
@@ -509,7 +509,7 @@ export function reorderTasks(
   });
 }
 
-export function setTaskPaused(ctx: RailContext, taskId: string, paused: boolean, actor: Actor): TaskView {
+export function setTaskPaused(ctx: CrewContext, taskId: string, paused: boolean, actor: Actor): TaskView {
   denyGithub(actor, 'pause tasks');
   return ctx.store.immediate((db) => {
     const at = nowIso(ctx.clock);
@@ -522,7 +522,7 @@ export function setTaskPaused(ctx: RailContext, taskId: string, paused: boolean,
   });
 }
 
-export function assignAgent(ctx: RailContext, taskId: string, agentId: string | null, actor: Actor): TaskView {
+export function assignAgent(ctx: CrewContext, taskId: string, agentId: string | null, actor: Actor): TaskView {
   denyGithub(actor, 'assign agents');
   return ctx.store.immediate((db) => {
     const at = nowIso(ctx.clock);
@@ -530,7 +530,7 @@ export function assignAgent(ctx: RailContext, taskId: string, agentId: string | 
     assertMutable(task);
     const lease = activeLeaseRow(db, taskId);
     if (lease && lease.holder_kind === 'agent' && agentId !== null && lease.holder_id !== agentId) {
-      throw new RailError('LEASE_CONFLICT', `Task ${taskId} is leased by another agent`, {
+      throw new CrewError('LEASE_CONFLICT', `Task ${taskId} is leased by another agent`, {
         details: { generation: lease.generation, holder: lease.holder_id },
         suggestion: 'Release or force-release the lease before reassigning.',
         retryable: false,

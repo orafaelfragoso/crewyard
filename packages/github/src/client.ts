@@ -1,4 +1,4 @@
-import { backoffWithJitter, sleep as defaultSleep, type ErrorCode, RailError, toIso } from '@agent-rail/core';
+import { backoffWithJitter, CrewError, sleep as defaultSleep, type ErrorCode, toIso } from '@crewyard/core';
 import { asArray, asNumber, asRecord, asString, type JsonRecord } from './json.ts';
 import {
   mergeChecks,
@@ -158,13 +158,13 @@ export class GitHubClient {
     return {
       accept: 'application/vnd.github+json',
       authorization: `Bearer ${token}`,
-      'user-agent': 'agent-rail',
+      'user-agent': 'crewyard',
       'x-github-api-version': this.options.apiVersion ?? DEFAULT_API_VERSION,
       ...(withBody ? { 'content-type': 'application/json' } : {}),
     };
   }
 
-  private rateLimitError(response: Response, message: string): RailError | null {
+  private rateLimitError(response: Response, message: string): CrewError | null {
     if (response.status !== 403 && response.status !== 429) return null;
     const remaining = response.headers.get('x-ratelimit-remaining');
     const reset = asNumber(Number(response.headers.get('x-ratelimit-reset') ?? Number.NaN));
@@ -182,9 +182,9 @@ export class GitHubClient {
     if (resetAt === null) return null;
     this.rateLimitedUntil = resetAt;
     const iso = toIso(new Date(resetAt));
-    return new RailError('RATE_LIMITED', `GitHub ${kind} rate limit reached; retry after ${iso}`, {
+    return new CrewError('RATE_LIMITED', `GitHub ${kind} rate limit reached; retry after ${iso}`, {
       details: { kind, resetAt: iso, status: response.status },
-      suggestion: 'Wait for the rate limit window to reset; Rail retries automatically.',
+      suggestion: 'Wait for the rate limit window to reset; Crewyard retries automatically.',
     });
   }
 
@@ -199,33 +199,33 @@ export class GitHubClient {
       requestId: response.headers.get('x-github-request-id'),
     };
     const override = options.statusErrors?.[response.status];
-    if (override) return new RailError(override, `GitHub ${method} ${path}: ${message}`, { details });
+    if (override) return new CrewError(override, `GitHub ${method} ${path}: ${message}`, { details });
     if (response.status === 401) {
-      return new RailError('UNAUTHENTICATED', 'GitHub rejected the credential', {
+      return new CrewError('UNAUTHENTICATED', 'GitHub rejected the credential', {
         details,
         retryable: false,
         suggestion: 'Run `gh auth login` for the repository identity (GH_CONFIG_DIR).',
       });
     }
     if (response.status === 403) {
-      return new RailError('NOT_AUTHORIZED', `GitHub denied ${method} ${path}: ${message}`, {
+      return new CrewError('NOT_AUTHORIZED', `GitHub denied ${method} ${path}: ${message}`, {
         details,
         suggestion: 'Check the token scopes documented in docs/github.md.',
       });
     }
-    if (response.status === 404) return new RailError('NOT_FOUND', `GitHub ${path} not found`, { details });
-    if (response.status === 409) return new RailError('CONFLICT', `GitHub ${method} ${path}: ${message}`, { details });
+    if (response.status === 404) return new CrewError('NOT_FOUND', `GitHub ${path} not found`, { details });
+    if (response.status === 409) return new CrewError('CONFLICT', `GitHub ${method} ${path}: ${message}`, { details });
     if (response.status === 422) {
-      return new RailError('INVALID_INPUT', `GitHub rejected ${method} ${path}: ${message}`, { details });
+      return new CrewError('INVALID_INPUT', `GitHub rejected ${method} ${path}: ${message}`, { details });
     }
     if (response.status >= 300 && response.status < 400) {
-      return new RailError('POLICY_DENIED', `GitHub redirected ${path}; the repository was renamed or transferred`, {
+      return new CrewError('POLICY_DENIED', `GitHub redirected ${path}; the repository was renamed or transferred`, {
         details: { ...details, location: response.headers.get('location') },
         retryable: false,
-        suggestion: 'Update the git remote and re-register the project; Rail never follows repository redirects.',
+        suggestion: 'Update the git remote and re-register the project; Crewyard never follows repository redirects.',
       });
     }
-    return new RailError('EXTERNAL_FAILURE', `GitHub ${method} ${path} failed with ${response.status}: ${message}`, {
+    return new CrewError('EXTERNAL_FAILURE', `GitHub ${method} ${path} failed with ${response.status}: ${message}`, {
       details,
       retryable: RETRYABLE_STATUS.has(response.status),
     });
@@ -239,7 +239,7 @@ export class GitHubClient {
     for (let attempt = 0; ; attempt++) {
       if (this.rateLimitedUntil !== null) {
         if (this.rateLimitedUntil > this.now().getTime()) {
-          throw new RailError('RATE_LIMITED', `GitHub rate limit active until ${this.rateLimitResetAt}`, {
+          throw new CrewError('RATE_LIMITED', `GitHub rate limit active until ${this.rateLimitResetAt}`, {
             details: { resetAt: this.rateLimitResetAt },
           });
         }
@@ -258,20 +258,20 @@ export class GitHubClient {
         });
       } catch (error) {
         if (isOfflineError(error)) {
-          throw new RailError('OFFLINE', `GitHub is unreachable (${errorCodeOf(error)})`, {
+          throw new CrewError('OFFLINE', `GitHub is unreachable (${errorCodeOf(error)})`, {
             cause: error,
             details: { method, path, sent: false },
-            suggestion: 'Rail keeps the last-seen state and replays queued intents after reconciling when online.',
+            suggestion: 'Crewyard keeps the last-seen state and replays queued intents after reconciling when online.',
           });
         }
         if (!idempotent) {
-          throw new RailError(
+          throw new CrewError(
             'AMBIGUOUS_REMOTE_OUTCOME',
             `GitHub ${method} ${path} did not complete; outcome unknown`,
             {
               cause: error,
               details: { method, path, timeout: isTimeout(error) },
-              suggestion: 'Rail reconciles remote state before retrying this operation.',
+              suggestion: 'Crewyard reconciles remote state before retrying this operation.',
             },
           );
         }
@@ -279,7 +279,7 @@ export class GitHubClient {
           await this.sleep(backoffWithJitter(attempt, this.options.retryBaseMs ?? 250));
           continue;
         }
-        throw new RailError('OFFLINE', `GitHub did not respond to ${method} ${path}`, {
+        throw new CrewError('OFFLINE', `GitHub did not respond to ${method} ${path}`, {
           cause: error,
           details: { method, path, timeout: isTimeout(error) },
         });
@@ -310,7 +310,7 @@ export class GitHubClient {
         continue;
       }
       if (!idempotent && RETRYABLE_STATUS.has(response.status)) {
-        throw new RailError('AMBIGUOUS_REMOTE_OUTCOME', `GitHub ${method} ${path} returned ${response.status}`, {
+        throw new CrewError('AMBIGUOUS_REMOTE_OUTCOME', `GitHub ${method} ${path} returned ${response.status}`, {
           cause: error,
           details: { method, path, status: response.status },
         });
@@ -369,7 +369,7 @@ export class GitHubClient {
             : type === 'RATE_LIMITED'
               ? 'RATE_LIMITED'
               : 'EXTERNAL_FAILURE';
-      throw new RailError(code, `GitHub GraphQL ${operationName}: ${message}`, {
+      throw new CrewError(code, `GitHub GraphQL ${operationName}: ${message}`, {
         details: { type, operationName },
         retryable: code === 'RATE_LIMITED',
       });
@@ -383,7 +383,7 @@ export class GitHubClient {
     const fullName = asString(data.full_name) ?? '';
     const expected = `${this.repository.owner}/${this.repository.name}`;
     if (fullName.toLowerCase() !== expected.toLowerCase()) {
-      throw new RailError('POLICY_DENIED', `GitHub returned ${fullName} for ${expected}; refusing to continue`, {
+      throw new CrewError('POLICY_DENIED', `GitHub returned ${fullName} for ${expected}; refusing to continue`, {
         retryable: false,
         details: { expected, observed: fullName },
         suggestion: 'The repository was renamed or transferred. Update the git remote and re-register the project.',
@@ -468,7 +468,7 @@ export class GitHubClient {
       protection = (await this.request('GET', this.repoPath(`/branches/${encoded}/protection`), { conditional: true }))
         .data;
     } catch (error) {
-      if (!(error instanceof RailError) || (error.code !== 'NOT_FOUND' && error.code !== 'NOT_AUTHORIZED')) throw error;
+      if (!(error instanceof CrewError) || (error.code !== 'NOT_FOUND' && error.code !== 'NOT_AUTHORIZED')) throw error;
       visible = error.code === 'NOT_FOUND';
     }
     return toBranchRequirements(branch, rules, protection, visible);
@@ -499,7 +499,7 @@ export class GitHubClient {
       { owner: this.repository.owner, name: this.repository.name, number },
     );
     const pr = asRecord(asRecord(data.repository).pullRequest);
-    if (!asString(pr.id)) throw new RailError('NOT_FOUND', `Pull request #${number} not found via GraphQL`);
+    if (!asString(pr.id)) throw new CrewError('NOT_FOUND', `Pull request #${number} not found via GraphQL`);
     return toGraphState(pr);
   }
 
@@ -527,7 +527,7 @@ export class GitHubClient {
       true,
     );
     const entry = toMergeQueueEntry(asRecord(data.enqueuePullRequest).mergeQueueEntry);
-    if (!entry) throw new RailError('EXTERNAL_FAILURE', 'enqueuePullRequest returned no merge queue entry');
+    if (!entry) throw new CrewError('EXTERNAL_FAILURE', 'enqueuePullRequest returned no merge queue entry');
     return entry;
   }
 

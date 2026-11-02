@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { leadershipScope, requestIntegration, showPullRequest, syncRepository } from '@agent-rail/integration';
-import { all, getLeadership } from '@agent-rail/storage';
+import { leadershipScope, requestIntegration, showPullRequest, syncRepository } from '@crewyard/integration';
+import { all, getLeadership } from '@crewyard/storage';
 import { createGitHubFixture, type GitHubFixture } from './github-fixture.ts';
 
 let fx: GitHubFixture | undefined;
@@ -23,7 +23,7 @@ describe('AT-13: concurrent queue mutation', () => {
         cwd: join(import.meta.dir, '..', '..'),
         stdout: 'pipe',
         stderr: 'pipe',
-        env: { ...process.env, RAIL_CONFIG_DIR: join(f.ctx.root, 'config') },
+        env: { ...process.env, CREW_CONFIG_DIR: join(f.ctx.root, 'config') },
       }),
     );
     await Bun.sleep(150);

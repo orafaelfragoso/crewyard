@@ -1,12 +1,12 @@
 # Architecture overview
 
-Agent Rail is a Bun + TypeScript monorepo. Every interface (CLI, MCP server, dashboard, background service) calls the same application services, which own all workflow rules. SQLite in WAL mode is the single local source of truth.
+Crewyard is a Bun + TypeScript monorepo. Every interface (CLI, MCP server, dashboard, background service) calls the same application services, which own all workflow rules. SQLite in WAL mode is the single local source of truth.
 
 ## Deployment topology
 
 ```mermaid
 flowchart TB
-  U[Developer or Automation] --> CLI[rail CLI / TUI]
+  U[Developer or Automation] --> CLI[crew CLI / TUI]
   A[Codex / Claude / OpenCode / Other] --> MCP[MCP stdio adapter]
   A --> SK[Agent Skills]
   SK --> CLI
@@ -30,7 +30,7 @@ Modules from the specification (§5.4) and the packages that implement them. Pac
 
 | Module | Responsibility | Packages |
 |---|---|---|
-| domain | State machines, DTOs, policy types, typed errors (`RailError` with stable codes and exit codes) | `packages/core` |
+| domain | State machines, DTOs, policy types, typed errors (`CrewError` with stable codes and exit codes) | `packages/core` |
 | storage | Migrations, transactions (`BEGIN IMMEDIATE`), event log, outbox, leadership leases | `packages/storage` |
 | projects | Repository discovery, configuration, snapshots | `packages/projects`, `packages/config` |
 | index | Changed-file processing, text/symbol/reference graph, FTS5 | `packages/indexing` |
@@ -44,7 +44,7 @@ Modules from the specification (§5.4) and the packages that implement them. Pac
 | interfaces | CLI, MCP server, host/skill installer | `apps/cli`, `apps/mcp`, `packages/host-installers` |
 | application | Use-case services shared by every interface | `packages/application` |
 
-Rule: the CLI and the MCP server are thin adapters. They parse input, call an application service with a `RailContext` (`store`, `dirs`, `logger`, `clock`), and format the result. Neither implements workflow rules.
+Rule: the CLI and the MCP server are thin adapters. They parse input, call an application service with a `CrewContext` (`store`, `dirs`, `logger`, `clock`), and format the result. Neither implements workflow rules.
 
 ```mermaid
 flowchart LR
@@ -69,21 +69,21 @@ flowchart LR
 
 | Process | Lifetime | Role |
 |---|---|---|
-| `rail <command>` | Short-lived | Calls application services directly, or reads the state the service maintains |
-| `rail mcp` | One per MCP host session | stdio MCP server: protocol on stdout, diagnostics on stderr. Many can run at once. |
-| `rail service run` | Long-running, optional | Task dispatch, provider sessions, GitHub polling, queue processing, reconciliation |
-| `rail dashboard` | Interactive | Follows the durable event stream; operator actions go through the same services |
+| `crew <command>` | Short-lived | Calls application services directly, or reads the state the service maintains |
+| `crew mcp` | One per MCP host session | stdio MCP server: protocol on stdout, diagnostics on stderr. Many can run at once. |
+| `crew service run` | Long-running, optional | Task dispatch, provider sessions, GitHub polling, queue processing, reconciliation |
+| `crew dashboard` | Interactive | Follows the durable event stream; operator actions go through the same services |
 
-The service is optional for installation, but continuous autonomous execution needs `rail service run`, `rail service start` or an installed user service. Closing an MCP host does not imply work continues.
+The service is optional for installation, but continuous autonomous execution needs `crew service run`, `crew service start` or an installed user service. Closing an MCP host does not imply work continues.
 
 ```mermaid
 sequenceDiagram
   participant Host as Agent host
-  participant MCP as rail mcp
+  participant MCP as crew mcp
   participant DB as SQLite (WAL)
-  participant Svc as rail service
+  participant Svc as crew service
   participant GH as GitHub
-  Host->>MCP: rail_claim_task
+  Host->>MCP: crew_claim_task
   MCP->>DB: BEGIN IMMEDIATE, check readiness, insert lease (generation N), event, COMMIT
   MCP-->>Host: { ok, data: lease + worktree, revision }
   Svc->>DB: read outbox / queue
@@ -130,7 +130,7 @@ This is the task state machine from the specification (FR-TSK-03): any active st
 
 ## Local state
 
-Data lives in the OS application-data directory (see [installation](../installation.md#where-data-lives)): the database, index cache, worktrees, artifacts, logs and backups. Repository configuration is `.agent-rail/config.yaml`; credentials are only in the OS secret store.
+Data lives in the OS application-data directory (see [installation](../installation.md#where-data-lives)): the database, index cache, worktrees, artifacts, logs and backups. Repository configuration is `.crewyard/config.yaml`; credentials are only in the OS secret store.
 
 ## Desktop reuse
 

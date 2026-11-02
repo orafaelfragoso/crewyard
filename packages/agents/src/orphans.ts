@@ -1,6 +1,6 @@
 import { hostname } from 'node:os';
-import { type Actor, isProcessAlive, nowIso, SYSTEM_ACTOR, terminateTree } from '@agent-rail/core';
-import { all, type RailContext } from '@agent-rail/storage';
+import { type Actor, isProcessAlive, nowIso, SYSTEM_ACTOR, terminateTree } from '@crewyard/core';
+import { all, type CrewContext } from '@crewyard/storage';
 import { type AgentRuntimeConfig, defaultAgentRuntimeConfig } from './config.ts';
 import { matchesRecordedProcess } from './process-identity.ts';
 import { closeUnsupervisedSession, latestSessionEventPayload, type SessionRow } from './sessions.ts';
@@ -21,7 +21,7 @@ export interface ReapResult {
   skippedUnverifiable: string[];
 }
 
-export async function reapOrphans(ctx: RailContext, options: ReapOptions = {}): Promise<ReapResult> {
+export async function reapOrphans(ctx: CrewContext, options: ReapOptions = {}): Promise<ReapResult> {
   const config = options.config ?? defaultAgentRuntimeConfig();
   const actor = options.actor ?? SYSTEM_ACTOR;
   const host = hostname();

@@ -17,7 +17,7 @@ export const RELEASE_TARGETS = [
 type ReleaseTarget = (typeof RELEASE_TARGETS)[number];
 
 export const BUN_RUNTIME_ALTERNATIVE =
-  'Install with the Bun runtime instead (Bun >= 1.4.4): `bun install -g agent-rail`, or from source; see docs/installation.md.';
+  'Install with the Bun runtime instead (Bun >= 1.4.4): `bun install -g crewyard`, or from source; see docs/installation.md.';
 
 type Artifact =
   | { target: string; os: string; arch: string; status: 'available'; file: string; size: number; sha256: string }
@@ -29,16 +29,16 @@ function git(args: string[]): string | null {
 }
 
 function binaryName(t: ReleaseTarget): string {
-  return `rail-${t.os}-${t.arch}${t.os === 'windows' ? '.exe' : ''}`;
+  return `crew-${t.os}-${t.arch}${t.os === 'windows' ? '.exe' : ''}`;
 }
 
 const stubInkDevtools: Bun.BunPlugin = {
   name: 'stub-ink-devtools',
   setup(build) {
     build.onResolve({ filter: /devtools\.js$/ }, (args) =>
-      /[\\/]ink[\\/]build[\\/]/.test(args.importer) ? { path: 'ink-devtools', namespace: 'rail-stub' } : undefined,
+      /[\\/]ink[\\/]build[\\/]/.test(args.importer) ? { path: 'ink-devtools', namespace: 'crew-stub' } : undefined,
     );
-    build.onLoad({ filter: /.*/, namespace: 'rail-stub' }, () => ({ contents: 'export {};', loader: 'js' }));
+    build.onLoad({ filter: /.*/, namespace: 'crew-stub' }, () => ({ contents: 'export {};', loader: 'js' }));
   },
 };
 

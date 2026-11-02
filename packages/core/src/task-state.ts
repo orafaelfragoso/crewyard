@@ -1,4 +1,4 @@
-import { RailError } from './errors.ts';
+import { CrewError } from './errors.ts';
 
 export const TASK_STATES = [
   'DRAFT',
@@ -64,7 +64,7 @@ export function canTransition(from: TaskState, to: TaskState): boolean {
 export function assertTransition(from: TaskState, to: TaskState, taskId?: string): void {
   if (canTransition(from, to)) return;
   const allowed = TRANSITIONS[from];
-  throw new RailError('INVALID_TRANSITION', `Task${taskId ? ` ${taskId}` : ''} cannot move from ${from} to ${to}`, {
+  throw new CrewError('INVALID_TRANSITION', `Task${taskId ? ` ${taskId}` : ''} cannot move from ${from} to ${to}`, {
     details: { from, to, allowed },
     suggestion: allowed.length > 0 ? `Allowed next states: ${allowed.join(', ')}` : `${from} is terminal`,
   });

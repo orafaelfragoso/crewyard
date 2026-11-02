@@ -1,6 +1,6 @@
-import type { HandoffKind } from '@agent-rail/core';
-import { nowIso, RailError } from '@agent-rail/core';
-import type { RailContext } from '@agent-rail/storage';
+import type { HandoffKind } from '@crewyard/core';
+import { CrewError, nowIso } from '@crewyard/core';
+import type { CrewContext } from '@crewyard/storage';
 import { type LeaseCredentials, verifyLeaseInTx } from './leases.ts';
 import { type Handoff, requiresPullRequest, type TaskArtifacts, type TestEvidence } from './model.ts';
 import { applyTransition, type TransitionResult } from './transitions.ts';
@@ -35,24 +35,24 @@ const SHA = /^[0-9a-f]{7,64}$/;
 
 function validateHandoff(input: HandoffInput): void {
   if (typeof input.summary !== 'string' || input.summary.trim() === '') {
-    throw new RailError('INVALID_INPUT', 'handoff.summary is required');
+    throw new CrewError('INVALID_INPUT', 'handoff.summary is required');
   }
   const bad = (input.commits ?? []).filter((c) => !SHA.test(c));
   if (bad.length > 0)
-    throw new RailError('INVALID_INPUT', 'handoff.commits must be Git object IDs', { details: { bad } });
+    throw new CrewError('INVALID_INPUT', 'handoff.commits must be Git object IDs', { details: { bad } });
 }
 
 function union(a: readonly string[] | undefined, b: readonly string[]): string[] {
   return [...new Set([...(a ?? []), ...b])];
 }
 
-export function report(ctx: RailContext, input: ReportInput): ReportResult {
+export function report(ctx: CrewContext, input: ReportInput): ReportResult {
   validateHandoff(input.handoff);
   return ctx.store.immediate((db) => {
     const at = nowIso(ctx.clock);
     const { task, lease } = verifyLeaseInTx(db, input, at);
     if (task.state === 'CANCEL_REQUESTED') {
-      throw new RailError('INVALID_TRANSITION', `Task ${task.id} has a pending cancellation`, {
+      throw new CrewError('INVALID_TRANSITION', `Task ${task.id} has a pending cancellation`, {
         details: { from: task.state, allowed: ['CANCELLED'] },
         suggestion: 'Stop work and release the lease.',
       });
@@ -117,19 +117,19 @@ export function report(ctx: RailContext, input: ReportInput): ReportResult {
 }
 
 export function submitWork(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: LeaseCredentials & { handoff: HandoffInput; kind?: 'ready_for_pr' | 'needs_review' },
 ): ReportResult {
   return report(ctx, { ...input, kind: input.kind ?? 'ready_for_pr' });
 }
 
 export function reportBlocker(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: LeaseCredentials & { handoff: HandoffInput; policy?: HandoffPolicy },
 ): ReportResult {
   return report(ctx, { ...input, kind: 'blocked' });
 }
 
-export function completeTask(ctx: RailContext, input: LeaseCredentials & { handoff: HandoffInput }): ReportResult {
+export function completeTask(ctx: CrewContext, input: LeaseCredentials & { handoff: HandoffInput }): ReportResult {
   return report(ctx, { ...input, kind: 'completed' });
 }

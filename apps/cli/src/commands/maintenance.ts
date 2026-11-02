@@ -7,9 +7,9 @@ import {
   projectForRepositoryPath,
   restoreBackup,
   verifyBackup,
-} from '@agent-rail/application';
-import { syncRepository } from '@agent-rail/integration';
-import { runRecovery } from '@agent-rail/recovery';
+} from '@crewyard/application';
+import { syncRepository } from '@crewyard/integration';
+import { runRecovery } from '@crewyard/recovery';
 import type { Command } from 'commander';
 import { confirm, emit, table } from '../output.ts';
 import { action, operatorActor, withMutationOptions } from '../program.ts';
@@ -52,11 +52,11 @@ export function registerMaintenanceCommands(program: Command): void {
     backup.command('restore <file>').description('replace local state with a backup (a safety backup is taken first)'),
   ).action(
     action(async (ctx, opts, file: string) => {
-      await confirm(opts, `Replace the local Rail database with ${file}?`);
+      await confirm(opts, `Replace the local Crewyard database with ${file}?`);
       emit(opts, restoreBackup(ctx, file), (r) => [
         `restored ${r.restored}`,
         `previous state saved to ${r.safetyBackup}`,
-        'Re-authorize providers with `rail account test` if this is a new machine.',
+        'Re-authorize providers with `crew account test` if this is a new machine.',
       ]);
     }),
   );
@@ -72,7 +72,7 @@ export function registerMaintenanceCommands(program: Command): void {
   ).action(
     action(async (ctx, opts) => {
       if (opts.apply)
-        await confirm(opts, 'Apply garbage collection? Worktrees are cleaned separately with `rail workspace clean`.');
+        await confirm(opts, 'Apply garbage collection? Worktrees are cleaned separately with `crew workspace clean`.');
       const plan = await planGarbageCollection(ctx, {
         apply: Boolean(opts.apply),
         actor: operatorActor(),

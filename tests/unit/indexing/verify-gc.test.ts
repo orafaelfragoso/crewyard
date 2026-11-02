@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { isRailError } from '@agent-rail/core';
-import { collectGarbage, indexRepository, search, verifyIndex } from '@agent-rail/indexing';
-import { all } from '@agent-rail/storage';
+import { isCrewError } from '@crewyard/core';
+import { collectGarbage, indexRepository, search, verifyIndex } from '@crewyard/indexing';
+import { all } from '@crewyard/storage';
 import { commitFiles } from '../../helpers/index.ts';
 import { createIndexFixture, type IndexFixture, POLYGLOT_FILES } from './fixture.ts';
 
@@ -32,7 +32,7 @@ describe('verify and garbage collection', () => {
     ]);
     expect(result.markedStale).toBe(true);
     const error = await search(fx.ctx, { ...sel, query: 'add', mode: 'fts' }).catch((e: unknown) => e);
-    expect(isRailError(error) && error.code === 'INDEX_STALE' && error.suggestion?.endsWith('--force')).toBe(true);
+    expect(isCrewError(error) && error.code === 'INDEX_STALE' && error.suggestion?.endsWith('--force')).toBe(true);
 
     const rebuilt = await indexRepository(fx.ctx, { ...sel, force: true });
     expect(rebuilt.snapshot.status).toBe('available');

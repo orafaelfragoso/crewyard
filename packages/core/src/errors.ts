@@ -38,14 +38,14 @@ export const RETRYABLE_BY_DEFAULT: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   'INDEX_STALE',
 ]);
 
-export interface RailErrorOptions {
+export interface CrewErrorOptions {
   retryable?: boolean;
   details?: Record<string, unknown>;
   suggestion?: string;
   cause?: unknown;
 }
 
-export interface SerializedRailError {
+export interface SerializedCrewError {
   code: ErrorCode;
   message: string;
   retryable: boolean;
@@ -53,15 +53,15 @@ export interface SerializedRailError {
   details?: Record<string, unknown>;
 }
 
-export class RailError extends Error {
+export class CrewError extends Error {
   readonly code: ErrorCode;
   readonly retryable: boolean;
   readonly details: Record<string, unknown> | undefined;
   readonly suggestion: string | undefined;
 
-  constructor(code: ErrorCode, message: string, options: RailErrorOptions = {}) {
+  constructor(code: ErrorCode, message: string, options: CrewErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
-    this.name = 'RailError';
+    this.name = 'CrewError';
     this.code = code;
     this.retryable = options.retryable ?? RETRYABLE_BY_DEFAULT.has(code);
     this.details = options.details;
@@ -72,7 +72,7 @@ export class RailError extends Error {
     return ERROR_EXIT_CODES[this.code];
   }
 
-  toJSON(): SerializedRailError {
+  toJSON(): SerializedCrewError {
     return {
       code: this.code,
       message: this.message,
@@ -83,21 +83,21 @@ export class RailError extends Error {
   }
 }
 
-export function isRailError(error: unknown): error is RailError {
-  return error instanceof RailError;
+export function isCrewError(error: unknown): error is CrewError {
+  return error instanceof CrewError;
 }
 
-export function toRailError(error: unknown): RailError {
-  if (error instanceof RailError) return error;
+export function toCrewError(error: unknown): CrewError {
+  if (error instanceof CrewError) return error;
   const errno = (error as NodeJS.ErrnoException | null)?.code;
-  if (errno === 'ENOENT') return new RailError('NOT_FOUND', (error as Error).message, { cause: error });
+  if (errno === 'ENOENT') return new CrewError('NOT_FOUND', (error as Error).message, { cause: error });
   if (errno === 'EACCES' || errno === 'EPERM') {
-    return new RailError('NOT_AUTHORIZED', (error as Error).message, { cause: error, retryable: false });
+    return new CrewError('NOT_AUTHORIZED', (error as Error).message, { cause: error, retryable: false });
   }
   const message = error instanceof Error ? error.message : String(error);
-  return new RailError('INTERNAL', message, { cause: error, retryable: false });
+  return new CrewError('INTERNAL', message, { cause: error, retryable: false });
 }
 
 export function invariant(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new RailError('INTERNAL', `Invariant violated: ${message}`);
+  if (!condition) throw new CrewError('INTERNAL', `Invariant violated: ${message}`);
 }

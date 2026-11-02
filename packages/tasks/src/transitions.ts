@@ -3,13 +3,13 @@ import {
   type Actor,
   allowedNextStates,
   assertTransition,
+  CrewError,
   LEASED_TASK_STATES,
   nowIso,
-  RailError,
   type TaskState,
   TERMINAL_TASK_STATES,
-} from '@agent-rail/core';
-import { all, exec, type RailContext, recordTransition } from '@agent-rail/storage';
+} from '@crewyard/core';
+import { all, type CrewContext, exec, recordTransition } from '@crewyard/storage';
 import {
   type Handoff,
   requiresPullRequest,
@@ -111,7 +111,7 @@ export function releaseLeaseInTx(
 
 function assertDoneAllowed(task: Task): void {
   if (task.state === 'MERGED' || !requiresPullRequest(task)) return;
-  throw new RailError('INVALID_TRANSITION', `Task ${task.id} cannot be DONE before it is merged`, {
+  throw new CrewError('INVALID_TRANSITION', `Task ${task.id} cannot be DONE before it is merged`, {
     details: { from: task.state, to: 'DONE', allowed: allowedNextStates(task.state).filter((s) => s !== 'DONE') },
     suggestion: 'Tasks that deliver code reach DONE only after their pull request is MERGED.',
   });
@@ -167,7 +167,7 @@ function completeGoalIfFinished(db: Database, task: Task, actor: Actor, at: stri
 export function applyTransition(db: Database, input: TransitionInput, at: string): TransitionResult {
   const task = requireTask(db, input.taskId);
   if (input.expectedRevision !== undefined && input.expectedRevision !== task.revision) {
-    throw new RailError(
+    throw new CrewError(
       'CONFLICT',
       `Task ${task.id} changed (revision ${task.revision}, expected ${input.expectedRevision})`,
       {
@@ -243,9 +243,9 @@ export function applyTransition(db: Database, input: TransitionInput, at: string
   };
 }
 
-export function transitionTask(ctx: RailContext, input: TransitionInput): TransitionResult {
+export function transitionTask(ctx: CrewContext, input: TransitionInput): TransitionResult {
   if (LEASE_ONLY_TARGETS.has(input.to)) {
-    throw new RailError('INVALID_TRANSITION', `Transition to ${input.to} requires a lease`, {
+    throw new CrewError('INVALID_TRANSITION', `Transition to ${input.to} requires a lease`, {
       details: { to: input.to },
       suggestion: input.to === 'CLAIMED' ? 'Use claimTask.' : 'Use startTask with the current lease token.',
     });
@@ -255,7 +255,7 @@ export function transitionTask(ctx: RailContext, input: TransitionInput): Transi
     if (input.actor.kind === 'github') {
       const lease = activeLeaseRow(db, input.taskId);
       if (lease) {
-        throw new RailError('POLICY_DENIED', 'GitHub observations cannot change ownership of a leased task', {
+        throw new CrewError('POLICY_DENIED', 'GitHub observations cannot change ownership of a leased task', {
           details: { taskId: input.taskId, generation: lease.generation },
           suggestion: 'Record the observed PR status; the lease holder or operator decides the task transition.',
         });

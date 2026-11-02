@@ -1,14 +1,14 @@
 import { userInfo } from 'node:os';
-import { createRailContext } from '@agent-rail/application';
-import type { Actor } from '@agent-rail/core';
-import type { RailContext } from '@agent-rail/storage';
+import { createCrewContext } from '@crewyard/application';
+import type { Actor } from '@crewyard/core';
+import type { CrewContext } from '@crewyard/storage';
 import { Command, CommanderError, Option } from 'commander';
 import { type GlobalOptions, reportError } from './output.ts';
 
-let shared: RailContext | null = null;
+let shared: CrewContext | null = null;
 
-export function railContext(): RailContext {
-  shared ??= createRailContext();
+export function crewContext(): CrewContext {
+  shared ??= createCrewContext();
   return shared;
 }
 
@@ -22,7 +22,7 @@ export function globals(command: Command): GlobalOptions {
 }
 
 export type Action<A extends unknown[]> = (
-  ctx: RailContext,
+  ctx: CrewContext,
   opts: GlobalOptions & Record<string, unknown>,
   ...args: A
 ) => Promise<void> | void;
@@ -32,7 +32,7 @@ export function action<A extends unknown[]>(fn: Action<A>) {
     const command = raw.at(-1) as Command;
     const positional = raw.slice(0, command.registeredArguments.length) as A;
     const opts = { ...command.optsWithGlobals<GlobalOptions & Record<string, unknown>>() };
-    await fn(railContext(), opts, ...positional);
+    await fn(crewContext(), opts, ...positional);
   };
 }
 
@@ -43,8 +43,8 @@ export function withMutationOptions(command: Command): Command {
 }
 
 export function createProgram(version: string): Command {
-  const program = new Command('rail')
-    .description('Agent Rail — coordinate independent AI coding agents working in the same repositories')
+  const program = new Command('crew')
+    .description('Crewyard — coordinate independent AI coding agents working in the same repositories')
     .version(version, '-V, --version-flag', 'print the version')
     .option('--json', 'machine-readable output (a single JSON object or JSONL stream)')
     .option('--project <name>', 'project name or id (default: the project of the current directory)')
@@ -80,5 +80,5 @@ export async function runProgram(program: Command, argv: string[]): Promise<numb
 }
 
 export function operatorActor(): Actor {
-  return { kind: 'operator', id: process.env.RAIL_OPERATOR ?? userInfo().username };
+  return { kind: 'operator', id: process.env.CREW_OPERATOR ?? userInfo().username };
 }

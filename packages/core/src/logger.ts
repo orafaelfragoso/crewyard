@@ -15,7 +15,7 @@ export interface Logger {
 export function createLogger(
   options: { level?: LogLevel; base?: Record<string, unknown>; write?: (line: string) => void } = {},
 ): Logger {
-  const level = options.level ?? ((process.env.RAIL_LOG_LEVEL as LogLevel | undefined) || 'warn');
+  const level = options.level ?? ((process.env.CREW_LOG_LEVEL as LogLevel | undefined) || 'warn');
   const base = options.base ?? {};
   const write = options.write ?? ((line: string) => process.stderr.write(`${line}\n`));
   const emit = (lvl: LogLevel, message: string, fields?: Record<string, unknown>) => {

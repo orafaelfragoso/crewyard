@@ -1,9 +1,9 @@
-import type { Clock, Logger, RailDirs } from '@agent-rail/core';
+import type { Clock, CrewDirs, Logger } from '@crewyard/core';
 import type { Store } from './db.ts';
 
-export interface RailContext {
+export interface CrewContext {
   store: Store;
-  dirs: RailDirs;
+  dirs: CrewDirs;
   logger: Logger;
   clock: Clock;
 }

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
-import { DEFAULT_INDEX_CONFIG, indexRepository, search } from '@agent-rail/indexing';
-import { all } from '@agent-rail/storage';
+import { DEFAULT_INDEX_CONFIG, indexRepository, search } from '@crewyard/indexing';
+import { all } from '@crewyard/storage';
 import { createIndexFixture, type IndexFixture } from './fixture.ts';
 
 let fx: IndexFixture | undefined;

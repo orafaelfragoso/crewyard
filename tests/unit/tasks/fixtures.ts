@@ -1,17 +1,17 @@
 import { join } from 'node:path';
-import { type RailConfig, type RailConfigInput, railConfigSchema } from '@agent-rail/config';
-import { type Actor, type AutonomyMode, newId, nowIso, type TaskState } from '@agent-rail/core';
-import type { RailContext } from '@agent-rail/storage';
-import { type ClaimResult, claimTask, startTask, submitWork, transitionTask } from '@agent-rail/tasks';
+import { type CrewConfig, type CrewConfigInput, crewConfigSchema } from '@crewyard/config';
+import { type Actor, type AutonomyMode, newId, nowIso, type TaskState } from '@crewyard/core';
+import type { CrewContext } from '@crewyard/storage';
+import { type ClaimResult, claimTask, startTask, submitWork, transitionTask } from '@crewyard/tasks';
 
 export const operator: Actor = { kind: 'operator', id: 'rafael' };
 
-export function testConfig(overrides: Partial<RailConfigInput> = {}): RailConfig {
-  return railConfigSchema.parse({ version: 1, project: { name: 'sample' }, ...overrides });
+export function testConfig(overrides: Partial<CrewConfigInput> = {}): CrewConfig {
+  return crewConfigSchema.parse({ version: 1, project: { name: 'sample' }, ...overrides });
 }
 
 export function seedProject(
-  ctx: RailContext & { root: string },
+  ctx: CrewContext & { root: string },
   options: { name?: string; autonomy?: AutonomyMode; repoPath?: string; trusted?: boolean } = {},
 ): { projectId: string; repositoryId: string } {
   const projectId = newId('prj');
@@ -40,7 +40,7 @@ export function agent(id: string): { kind: 'agent'; id: string } {
   return { kind: 'agent', id };
 }
 
-export function driveToState(ctx: RailContext, taskId: string, target: TaskState, config: RailConfig): ClaimResult {
+export function driveToState(ctx: CrewContext, taskId: string, target: TaskState, config: CrewConfig): ClaimResult {
   const claim = claimTask(ctx, { taskId, holder: agent(`driver-${taskId}`), config });
   startTask(ctx, claim);
   submitWork(ctx, { ...claim, handoff: { summary: 'done', commits: ['abcdef1'] } });

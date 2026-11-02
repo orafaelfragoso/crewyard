@@ -1,6 +1,6 @@
 # Codex CLI adapter
 
-Package: `@agent-rail/provider-codex`. Verified against `codex-cli 0.166.0`.
+Package: `@crewyard/provider-codex`. Verified against `codex-cli 0.166.0`.
 
 ## Invocation
 
@@ -27,7 +27,7 @@ Docs: [environment variables](https://developers.openai.com/codex/environment-va
 
 ## Event mapping (`--json`)
 
-| Codex event | Agent Rail event |
+| Codex event | Crewyard event |
 |---|---|
 | `thread.started` | `started` with `providerSessionId = thread_id` |
 | `item.started` / `item.completed` `command_execution` | `tool` `command` (failed when `exit_code ≠ 0`) |

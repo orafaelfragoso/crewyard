@@ -1,4 +1,4 @@
-import { latestSeq, type RailContext, type RailEvent } from '@agent-rail/storage';
+import { type CrewContext, type CrewEvent, latestSeq } from '@crewyard/storage';
 import {
   computeMetrics,
   type MetricsReport,
@@ -13,7 +13,7 @@ import {
   sessionRows,
   type TaskBoardRow,
   taskBoard,
-} from '@agent-rail/telemetry';
+} from '@crewyard/telemetry';
 import { useEffect, useRef, useState } from 'react';
 
 export interface DashboardData {
@@ -29,7 +29,7 @@ export interface DashboardData {
   error: string | null;
 }
 
-export function loadDashboard(ctx: RailContext, projectId: string | null, includeMetrics: boolean): DashboardData {
+export function loadDashboard(ctx: CrewContext, projectId: string | null, includeMetrics: boolean): DashboardData {
   return {
     overview: overviewProjection(ctx, projectId),
     projects: projectRows(ctx),
@@ -45,7 +45,7 @@ export function loadDashboard(ctx: RailContext, projectId: string | null, includ
 }
 
 export function useDashboardData(
-  ctx: RailContext,
+  ctx: CrewContext,
   projectId: string | null,
   includeMetrics: boolean,
   pollMs = 1000,
@@ -84,13 +84,13 @@ export function useDashboardData(
 }
 
 export interface EventBrowserState {
-  items: RailEvent[];
+  items: CrewEvent[];
   before: number | null;
   after: number | null;
   follow: boolean;
 }
 
-export function useEventBrowser(ctx: RailContext, projectId: string | null, pageSize: number, liveCursor: number) {
+export function useEventBrowser(ctx: CrewContext, projectId: string | null, pageSize: number, liveCursor: number) {
   const [state, setState] = useState<EventBrowserState>({ items: [], before: null, after: null, follow: true });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: liveCursor triggers a reload of the newest page when events arrive

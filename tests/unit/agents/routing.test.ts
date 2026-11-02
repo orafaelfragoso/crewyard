@@ -1,17 +1,17 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { addProfile, createAccountPolicy, createAgent, routeAgent, setProfileHealth } from '@agent-rail/agents';
-import { addSeconds, nowIso, RailError } from '@agent-rail/core';
+import { addProfile, createAccountPolicy, createAgent, routeAgent, setProfileHealth } from '@crewyard/agents';
+import { addSeconds, CrewError, nowIso } from '@crewyard/core';
 import { createTestContext, ManualClock, type TestContext } from '../../helpers/index.ts';
 import { seedAgent, testConfig } from './setup.ts';
 
 let ctx: TestContext | undefined;
 afterEach(() => ctx?.cleanup());
 
-function routeError(fn: () => unknown): RailError {
+function routeError(fn: () => unknown): CrewError {
   try {
     fn();
   } catch (error) {
-    if (error instanceof RailError) return error;
+    if (error instanceof CrewError) return error;
     throw error;
   }
   throw new Error('expected routing to fail');

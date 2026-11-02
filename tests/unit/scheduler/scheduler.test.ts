@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { admitTasks, explainDispatch, type SchedulerSnapshot, type SchedulerTask } from '@agent-rail/scheduler';
-import { addTask, claimTask, setTaskPaused } from '@agent-rail/tasks';
+import { admitTasks, explainDispatch, type SchedulerSnapshot, type SchedulerTask } from '@crewyard/scheduler';
+import { addTask, claimTask, setTaskPaused } from '@crewyard/tasks';
 import { createTestContext, type TestContext } from '../../helpers/index.ts';
 import { agent, operator, seedProject, testConfig } from '../tasks/fixtures.ts';
 

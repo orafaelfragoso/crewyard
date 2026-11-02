@@ -1,4 +1,4 @@
-import type { RailConfig } from '@agent-rail/config';
+import type { CrewConfig } from '@crewyard/config';
 import type { ReservationMode, ReservationSource, Task } from './model.ts';
 
 export interface ScopeRequest {
@@ -37,7 +37,7 @@ export function scopesOverlap(a: string, b: string): boolean {
 
 export function requestedScopes(
   task: Pick<Task, 'scopeHints' | 'exclusiveResources' | 'risk'>,
-  config: RailConfig,
+  config: CrewConfig,
   impactScopes: readonly string[] = [],
 ): ScopeRequest[] {
   const out = new Map<string, ScopeRequest>();

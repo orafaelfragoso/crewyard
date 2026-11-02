@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { RailError, toPosix } from '@agent-rail/core';
+import { CrewError, toPosix } from '@crewyard/core';
 
 export interface SkillFile {
   relativePath: string;
@@ -68,8 +68,8 @@ function walk(dir: string, root: string, out: SkillFile[]): void {
     else if (entry.isFile()) {
       const bytes = readFileSync(full);
       if (bytes.includes(0)) {
-        throw new RailError('INVALID_INPUT', `Skill file is not text: ${full}`, {
-          suggestion: 'Skills installed by Rail must contain text files only.',
+        throw new CrewError('INVALID_INPUT', `Skill file is not text: ${full}`, {
+          suggestion: 'Skills installed by Crewyard must contain text files only.',
         });
       }
       out.push({ relativePath: toPosix(relative(root, full)), content: bytes.toString('utf8') });
@@ -79,7 +79,7 @@ function walk(dir: string, root: string, out: SkillFile[]): void {
 
 export function loadSkills(sourceDir: string): SkillSource[] {
   if (!existsSync(sourceDir) || !statSync(sourceDir).isDirectory()) {
-    throw new RailError('NOT_FOUND', `Skills directory not found: ${sourceDir}`);
+    throw new CrewError('NOT_FOUND', `Skills directory not found: ${sourceDir}`);
   }
   const skills: SkillSource[] = [];
   for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
@@ -90,7 +90,7 @@ export function loadSkills(sourceDir: string): SkillSource[] {
     const skillMd = readFileSync(skillMdPath, 'utf8');
     const issues = validateSkill(entry.name, skillMd);
     if (issues.length > 0) {
-      throw new RailError('CONFIG_INVALID', `Invalid skill ${entry.name}: ${issues.join('; ')}`, {
+      throw new CrewError('CONFIG_INVALID', `Invalid skill ${entry.name}: ${issues.join('; ')}`, {
         details: { skill: entry.name, issues },
       });
     }
@@ -104,5 +104,5 @@ export function loadSkills(sourceDir: string): SkillSource[] {
 
 export function bundledSkillsDir(): string | null {
   const candidate = join(import.meta.dir, '..', '..', '..', 'skills');
-  return existsSync(join(candidate, 'rail-execution', 'SKILL.md')) ? candidate : null;
+  return existsSync(join(candidate, 'crew-execution', 'SKILL.md')) ? candidate : null;
 }

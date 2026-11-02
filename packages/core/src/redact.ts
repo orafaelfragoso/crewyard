@@ -6,7 +6,7 @@ const SECRET_PATTERNS: readonly RegExp[] = [
   /\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}\b/g,
   /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g,
   /\bAIza[0-9A-Za-z_-]{35}\b/g,
-  /\brail_[A-Za-z0-9_-]{40,}\b/g,
+  /\bcrew_[A-Za-z0-9_-]{40,}\b/g,
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
 ];
 

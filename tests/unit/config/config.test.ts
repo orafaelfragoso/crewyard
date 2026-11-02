@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { loadConfig, renderConfigTemplate, setConfigValue, validateConfigText } from '@agent-rail/config';
-import { RailError, resolveDirs } from '@agent-rail/core';
+import { loadConfig, renderConfigTemplate, setConfigValue, validateConfigText } from '@crewyard/config';
+import { CrewError, resolveDirs } from '@crewyard/core';
 import { tempDir, writeFiles } from '../../helpers/index.ts';
 
-const dirs = () => resolveDirs({ RAIL_DATA_DIR: join(tempDir(), 'data') } as NodeJS.ProcessEnv);
+const dirs = () => resolveDirs({ CREW_DATA_DIR: join(tempDir(), 'data') } as NodeJS.ProcessEnv);
 
 describe('configuration', () => {
   test('generated template validates', () => {
@@ -32,13 +32,13 @@ surprise: true
       'config.yaml': 'version: 1\nproject: { name: demo }\nagents: { max_parallel: 2, max_retries_per_failure: 5 }\n',
     });
     writeFiles(repo, {
-      '.agent-rail/config.yaml':
+      '.crewyard/config.yaml':
         'version: 1\nproject: { name: demo }\nagents: { max_parallel: 3 }\nscheduler: { max_open_prs: 4 }\n',
     });
     const loaded = loadConfig({
       repoRoot: repo,
       dirs: d,
-      env: { RAIL_MAX_OPEN_PRS: '5', RAIL_MAX_PARALLEL: '7' },
+      env: { CREW_MAX_OPEN_PRS: '5', CREW_MAX_PARALLEL: '7' },
       flags: { 'agents.max_parallel': 9 },
     });
     expect(loaded.config.agents.max_parallel).toBe(9);
@@ -52,10 +52,10 @@ surprise: true
 
   test('config set validates and refuses secrets', () => {
     const repo = tempDir();
-    const file = join(repo, '.agent-rail/config.yaml');
-    writeFiles(repo, { '.agent-rail/config.yaml': renderConfigTemplate({ projectName: 'demo', baseBranch: 'main' }) });
+    const file = join(repo, '.crewyard/config.yaml');
+    writeFiles(repo, { '.crewyard/config.yaml': renderConfigTemplate({ projectName: 'demo', baseBranch: 'main' }) });
     expect(setConfigValue(file, 'index.max_context_tokens', '12000').next).toBe(12000);
-    expect(() => setConfigValue(file, 'integration.mode', 'yolo')).toThrow(RailError);
-    expect(() => setConfigValue(file, 'security.api_key', 'abcdefghijklmnop')).toThrow(RailError);
+    expect(() => setConfigValue(file, 'integration.mode', 'yolo')).toThrow(CrewError);
+    expect(() => setConfigValue(file, 'security.api_key', 'abcdefghijklmnop')).toThrow(CrewError);
   });
 });

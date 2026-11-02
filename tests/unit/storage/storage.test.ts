@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { RailError } from '@agent-rail/core';
+import { CrewError } from '@crewyard/core';
 import {
   acquireLeadership,
   appendEvent,
@@ -10,7 +10,7 @@ import {
   migrate,
   migrationStatus,
   openStore,
-} from '@agent-rail/storage';
+} from '@crewyard/storage';
 import { createTestContext, ManualClock, type TestContext } from '../../helpers/index.ts';
 
 let ctx: TestContext | undefined;
@@ -22,7 +22,7 @@ describe('storage', () => {
     expect(migrationStatus(ctx.store).pending).toEqual([]);
     expect(migrate(ctx.store).pending).toEqual([]);
     ctx.store.db.exec("INSERT INTO schema_migrations VALUES (999, 'future', 'x', '2026-01-01T00:00:00Z')");
-    expect(() => migrationStatus(ctx!.store)).toThrow(RailError);
+    expect(() => migrationStatus(ctx!.store)).toThrow(CrewError);
   });
 
   test('dry-run reports pending migrations without applying them', () => {

@@ -23,14 +23,14 @@ function render(cmd: Command, parents: string[], depth: number, out: string[]): 
       out.push('');
     }
   }
-  for (const child of children) render(child, depth > 0 ? [...parents, cmd.name()] : ['rail'], depth + 1, out);
+  for (const child of children) render(child, depth > 0 ? [...parents, cmd.name()] : ['crew'], depth + 1, out);
 }
 
 const program = buildProgram();
 const out = [
   '# CLI reference',
   '',
-  `Generated from the \`rail\` ${VERSION} command tree by \`bun scripts/gen-cli-reference.ts\`. Do not edit by hand.`,
+  `Generated from the \`crew\` ${VERSION} command tree by \`bun scripts/gen-cli-reference.ts\`. Do not edit by hand.`,
   '',
   '## Global conventions',
   '',

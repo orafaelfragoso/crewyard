@@ -1,17 +1,17 @@
 import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { ensureDir, isProcessAlive, RailError, run, terminateTree } from '@agent-rail/core';
-import { listWorkers, type RailContext, type WorkerHeartbeat } from '@agent-rail/storage';
+import { CrewError, ensureDir, isProcessAlive, run, terminateTree } from '@crewyard/core';
+import { type CrewContext, listWorkers, type WorkerHeartbeat } from '@crewyard/storage';
 
-const SERVICE_LABEL = 'dev.agent-rail.service';
+const SERVICE_LABEL = 'dev.crewyard.service';
 
-export function railInvocation(): string[] {
+export function crewInvocation(): string[] {
   const compiled = Bun.main.includes('$bunfs') || Bun.main.includes('~BUN');
   return compiled ? [process.execPath] : [process.execPath, Bun.main];
 }
 
-function pidFile(ctx: RailContext): string {
+function pidFile(ctx: CrewContext): string {
   return join(ensureDir(ctx.dirs.run), 'service.pid');
 }
 
@@ -23,7 +23,7 @@ export interface ServiceStatus {
   note: string;
 }
 
-export function serviceStatus(ctx: RailContext): ServiceStatus {
+export function serviceStatus(ctx: CrewContext): ServiceStatus {
   const file = pidFile(ctx);
   const pid = existsSync(file) ? Number.parseInt(readFileSync(file, 'utf8'), 10) : null;
   const running = pid !== null && isProcessAlive(pid);
@@ -41,11 +41,11 @@ export function serviceStatus(ctx: RailContext): ServiceStatus {
 }
 
 export function startService(
-  ctx: RailContext,
+  ctx: CrewContext,
   options: { dryRun?: boolean } = {},
 ): ServiceStatus & { command: string[] } {
   const current = serviceStatus(ctx);
-  const command = [...railInvocation(), 'service', 'run'];
+  const command = [...crewInvocation(), 'service', 'run'];
   if (current.running || options.dryRun) return { ...current, command };
   ensureDir(ctx.dirs.logs);
   const log = openSync(current.logFile, 'a', 0o600);
@@ -54,7 +54,7 @@ export function startService(
     stdout: log,
     stderr: log,
     detached: true,
-    env: { ...process.env, RAIL_SERVICE_DETACHED: '1' },
+    env: { ...process.env, CREW_SERVICE_DETACHED: '1' },
   });
   child.unref();
   writeFileSync(pidFile(ctx), String(child.pid), { mode: 0o600 });
@@ -62,7 +62,7 @@ export function startService(
 }
 
 export async function stopService(
-  ctx: RailContext,
+  ctx: CrewContext,
   graceMs = 15_000,
 ): Promise<{ stopped: boolean; pid: number | null }> {
   const status = serviceStatus(ctx);
@@ -88,9 +88,9 @@ export interface ServiceUnitPlan {
   deactivate: string[][];
 }
 
-export function planServiceUnit(ctx: RailContext, home = homedir()): ServiceUnitPlan {
-  const command = [...railInvocation(), 'service', 'run'];
-  const env = { RAIL_DATA_DIR: ctx.dirs.data, RAIL_CONFIG_DIR: ctx.dirs.config };
+export function planServiceUnit(ctx: CrewContext, home = homedir()): ServiceUnitPlan {
+  const command = [...crewInvocation(), 'service', 'run'];
+  const env = { CREW_DATA_DIR: ctx.dirs.data, CREW_CONFIG_DIR: ctx.dirs.config };
   if (process.platform === 'darwin') {
     const file = join(home, 'Library', 'LaunchAgents', `${SERVICE_LABEL}.plist`);
     const args = command.map((c) => `    <string>${escapeXml(c)}</string>`).join('\n');
@@ -125,7 +125,7 @@ ${envXml}
     };
   }
   if (process.platform === 'win32') {
-    const file = join(ctx.dirs.config, 'agent-rail-service.xml');
+    const file = join(ctx.dirs.config, 'crewyard-service.xml');
     const [exe, ...args] = command;
     return {
       platform: 'win32',
@@ -143,16 +143,16 @@ ${envXml}
   </Actions>
 </Task>
 `,
-      activate: [['schtasks', '/Create', '/TN', 'AgentRail', '/XML', file, '/F']],
-      deactivate: [['schtasks', '/Delete', '/TN', 'AgentRail', '/F']],
+      activate: [['schtasks', '/Create', '/TN', 'Crewyard', '/XML', file, '/F']],
+      deactivate: [['schtasks', '/Delete', '/TN', 'Crewyard', '/F']],
     };
   }
-  const file = join(process.env.XDG_CONFIG_HOME ?? join(home, '.config'), 'systemd', 'user', 'agent-rail.service');
+  const file = join(process.env.XDG_CONFIG_HOME ?? join(home, '.config'), 'systemd', 'user', 'crewyard.service');
   return {
     platform: process.platform,
     file,
     content: `[Unit]
-Description=Agent Rail coordination service
+Description=Crewyard coordination service
 After=network-online.target
 
 [Service]
@@ -171,10 +171,10 @@ WantedBy=default.target
 `,
     activate: [
       ['systemctl', '--user', 'daemon-reload'],
-      ['systemctl', '--user', 'enable', '--now', 'agent-rail.service'],
+      ['systemctl', '--user', 'enable', '--now', 'crewyard.service'],
     ],
     deactivate: [
-      ['systemctl', '--user', 'disable', '--now', 'agent-rail.service'],
+      ['systemctl', '--user', 'disable', '--now', 'crewyard.service'],
       ['systemctl', '--user', 'daemon-reload'],
     ],
   };
@@ -184,13 +184,13 @@ function escapeXml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 }
 
-export async function installServiceUnit(ctx: RailContext, options: { dryRun?: boolean } = {}) {
+export async function installServiceUnit(ctx: CrewContext, options: { dryRun?: boolean } = {}) {
   const plan = planServiceUnit(ctx);
   if (options.dryRun) return { ...plan, applied: false };
   if (existsSync(plan.file)) {
     const existing = readFileSync(plan.file, 'utf8');
-    if (!existing.includes('agent-rail') && !existing.includes('Agent Rail') && !existing.includes(SERVICE_LABEL)) {
-      throw new RailError('CONFLICT', `${plan.file} exists and is not owned by Agent Rail`, {
+    if (!existing.includes('crewyard') && !existing.includes('Crewyard') && !existing.includes(SERVICE_LABEL)) {
+      throw new CrewError('CONFLICT', `${plan.file} exists and is not owned by Crewyard`, {
         suggestion: 'Move it aside and retry.',
       });
     }
@@ -201,7 +201,7 @@ export async function installServiceUnit(ctx: RailContext, options: { dryRun?: b
   for (const cmd of plan.activate) results.push(await run(cmd, { allowFailure: true, timeoutMs: 30_000 }));
   const failed = results.find((r) => r.exitCode !== 0);
   if (failed) {
-    throw new RailError(
+    throw new CrewError(
       'EXTERNAL_FAILURE',
       `Service unit written to ${plan.file} but activation failed: ${failed.stderr.trim()}`,
       {
@@ -212,11 +212,11 @@ export async function installServiceUnit(ctx: RailContext, options: { dryRun?: b
   return { ...plan, applied: true };
 }
 
-export async function uninstallServiceUnit(ctx: RailContext, options: { dryRun?: boolean } = {}) {
+export async function uninstallServiceUnit(ctx: CrewContext, options: { dryRun?: boolean } = {}) {
   const plan = planServiceUnit(ctx);
   if (options.dryRun) return { ...plan, removed: false };
   for (const cmd of plan.deactivate) await run(cmd, { allowFailure: true, timeoutMs: 30_000 });
-  const owned = existsSync(plan.file) && /agent-rail|Agent Rail/.test(readFileSync(plan.file, 'utf8'));
+  const owned = existsSync(plan.file) && /crewyard|Crewyard/.test(readFileSync(plan.file, 'utf8'));
   if (owned) rmSync(plan.file);
   return { ...plan, removed: owned };
 }

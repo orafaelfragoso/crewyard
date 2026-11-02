@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { RailError, resolveDirs } from '@agent-rail/core';
+import { CrewError, resolveDirs } from '@crewyard/core';
 import {
   applyPlan,
   applyUninstall,
@@ -10,11 +10,11 @@ import {
   type PlanOptions,
   planInstall,
   planUninstall,
-} from '@agent-rail/host-installers';
+} from '@crewyard/host-installers';
 import { tempDir, writeFiles } from '../helpers/index.ts';
 
 const SKILLS_DIR = join(import.meta.dir, '..', '..', 'skills');
-const RAIL = ['/opt/rail/bin/rail'];
+const CREW = ['/opt/crew/bin/crew'];
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -22,15 +22,15 @@ afterEach(() => {
 });
 
 function setup() {
-  const root = tempDir('rail-hosts-');
+  const root = tempDir('crew-hosts-');
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const home = join(root, 'home');
   const project = join(root, 'project');
   mkdirSync(home, { recursive: true });
   mkdirSync(project, { recursive: true });
-  const env = { HOME: home, PATH: '', RAIL_DATA_DIR: join(root, 'data') } as NodeJS.ProcessEnv;
+  const env = { HOME: home, PATH: '', CREW_DATA_DIR: join(root, 'data') } as NodeJS.ProcessEnv;
   const dirs = resolveDirs(env);
-  const base = { env, dirs, which: () => null, railCommand: RAIL, skillsSourceDir: SKILLS_DIR };
+  const base = { env, dirs, which: () => null, crewCommand: CREW, skillsSourceDir: SKILLS_DIR };
   const snapshot = () => {
     const out: Record<string, string> = {};
     const walk = (dir: string) => {
@@ -82,13 +82,13 @@ describe('AT-16 install/uninstall round trip', () => {
       mcp_servers: Record<string, unknown>;
     };
     expect(codex.mcp_servers.docs).toEqual({ command: 'docs-mcp', args: ['--stdio'] });
-    expect(codex.mcp_servers['agent-rail']).toEqual({ command: '/opt/rail/bin/rail', args: ['mcp'] });
+    expect(codex.mcp_servers['crewyard']).toEqual({ command: '/opt/crew/bin/crew', args: ['mcp'] });
     const opencode = Bun.JSONC.parse(readFileSync(join(t.home, '.config/opencode/opencode.jsonc'), 'utf8')) as {
       mcp: Record<string, unknown>;
     };
-    expect(Object.keys(opencode.mcp)).toEqual(['jira', 'agent-rail']);
+    expect(Object.keys(opencode.mcp)).toEqual(['jira', 'crewyard']);
     expect(readFileSync(join(t.home, '.config/opencode/opencode.jsonc'), 'utf8')).toContain('// team servers');
-    expect(existsSync(join(t.home, '.agents/skills/rail-execution/SKILL.md'))).toBe(true);
+    expect(existsSync(join(t.home, '.agents/skills/crew-execution/SKILL.md'))).toBe(true);
 
     await uninstall(options);
     expect(t.snapshot()).toEqual(before);
@@ -115,18 +115,18 @@ describe('AT-16 install/uninstall round trip', () => {
     expect(agentsMd).toHaveLength(1);
     expect(agentsMd[0]!.hosts.sort()).toEqual(['codex', 'opencode']);
     expect(readFileSync(join(t.project, 'AGENTS.md'), 'utf8')).toStartWith(
-      '# Team rules\n\nUse bun.\n\n<!-- >>> agent-rail',
+      '# Team rules\n\nUse bun.\n\n<!-- >>> crewyard',
     );
-    expect(readFileSync(join(t.project, 'CLAUDE.md'), 'utf8')).toContain('rail_claim_task');
+    expect(readFileSync(join(t.project, 'CLAUDE.md'), 'utf8')).toContain('crew_claim_task');
     expect(JSON.parse(readFileSync(join(t.project, '.mcp.json'), 'utf8')).mcpServers).toEqual({
       github: { type: 'stdio', command: 'gh-mcp' },
-      'agent-rail': { type: 'stdio', command: '/opt/rail/bin/rail', args: ['mcp'] },
+      crewyard: { type: 'stdio', command: '/opt/crew/bin/crew', args: ['mcp'] },
     });
     expect(Bun.JSONC.parse(readFileSync(join(t.project, 'opencode.json'), 'utf8'))).toEqual({
       $schema: 'https://opencode.ai/config.json',
-      mcp: { 'agent-rail': { type: 'local', command: ['/opt/rail/bin/rail', 'mcp'], enabled: true } },
+      mcp: { crewyard: { type: 'local', command: ['/opt/crew/bin/crew', 'mcp'], enabled: true } },
     });
-    expect(existsSync(join(t.project, '.claude/skills/rail-review/references/finding-format.md'))).toBe(true);
+    expect(existsSync(join(t.project, '.claude/skills/crew-review/references/finding-format.md'))).toBe(true);
 
     await uninstall(options);
     expect(t.snapshot()).toEqual(before);
@@ -169,8 +169,8 @@ describe('AT-16 install/uninstall round trip', () => {
     await install(options);
     const plan = await uninstall({ ...options, targets: ['codex'] });
     expect(plan.notes.some((n) => n.includes('opencode still uses'))).toBe(true);
-    expect(readFileSync(join(t.project, 'AGENTS.md'), 'utf8')).toContain('agent-rail');
-    expect(existsSync(join(t.project, '.agents/skills/rail-execution/SKILL.md'))).toBe(true);
+    expect(readFileSync(join(t.project, 'AGENTS.md'), 'utf8')).toContain('crewyard');
+    expect(existsSync(join(t.project, '.agents/skills/crew-execution/SKILL.md'))).toBe(true);
     expect(existsSync(join(t.project, '.codex/config.toml'))).toBe(false);
   });
 });
@@ -191,17 +191,17 @@ describe('safety', () => {
   });
 
   test.each<[HostId, string, string]>([
-    ['codex', '.codex/config.toml', '[mcp_servers.agent-rail]\ncommand = "someone-else"\n'],
-    ['claude', '.mcp.json', '{ "mcpServers": { "agent-rail": { "command": "someone-else" } } }\n'],
-    ['opencode', 'opencode.json', '{ "mcp": { "agent-rail": { "type": "local", "command": ["x"] } } }\n'],
-  ])('%s: foreign agent-rail entry yields manual instructions', async (host, file, content) => {
+    ['codex', '.codex/config.toml', '[mcp_servers.crewyard]\ncommand = "someone-else"\n'],
+    ['claude', '.mcp.json', '{ "mcpServers": { "crewyard": { "command": "someone-else" } } }\n'],
+    ['opencode', 'opencode.json', '{ "mcp": { "crewyard": { "type": "local", "command": ["x"] } } }\n'],
+  ])('%s: foreign crewyard entry yields manual instructions', async (host, file, content) => {
     const t = setup();
     writeFiles(t.project, { [file]: content });
     const plan = await planInstall({ ...t.base, targets: [host], scope: 'project', projectRoot: t.project });
     expect(plan.changes.some((c) => c.kind === 'file' && c.path === join(t.project, file))).toBe(false);
     const manual = plan.manualInstructions.find((m) => m.purpose === 'mcp')!;
-    expect(manual.reason).toMatch(/not create|outside Rail-managed/);
-    expect(manual.snippet).toContain('/opt/rail/bin/rail');
+    expect(manual.reason).toMatch(/not create|outside Crewyard-managed/);
+    expect(manual.snippet).toContain('/opt/crew/bin/crew');
 
     const removal = await planUninstall({ ...t.base, targets: [host], scope: 'project', projectRoot: t.project });
     expect(removal.changes.filter((c) => c.purpose === 'mcp')).toEqual([]);
@@ -234,7 +234,7 @@ describe('safety', () => {
     });
     expect(plan.changes).toEqual([]);
     expect(plan.hosts[0]).toMatchObject({ host: 'codex', version: '1.0.0', support: 'unsupported' });
-    expect(plan.manualInstructions[0]?.command).toBe('codex mcp add agent-rail -- /opt/rail/bin/rail mcp');
+    expect(plan.manualInstructions[0]?.command).toBe('codex mcp add crewyard -- /opt/crew/bin/crew mcp');
   });
 
   test('a file edited after planning aborts the apply', async () => {
@@ -244,8 +244,8 @@ describe('safety', () => {
     const plan = await planInstall(options);
     writeFileSync(join(t.home, '.codex/config.toml'), `${CODEX_CONFIG}# edited\n`);
     const error = await applyPlan(plan, options).catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(RailError);
-    expect((error as RailError).code).toBe('CONFLICT');
+    expect(error).toBeInstanceOf(CrewError);
+    expect((error as CrewError).code).toBe('CONFLICT');
     expect(existsSync(join(t.home, '.agents/skills'))).toBe(false);
   });
 });
@@ -275,13 +275,13 @@ describe('claude user scope', () => {
     const plan = await install(options);
     const command = plan.changes.find((c) => c.kind === 'command')!;
     expect(command.preview).toBe(
-      `$ /usr/bin/claude mcp add-json --scope user agent-rail '{"type":"stdio","command":"/opt/rail/bin/rail","args":["mcp"]}'`,
+      `$ /usr/bin/claude mcp add-json --scope user crewyard '{"type":"stdio","command":"/opt/crew/bin/crew","args":["mcp"]}'`,
     );
-    expect(existsSync(join(t.home, '.claude/skills/rail-context/SKILL.md'))).toBe(true);
+    expect(existsSync(join(t.home, '.claude/skills/crew-context/SKILL.md'))).toBe(true);
     expect((await planInstall(options)).changes).toEqual([]);
 
     await uninstall(options);
-    expect(calls.at(-1)).toEqual(['/usr/bin/claude', 'mcp', 'remove', '--scope', 'user', 'agent-rail']);
+    expect(calls.at(-1)).toEqual(['/usr/bin/claude', 'mcp', 'remove', '--scope', 'user', 'crewyard']);
     expect(readFileSync(stateFile, 'utf8')).toBe('{"mcpServers":{}}');
     expect(existsSync(join(t.home, '.claude/skills'))).toBe(false);
   });
@@ -290,8 +290,6 @@ describe('claude user scope', () => {
     const t = setup();
     const plan = await planInstall({ ...t.base, targets: ['claude'], scope: 'user', skillsSourceDir: undefined });
     expect(plan.changes).toEqual([]);
-    expect(plan.manualInstructions[0]?.command).toBe(
-      'claude mcp add --scope user agent-rail -- /opt/rail/bin/rail mcp',
-    );
+    expect(plan.manualInstructions[0]?.command).toBe('claude mcp add --scope user crewyard -- /opt/crew/bin/crew mcp');
   });
 });

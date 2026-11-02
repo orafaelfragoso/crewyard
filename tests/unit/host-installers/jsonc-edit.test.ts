@@ -6,19 +6,19 @@ import {
   readMemberValue,
   removeMember,
   replaceMemberValue,
-} from '@agent-rail/host-installers';
+} from '@crewyard/host-installers';
 
 function roundTrip(text: string, containerKey: string): string {
   const root = parseJsoncObject(text)!;
   const container = findMember(root, containerKey)!;
-  const inserted = insertMember(text, container.object!, 'agent-rail', { command: 'rail', args: ['mcp'] });
+  const inserted = insertMember(text, container.object!, 'crewyard', { command: 'crew', args: ['mcp'] });
   const nextRoot = parseJsoncObject(inserted)!;
   const nextContainer = findMember(nextRoot, containerKey)!;
-  expect(readMemberValue(inserted, findMember(nextContainer.object!, 'agent-rail')!)).toEqual({
-    command: 'rail',
+  expect(readMemberValue(inserted, findMember(nextContainer.object!, 'crewyard')!)).toEqual({
+    command: 'crew',
     args: ['mcp'],
   });
-  return removeMember(inserted, nextContainer.object!, findMember(nextContainer.object!, 'agent-rail')!);
+  return removeMember(inserted, nextContainer.object!, findMember(nextContainer.object!, 'crewyard')!);
 }
 
 describe('jsonc editor', () => {
@@ -36,16 +36,16 @@ describe('jsonc editor', () => {
   test('inserted member matches the file indentation', () => {
     const text = '{\n    "mcp": {\n        "a": 1\n    }\n}\n';
     const root = parseJsoncObject(text)!;
-    const out = insertMember(text, findMember(root, 'mcp')!.object!, 'agent-rail', { x: 1 });
+    const out = insertMember(text, findMember(root, 'mcp')!.object!, 'crewyard', { x: 1 });
     expect(out).toBe(
-      '{\n    "mcp": {\n        "a": 1,\n        "agent-rail": {\n            "x": 1\n        }\n    }\n}\n',
+      '{\n    "mcp": {\n        "a": 1,\n        "crewyard": {\n            "x": 1\n        }\n    }\n}\n',
     );
   });
 
   test('removing the first of several members keeps the others', () => {
-    const text = '{\n  "agent-rail": 1,\n  "b": 2\n}';
+    const text = '{\n  "crewyard": 1,\n  "b": 2\n}';
     const root = parseJsoncObject(text)!;
-    expect(removeMember(text, root, findMember(root, 'agent-rail')!)).toBe('{\n  "b": 2\n}');
+    expect(removeMember(text, root, findMember(root, 'crewyard')!)).toBe('{\n  "b": 2\n}');
   });
 
   test('replaces a value in place', () => {

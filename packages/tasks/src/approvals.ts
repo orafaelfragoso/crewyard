@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite';
-import type { RailConfig } from '@agent-rail/config';
-import { type Actor, newId, nowIso, RailError } from '@agent-rail/core';
-import { all, exec, one, type RailContext, recordTransition } from '@agent-rail/storage';
+import type { CrewConfig } from '@crewyard/config';
+import { type Actor, CrewError, newId, nowIso } from '@crewyard/core';
+import { all, type CrewContext, exec, one, recordTransition } from '@crewyard/storage';
 import { resolveTaskConfig } from './config.ts';
 import {
   type Approval,
@@ -77,14 +77,14 @@ export function decideApprovalInTx(
   note?: string,
 ): Approval {
   if (actor.kind !== 'operator' && actor.kind !== 'system') {
-    throw new RailError('NOT_AUTHORIZED', 'Only an operator (or an autonomy policy) can decide approvals', {
+    throw new CrewError('NOT_AUTHORIZED', 'Only an operator (or an autonomy policy) can decide approvals', {
       details: { actorKind: actor.kind },
     });
   }
   const row = one<ApprovalRow>(db, 'SELECT * FROM approvals WHERE id = ?', approvalId);
-  if (!row) throw new RailError('NOT_FOUND', `Approval not found: ${approvalId}`);
+  if (!row) throw new CrewError('NOT_FOUND', `Approval not found: ${approvalId}`);
   if (row.status !== 'pending') {
-    throw new RailError('CONFLICT', `Approval ${approvalId} is already ${row.status}`, {
+    throw new CrewError('CONFLICT', `Approval ${approvalId} is already ${row.status}`, {
       details: { status: row.status },
     });
   }
@@ -126,7 +126,7 @@ export function decideApprovalInTx(
 }
 
 export function listApprovals(
-  ctx: RailContext,
+  ctx: CrewContext,
   filter: { projectId?: string; status?: ApprovalStatus; subjectKind?: ApprovalSubjectKind; subjectId?: string } = {},
 ): Approval[] {
   const where: string[] = [];
@@ -200,9 +200,9 @@ export function applyRiskInTx(
 }
 
 export function applyRiskClassification(
-  ctx: RailContext,
+  ctx: CrewContext,
   taskId: string,
-  options: { actor: Actor; changedPaths?: string[]; config?: RailConfig },
+  options: { actor: Actor; changedPaths?: string[]; config?: CrewConfig },
 ): RiskApplication {
   const projectId = requireTask(ctx.store.db, taskId).projectId;
   const config = resolveTaskConfig(ctx, projectId, options.config);
@@ -224,7 +224,7 @@ export function applyRiskClassification(
 }
 
 export function decideTaskApproval(
-  ctx: RailContext,
+  ctx: CrewContext,
   taskId: string,
   decision: Exclude<ApprovalStatus, 'pending'>,
   actor: Actor,
@@ -237,7 +237,7 @@ export function decideTaskApproval(
       `SELECT * FROM approvals WHERE subject_kind = 'task' AND subject_id = ? AND status = 'pending'`,
       taskId,
     );
-    if (!pending) throw new RailError('NOT_FOUND', `Task ${taskId} has no pending approval`);
+    if (!pending) throw new CrewError('NOT_FOUND', `Task ${taskId} has no pending approval`);
     return decideApprovalInTx(db, pending.id, decision, actor, at, note);
   });
 }

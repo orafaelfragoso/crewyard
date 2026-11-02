@@ -8,13 +8,13 @@ import {
   type AgentSessionHandle,
   isProcessAlive,
   UNKNOWN_USAGE,
-} from '@agent-rail/core';
-import { createGenericAdapter } from '@agent-rail/provider-generic';
-import { createOllamaAdapter } from '@agent-rail/provider-ollama';
+} from '@crewyard/core';
+import { createGenericAdapter } from '@crewyard/provider-generic';
+import { createOllamaAdapter } from '@crewyard/provider-ollama';
 import { tempDir } from '../../helpers/index.ts';
 import { fakeAgentSettings } from '../agents/setup.ts';
 
-const TOKEN = 'rail_SuperSecretSessionToken0123456789abcdefghijkl';
+const TOKEN = 'crew_SuperSecretSessionToken0123456789abcdefghijkl';
 const cleanups: (() => void)[] = [];
 afterEach(() => {
   for (const fn of cleanups.splice(0)) fn();
@@ -36,7 +36,7 @@ function genericProfile(args: string[] = []): AccountProfile {
 }
 
 function launchInput(profile: AccountProfile, prompt: string, overrides: Partial<AgentLaunch> = {}): AgentLaunch {
-  const dir = tempDir('rail-adapter-');
+  const dir = tempDir('crew-adapter-');
   return {
     sessionId: `ses_${crypto.randomUUID()}`,
     profile,
@@ -44,7 +44,7 @@ function launchInput(profile: AccountProfile, prompt: string, overrides: Partial
     prompt,
     systemInstructions: null,
     cwd: dir,
-    env: { RAIL_SESSION_TOKEN: TOKEN },
+    env: { CREW_SESSION_TOKEN: TOKEN },
     timeoutMs: 20_000,
     maxOutputBytes: 1_000_000,
     logPath: join(dir, 'logs', 'session.log'),
@@ -63,7 +63,7 @@ describe('generic process adapter', () => {
   test('streams normalized events, measured usage and redacted logs', async () => {
     const adapter = createGenericAdapter({ cancelGraceMs: 500 });
     const input = launchInput(
-      genericProfile(['--echo-env', 'RAIL_SESSION_TOKEN']),
+      genericProfile(['--echo-env', 'CREW_SESSION_TOKEN']),
       'FAKE:["--events","2","--usage","100,40,0.25","--write","out.txt=done","--result","all good"]',
     );
     const handle = await adapter.launch(input);
@@ -81,7 +81,7 @@ describe('generic process adapter', () => {
     });
     expect(readFileSync(join(input.cwd, 'out.txt'), 'utf8')).toBe('done');
     const log = readFileSync(input.logPath, 'utf8');
-    expect(log).toContain('RAIL_SESSION_TOKEN=[REDACTED]');
+    expect(log).toContain('CREW_SESSION_TOKEN=[REDACTED]');
     expect(log).not.toContain(TOKEN);
     expect(JSON.stringify(events)).not.toContain(TOKEN);
   });

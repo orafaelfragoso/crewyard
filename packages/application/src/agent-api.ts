@@ -1,4 +1,4 @@
-import { type HandoffKind, RailError, type TaskState } from '@agent-rail/core';
+import { CrewError, type HandoffKind, type TaskState } from '@crewyard/core';
 import {
   explainPullRequest,
   getQueueStatus,
@@ -6,10 +6,10 @@ import {
   requestIntegration,
   requestPullRequestReview,
   showPullRequest,
-} from '@agent-rail/integration';
-import { getProject, loadProjectConfig, primaryRepository } from '@agent-rail/projects';
-import { listFindings, listReviews } from '@agent-rail/reviews';
-import type { RailContext } from '@agent-rail/storage';
+} from '@crewyard/integration';
+import { getProject, loadProjectConfig, primaryRepository } from '@crewyard/projects';
+import { listFindings, listReviews } from '@crewyard/reviews';
+import type { CrewContext } from '@crewyard/storage';
 import {
   getNextAction,
   heartbeat,
@@ -18,8 +18,8 @@ import {
   reportProgress,
   showTask,
   type TestEvidence,
-} from '@agent-rail/tasks';
-import { overviewProjection } from '@agent-rail/telemetry';
+} from '@crewyard/tasks';
+import { overviewProjection } from '@crewyard/telemetry';
 import {
   type AgentTool,
   assertToolAllowed,
@@ -39,8 +39,8 @@ export function authorize(caller: Caller, tool: AgentTool, projectId?: string | 
   return callerProject(caller, projectId);
 }
 
-export function agentState(ctx: RailContext, caller: Caller, projectId?: string | null) {
-  const pid = authorize(caller, 'rail_get_state', projectId);
+export function agentState(ctx: CrewContext, caller: Caller, projectId?: string | null) {
+  const pid = authorize(caller, 'crew_get_state', projectId);
   const project = getProject(ctx, pid);
   const repo = primaryRepository(ctx, pid);
   const config = loadProjectConfig(ctx, pid).config;
@@ -67,7 +67,7 @@ export function agentState(ctx: RailContext, caller: Caller, projectId?: string 
       rebasing: config.integration.rebasing,
       approvalRequiredFor: config.security.require_approval_for,
       mergeAuthority:
-        'Agents never merge. Integration goes through rail_request_integration and GitHub branch protections.',
+        'Agents never merge. Integration goes through crew_request_integration and GitHub branch protections.',
     },
     tasks: overview.tasksByState,
     queue: { queued: overview.queued, openPrs: overview.openPrs, mergedLast24h: overview.mergedLast24h },
@@ -81,7 +81,7 @@ export function agentState(ctx: RailContext, caller: Caller, projectId?: string 
       ...(caller.kind === 'agent' && !caller.managed
         ? {
             limitations: [
-              'Rail cannot cancel this agent',
+              'Crewyard cannot cancel this agent',
               'workspace isolation is not enforced',
               'usage is not accounted',
             ],
@@ -92,7 +92,7 @@ export function agentState(ctx: RailContext, caller: Caller, projectId?: string 
 }
 
 export function agentListTasks(
-  ctx: RailContext,
+  ctx: CrewContext,
   caller: Caller,
   input: {
     projectId?: string | null;
@@ -102,7 +102,7 @@ export function agentListTasks(
     cursor?: string | null;
   },
 ) {
-  const pid = authorize(caller, 'rail_list_tasks', input.projectId);
+  const pid = authorize(caller, 'crew_list_tasks', input.projectId);
   const page = listTasks(ctx, {
     projectId: pid,
     ...(input.states ? { states: input.states } : {}),
@@ -127,14 +127,14 @@ export function agentListTasks(
 }
 
 export function agentNextAction(
-  ctx: RailContext,
+  ctx: CrewContext,
   caller: Caller,
   input: { projectId?: string | null; taskId?: string; leaseGeneration?: number; claimToken?: string },
 ) {
-  const pid = authorize(caller, 'rail_get_next_action', input.projectId);
+  const pid = authorize(caller, 'crew_get_next_action', input.projectId);
   const agentId = callerAgentId(caller);
   if (!agentId) {
-    throw new RailError('NOT_AUTHORIZED', 'rail_get_next_action needs a registered agent identity to suggest work');
+    throw new CrewError('NOT_AUTHORIZED', 'crew_get_next_action needs a registered agent identity to suggest work');
   }
   const taskId = input.taskId ?? (caller.kind === 'session' ? caller.taskId : null);
   let lease: ReturnType<typeof leaseFor> | undefined;
@@ -148,33 +148,33 @@ export function agentNextAction(
   return getNextAction(ctx, { agentId, projectId: pid, ...(lease ? { lease } : {}) });
 }
 
-export async function agentClaim(ctx: RailContext, caller: Caller, input: { taskId: string }): Promise<PreparedClaim> {
-  assertToolAllowed(caller, 'rail_claim_task');
+export async function agentClaim(ctx: CrewContext, caller: Caller, input: { taskId: string }): Promise<PreparedClaim> {
+  assertToolAllowed(caller, 'crew_claim_task');
   const task = showTask(ctx, input.taskId).task;
   callerProject(caller, task.projectId);
   if (caller.kind === 'session') {
-    throw new RailError(
+    throw new CrewError(
       'POLICY_DENIED',
       'Managed sessions are launched with their lease; they cannot claim other tasks',
       {
-        suggestion: 'Finish or hand off the current task, then ask rail_get_next_action.',
+        suggestion: 'Finish or hand off the current task, then ask crew_get_next_action.',
       },
     );
   }
-  if (caller.kind !== 'agent') throw new RailError('NOT_AUTHORIZED', 'Claiming requires a registered agent');
+  if (caller.kind !== 'agent') throw new CrewError('NOT_AUTHORIZED', 'Claiming requires a registered agent');
   if (!caller.managed) {
     const assigned = task.assignedAgentId === caller.agentId;
     if (!assigned && task.risk === 'high') {
-      throw new RailError(
+      throw new CrewError(
         'APPROVAL_REQUIRED',
         `${task.id} is high risk; an operator must assign it to ${caller.agentName} first`,
         {
-          suggestion: `rail task assign ${task.id} ${caller.agentName}`,
+          suggestion: `crew task assign ${task.id} ${caller.agentName}`,
         },
       );
     }
     if (task.assignedAgentId && !assigned) {
-      throw new RailError('POLICY_DENIED', `${task.id} is assigned to another agent`);
+      throw new CrewError('POLICY_DENIED', `${task.id} is assigned to another agent`);
     }
   }
   return claimAndPrepare(ctx, {
@@ -190,22 +190,22 @@ interface LeaseArgs {
   claimToken?: string | undefined;
 }
 
-function taskProject(ctx: RailContext, caller: Caller, taskId: string): void {
+function taskProject(ctx: CrewContext, caller: Caller, taskId: string): void {
   callerProject(caller, showTask(ctx, taskId).task.projectId);
 }
 
-export function agentHeartbeat(ctx: RailContext, caller: Caller, input: LeaseArgs) {
-  assertToolAllowed(caller, 'rail_heartbeat');
+export function agentHeartbeat(ctx: CrewContext, caller: Caller, input: LeaseArgs) {
+  assertToolAllowed(caller, 'crew_heartbeat');
   taskProject(ctx, caller, input.taskId);
   return heartbeat(ctx, leaseFor(caller, input));
 }
 
 export function agentProgress(
-  ctx: RailContext,
+  ctx: CrewContext,
   caller: Caller,
   input: LeaseArgs & { summary: string; percent?: number; commits?: string[] },
 ) {
-  assertToolAllowed(caller, 'rail_report_progress');
+  assertToolAllowed(caller, 'crew_report_progress');
   taskProject(ctx, caller, input.taskId);
   return reportProgress(ctx, {
     ...leaseFor(caller, input),
@@ -224,7 +224,7 @@ export interface HandoffArgs extends LeaseArgs {
   remainingIssues?: string[] | undefined;
 }
 
-function handoff(ctx: RailContext, caller: Caller, kind: HandoffKind, tool: AgentTool, input: HandoffArgs) {
+function handoff(ctx: CrewContext, caller: Caller, kind: HandoffKind, tool: AgentTool, input: HandoffArgs) {
   assertToolAllowed(caller, tool);
   taskProject(ctx, caller, input.taskId);
   return report(ctx, {
@@ -241,19 +241,19 @@ function handoff(ctx: RailContext, caller: Caller, kind: HandoffKind, tool: Agen
   });
 }
 
-export function agentReportBlocker(ctx: RailContext, caller: Caller, input: HandoffArgs) {
-  return handoff(ctx, caller, 'blocked', 'rail_report_blocker', input);
+export function agentReportBlocker(ctx: CrewContext, caller: Caller, input: HandoffArgs) {
+  return handoff(ctx, caller, 'blocked', 'crew_report_blocker', input);
 }
 
 export function agentSubmitWork(
-  ctx: RailContext,
+  ctx: CrewContext,
   caller: Caller,
   input: HandoffArgs & { kind?: 'ready_for_pr' | 'needs_review' | 'completed' },
 ) {
-  return handoff(ctx, caller, input.kind ?? 'ready_for_pr', 'rail_submit_work', input);
+  return handoff(ctx, caller, input.kind ?? 'ready_for_pr', 'crew_submit_work', input);
 }
 
-function ownedTask(ctx: RailContext, caller: Caller, taskId: string) {
+function ownedTask(ctx: CrewContext, caller: Caller, taskId: string) {
   const detail = showTask(ctx, taskId);
   callerProject(caller, detail.task.projectId);
   const agentId = callerAgentId(caller);
@@ -262,24 +262,24 @@ function ownedTask(ctx: RailContext, caller: Caller, taskId: string) {
     holder !== null &&
     ((holder.kind === 'agent' && holder.id === agentId) || (caller.kind === 'session' && caller.taskId === taskId));
   if (!owns) {
-    throw new RailError('NOT_AUTHORIZED', `Only the agent that worked on ${taskId} may publish or queue it`, {
+    throw new CrewError('NOT_AUTHORIZED', `Only the agent that worked on ${taskId} may publish or queue it`, {
       details: { holder },
     });
   }
   return detail;
 }
 
-function prForTask(ctx: RailContext, taskId: string) {
+function prForTask(ctx: CrewContext, taskId: string) {
   const pr = listPullRequests(ctx, { taskId, limit: 1 })[0];
   if (!pr)
-    throw new RailError('NOT_FOUND', `No pull request is recorded for ${taskId}`, {
-      suggestion: 'Call rail_submit_pr first.',
+    throw new CrewError('NOT_FOUND', `No pull request is recorded for ${taskId}`, {
+      suggestion: 'Call crew_submit_pr first.',
     });
   return pr;
 }
 
-export async function agentSubmitPr(ctx: RailContext, caller: Caller, input: { taskId: string }) {
-  assertToolAllowed(caller, 'rail_submit_pr');
+export async function agentSubmitPr(ctx: CrewContext, caller: Caller, input: { taskId: string }) {
+  assertToolAllowed(caller, 'crew_submit_pr');
   ownedTask(ctx, caller, input.taskId);
   return publishTask(ctx, {
     taskId: input.taskId,
@@ -290,18 +290,18 @@ export async function agentSubmitPr(ctx: RailContext, caller: Caller, input: { t
 }
 
 export function agentGetReview(
-  ctx: RailContext,
+  ctx: CrewContext,
   caller: Caller,
   input: { taskId?: string; prNumber?: number; projectId?: string | null },
 ) {
-  const projectId = authorize(caller, 'rail_get_review', input.projectId);
+  const projectId = authorize(caller, 'crew_get_review', input.projectId);
   const repo = primaryRepository(ctx, projectId);
   const pr = input.taskId
     ? prForTask(ctx, input.taskId)
     : input.prNumber
       ? showPullRequest(ctx, { repositoryId: repo.id, number: input.prNumber })
       : null;
-  if (!pr) throw new RailError('INVALID_INPUT', 'Pass taskId or prNumber');
+  if (!pr) throw new CrewError('INVALID_INPUT', 'Pass taskId or prNumber');
   return {
     pullRequest: {
       number: pr.number,
@@ -316,8 +316,8 @@ export function agentGetReview(
   };
 }
 
-export async function agentRequestReview(ctx: RailContext, caller: Caller, input: { taskId: string }) {
-  assertToolAllowed(caller, 'rail_request_review');
+export async function agentRequestReview(ctx: CrewContext, caller: Caller, input: { taskId: string }) {
+  assertToolAllowed(caller, 'crew_request_review');
   const detail = ownedTask(ctx, caller, input.taskId);
   const pr = prForTask(ctx, input.taskId);
   return requestPullRequestReview(
@@ -331,8 +331,8 @@ export async function agentRequestReview(ctx: RailContext, caller: Caller, input
   );
 }
 
-export async function agentRequestIntegration(ctx: RailContext, caller: Caller, input: { taskId: string }) {
-  assertToolAllowed(caller, 'rail_request_integration');
+export async function agentRequestIntegration(ctx: CrewContext, caller: Caller, input: { taskId: string }) {
+  assertToolAllowed(caller, 'crew_request_integration');
   const detail = ownedTask(ctx, caller, input.taskId);
   const pr = prForTask(ctx, input.taskId);
   return requestIntegration(
@@ -343,11 +343,11 @@ export async function agentRequestIntegration(ctx: RailContext, caller: Caller, 
 }
 
 export function agentQueueStatus(
-  ctx: RailContext,
+  ctx: CrewContext,
   caller: Caller,
   input: { taskId?: string; prNumber?: number; projectId?: string | null },
 ) {
-  const projectId = authorize(caller, 'rail_get_queue_status', input.projectId);
+  const projectId = authorize(caller, 'crew_get_queue_status', input.projectId);
   const repo = primaryRepository(ctx, projectId);
   const env = integrationEnv(ctx);
   const pr = input.taskId

@@ -1,5 +1,5 @@
 {
-  "name": "@agent-rail/mcp",
+  "name": "@crewyard/mcp",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,8 +9,8 @@
     ".": "./src/main.ts"
   },
   "dependencies": {
-    "@agent-rail/core": "workspace:*",
-    "@agent-rail/application": "workspace:*",
+    "@crewyard/core": "workspace:*",
+    "@crewyard/application": "workspace:*",
     "@modelcontextprotocol/server": "2.4.0",
     "zod": "4.6.7"
   }

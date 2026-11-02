@@ -2,13 +2,13 @@ import type { Database } from 'bun:sqlite';
 import {
   type AccountProfile,
   type Clock,
+  CrewError,
   type ErrorCode,
   isExpired,
   type ProfileHealthStatus,
   type ProviderId,
-  RailError,
-} from '@agent-rail/core';
-import { one, type RailContext } from '@agent-rail/storage';
+} from '@crewyard/core';
+import { type CrewContext, one } from '@crewyard/storage';
 import { type AgentRuntimeConfig, defaultAgentRuntimeConfig } from './config.ts';
 import { type AgentDefinition, requireAgent } from './definitions.ts';
 import { dataRoutingDecision } from './egress.ts';
@@ -78,21 +78,21 @@ export function routeAgentInDb(
   config: AgentRuntimeConfig,
 ): RouteDecision {
   if (!SESSION_MODES.includes(input.requiredCapability)) {
-    throw new RailError('INVALID_INPUT', `Unknown capability ${input.requiredCapability}`);
+    throw new CrewError('INVALID_INPUT', `Unknown capability ${input.requiredCapability}`);
   }
   const agent = requireAgent(db, input.agentId);
   if (!agent.managed) {
-    throw new RailError('POLICY_DENIED', `Agent ${agent.name} is unmanaged; Agent Rail does not launch it`, {
+    throw new CrewError('POLICY_DENIED', `Agent ${agent.name} is unmanaged; Crewyard does not launch it`, {
       details: { limitations: agent.limitations },
     });
   }
   if (!agent.accountPolicyId) {
-    throw new RailError('POLICY_DENIED', `Agent ${agent.name} has no account policy`, {
+    throw new CrewError('POLICY_DENIED', `Agent ${agent.name} has no account policy`, {
       suggestion: 'Create an account policy (ordered profiles) and reference it from the agent.',
     });
   }
   const policy = findPolicy(db, agent.accountPolicyId);
-  if (!policy) throw new RailError('NOT_FOUND', `Account policy ${agent.accountPolicyId} no longer exists`);
+  if (!policy) throw new CrewError('NOT_FOUND', `Account policy ${agent.accountPolicyId} no longer exists`);
   const allowFallback = policy.allowFallback || config.agents.allow_profile_fallback;
   const explanation: string[] = [
     `policy ${policy.name}: ${policy.profileIds.length} profile(s), fallback ${allowFallback ? 'allowed' : 'not allowed'}`,
@@ -124,7 +124,7 @@ export function routeAgentInDb(
     permitted.push({ profile, model: choice.model });
   }
   if (permitted.length === 0) {
-    throw new RailError('POLICY_DENIED', `No profile in policy ${policy.name} is permitted for this request`, {
+    throw new CrewError('POLICY_DENIED', `No profile in policy ${policy.name} is permitted for this request`, {
       details: { explanation },
     });
   }
@@ -136,7 +136,7 @@ export function routeAgentInDb(
   )!.n;
   if (agentRunning >= agent.maxParallel) {
     explanation.push(`agent ${agent.name} is at its parallel limit (${agentRunning}/${agent.maxParallel})`);
-    throw new RailError('BUSY', `Agent ${agent.name} already runs ${agentRunning} session(s)`, {
+    throw new CrewError('BUSY', `Agent ${agent.name} already runs ${agentRunning} session(s)`, {
       details: { explanation },
     });
   }
@@ -207,17 +207,17 @@ export function routeAgentInDb(
     explanation.push(`${permitted.length - 1} other permitted profile(s) not tried: fallback is not authorized`);
   }
   const blocker = BLOCKER_PRECEDENCE.find((b) => blockers.includes(b)) ?? 'health';
-  throw new RailError(BLOCKER_CODES[blocker], `No eligible account for agent ${agent.name}: ${explanation.at(-1)}`, {
+  throw new CrewError(BLOCKER_CODES[blocker], `No eligible account for agent ${agent.name}: ${explanation.at(-1)}`, {
     details: { explanation, retryAt },
     suggestion:
       blocker === 'rate_limited'
         ? 'Work stays paused until the rate limit expires or an explicitly authorized fallback profile is added.'
-        : 'Inspect `rail account list` and the agent account policy.',
+        : 'Inspect `crew account list` and the agent account policy.',
   });
 }
 
 export function routeAgent(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: RouteInput,
   options: { config?: AgentRuntimeConfig } = {},
 ): RouteDecision {

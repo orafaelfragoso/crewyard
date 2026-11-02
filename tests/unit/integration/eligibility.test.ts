@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { railConfigSchema } from '@agent-rail/config';
-import type { BranchRequirements } from '@agent-rail/github';
+import { crewConfigSchema } from '@crewyard/config';
+import type { BranchRequirements } from '@crewyard/github';
 import {
   type EligibilityInput,
   evaluateEligibility,
@@ -9,9 +9,9 @@ import {
   type PullRequestRecord,
   type QueueEntry,
   selectGroup,
-} from '@agent-rail/integration';
+} from '@crewyard/integration';
 
-const config = railConfigSchema.parse({ version: 1, project: { name: 'p' } });
+const config = crewConfigSchema.parse({ version: 1, project: { name: 'p' } });
 
 const requirements: BranchRequirements = {
   branch: 'main',
@@ -83,7 +83,7 @@ function input(overrides: Partial<EligibilityInput> = {}): EligibilityInput {
     pr: pr(),
     autonomy: 'autopilot',
     config,
-    mode: 'rail-managed',
+    mode: 'crew-managed',
     mergeApproved: false,
     reviews: { commitSha: 'h1', byType: { code: null, security: null, integration: null }, blockingFindings: 0 },
     parents: [],
@@ -143,7 +143,7 @@ describe('eligibility', () => {
     expect(codes(input({ pr: stale }))).toEqual(['REVIEWS_REQUIRED']);
   });
 
-  test('Rail policies gate autonomy, sensitive paths and high risk changes', () => {
+  test('Crewyard policies gate autonomy, sensitive paths and high risk changes', () => {
     expect(codes(input({ autonomy: 'observe' }))).toContain('AUTONOMY_OBSERVE');
     expect(codes(input({ autonomy: 'assisted' }))).toEqual(['OPERATOR_MERGE_APPROVAL_REQUIRED']);
     expect(codes(input({ autonomy: 'assisted', mergeApproved: true }))).toEqual([]);
@@ -281,7 +281,7 @@ describe('queue ordering', () => {
       item('other'),
     ];
     expect(selectGroup(stacked, config, 1).map((i) => i.pr.id)).toEqual(['s1', 's2']);
-    const speculative = railConfigSchema.parse({
+    const speculative = crewConfigSchema.parse({
       version: 1,
       project: { name: 'p' },
       integration: { speculative_validation: true },

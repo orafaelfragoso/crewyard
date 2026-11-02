@@ -1,6 +1,6 @@
 # Plan format
 
-Use the output schema provided by the planning session when there is one. Otherwise return one JSON object in this shape. Field names map to Rail task fields; unknown fields are rejected.
+Use the output schema provided by the planning session when there is one. Otherwise return one JSON object in this shape. Field names map to Crewyard task fields; unknown fields are rejected.
 
 ```json
 {
@@ -46,9 +46,9 @@ Use the output schema provided by the planning session when there is one. Otherw
 
 | Field | Notes |
 |---|---|
-| `id` | Unique within the plan. Rail assigns stable task IDs on import. |
+| `id` | Unique within the plan. Crewyard assigns stable task IDs on import. |
 | `risk` | `low`, `medium` or `high`. Sensitive paths (auth, payments, migrations, deployment, dependencies) are `high`. |
-| `priority` | Integer; higher runs first. Rail adds unblock value, age and fairness. |
+| `priority` | Integer; higher runs first. Crewyard adds unblock value, age and fairness. |
 | `dependsOn` | Plan IDs or existing task IDs. Must not form a cycle. |
 | `scopeHints` | Paths or globs the task is expected to touch. Drives reservations and conflict prediction. |
 | `exclusiveResources` | Named resources that only one task may hold, such as `db-schema`. |

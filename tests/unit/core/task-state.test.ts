@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { allowedNextStates, assertTransition, RailError, TASK_STATES } from '@agent-rail/core';
+import { allowedNextStates, assertTransition, CrewError, TASK_STATES } from '@crewyard/core';
 
 describe('task state machine', () => {
   test('follows the documented happy path', () => {
@@ -23,11 +23,11 @@ describe('task state machine', () => {
       assertTransition('READY', 'MERGED', 'TASK-1');
       throw new Error('expected failure');
     } catch (error) {
-      expect(error).toBeInstanceOf(RailError);
-      const rail = error as RailError;
-      expect(rail.code).toBe('INVALID_TRANSITION');
-      expect(rail.exitCode).toBe(3);
-      expect(rail.details?.allowed).toEqual(allowedNextStates('READY'));
+      expect(error).toBeInstanceOf(CrewError);
+      const crew = error as CrewError;
+      expect(crew.code).toBe('INVALID_TRANSITION');
+      expect(crew.exitCode).toBe(3);
+      expect(crew.details?.allowed).toEqual(allowedNextStates('READY'));
     }
   });
 

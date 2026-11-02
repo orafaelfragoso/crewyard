@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
-import { RailError } from '@agent-rail/core';
-import { all } from '@agent-rail/storage';
+import { CrewError } from '@crewyard/core';
+import { all } from '@crewyard/storage';
 import { compareTaskIds } from './model.ts';
 
 export type DependencyGraph = ReadonlyMap<string, readonly string[]>;
@@ -61,7 +61,7 @@ export function topologicalOrder(graph: DependencyGraph, compare: (a: string, b:
     }
   }
   if (order.length !== graph.size) {
-    throw new RailError('CYCLE_DETECTED', 'Dependency graph contains a cycle', {
+    throw new CrewError('CYCLE_DETECTED', 'Dependency graph contains a cycle', {
       details: { cycle: findCycle(graph) },
     });
   }
@@ -92,7 +92,7 @@ export function assertAcyclicWith(
   graph.set(taskId, [...dependencies]);
   const cycle = findCycle(graph);
   if (cycle) {
-    throw new RailError('CYCLE_DETECTED', `Dependencies would create a cycle: ${cycle.join(' -> ')}`, {
+    throw new CrewError('CYCLE_DETECTED', `Dependencies would create a cycle: ${cycle.join(' -> ')}`, {
       details: { cycle },
       suggestion: 'Remove one of the dependencies in the reported cycle.',
     });

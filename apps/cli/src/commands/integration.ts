@@ -4,8 +4,8 @@ import {
   projectForRepositoryPath,
   publishTask,
   reviewersFor,
-} from '@agent-rail/application';
-import { RailError } from '@agent-rail/core';
+} from '@crewyard/application';
+import { CrewError } from '@crewyard/core';
 import {
   decideMergeApproval,
   explainPullRequest,
@@ -24,7 +24,7 @@ import {
   showPullRequest,
   syncRepository,
   updateQueueEntry,
-} from '@agent-rail/integration';
+} from '@crewyard/integration';
 import {
   getReview,
   invalidateReviews,
@@ -32,29 +32,29 @@ import {
   listReviews,
   type ReviewType,
   updateFindingStatus,
-} from '@agent-rail/reviews';
-import type { RailContext } from '@agent-rail/storage';
-import { acquireLeadership } from '@agent-rail/storage';
+} from '@crewyard/reviews';
+import type { CrewContext } from '@crewyard/storage';
+import { acquireLeadership } from '@crewyard/storage';
 import type { Command } from 'commander';
 import { confirm, emit, keyValues, table } from '../output.ts';
 import { action, operatorActor, withMutationOptions } from '../program.ts';
 
-async function repo(ctx: RailContext, opts: { project?: string }) {
+async function repo(ctx: CrewContext, opts: { project?: string }) {
   return (await projectForRepositoryPath(ctx, opts.project)).repository;
 }
 
-async function prId(ctx: RailContext, opts: { project?: string }, number: string): Promise<string> {
+async function prId(ctx: CrewContext, opts: { project?: string }, number: string): Promise<string> {
   const r = await repo(ctx, opts);
   return showPullRequest(ctx, { repositoryId: r.id, number: Number(number) }).id;
 }
 
-function operatorLeader(ctx: RailContext, repositoryId: string, base: string): string {
+function operatorLeader(ctx: CrewContext, repositoryId: string, base: string): string {
   const id = `cli:${process.pid}`;
   const lease = acquireLeadership(ctx.store, `integration:${repositoryId}:${base}`, id, 120);
   if (!lease) {
-    throw new RailError(
+    throw new CrewError(
       'CONFLICT',
-      'Another integration controller (normally `rail service`) holds leadership for this branch',
+      'Another integration controller (normally `crew service`) holds leadership for this branch',
       {
         suggestion: 'Let the running service process the queue, or stop it before running a manual tick.',
       },
@@ -74,7 +74,7 @@ export function registerIntegrationCommands(program: Command): void {
       }),
     );
 
-  const pr = program.command('pr').description('pull requests tracked by Rail');
+  const pr = program.command('pr').description('pull requests tracked by Crewyard');
   pr.command('import')
     .description('import existing open PRs and classify merge candidates, blockers and stacks')
     .action(
@@ -141,7 +141,7 @@ export function registerIntegrationCommands(program: Command): void {
       .command('submit')
       .description('push a handed-off task branch and open its PR (operator authorization for assisted mode)')
       .requiredOption('--task <taskId>')
-      .option('--no-review', 'skip Rail review')
+      .option('--no-review', 'skip Crewyard review')
       .option('--no-enqueue', 'do not request integration'),
   ).action(
     action(async (ctx, opts) => {
@@ -165,7 +165,7 @@ export function registerIntegrationCommands(program: Command): void {
   withMutationOptions(
     pr
       .command('approve <number>')
-      .description('authorize Rail to merge this PR head (assisted mode)')
+      .description('authorize Crewyard to merge this PR head (assisted mode)')
       .option('--reject'),
   ).action(
     action(async (ctx, opts, number: string) => {
@@ -343,7 +343,7 @@ export function registerIntegrationCommands(program: Command): void {
       action(async (ctx, opts, queueId?: string) => {
         const r = await repo(ctx, opts);
         const id = queueId ?? listQueues(ctx, r.id).find((q) => q.baseBranch === r.defaultBase)?.id;
-        if (!id) throw new RailError('NOT_FOUND', 'No integration queue exists yet for the base branch');
+        if (!id) throw new CrewError('NOT_FOUND', 'No integration queue exists yet for the base branch');
         emit(opts, setQueuePaused(ctx, id, paused, operatorActor()), (q) => `${q.id} ${paused ? 'paused' : 'resumed'}`);
       }),
     );

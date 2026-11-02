@@ -1,6 +1,6 @@
 # Generic process adapter
 
-Package: `@agent-rail/provider-generic`. Runs any executable as a managed agent. It never assumes usage telemetry.
+Package: `@crewyard/provider-generic`. Runs any executable as a managed agent. It never assumes usage telemetry.
 
 ## Profile settings
 
@@ -10,14 +10,14 @@ Package: `@agent-rail/provider-generic`. Runs any executable as a managed agent.
 | `args` | Arguments. `{model}`, `{mode}` and `{session_id}` are substituted; an argument containing `{model}` is dropped when no model is selected. |
 | `protocol` | `jsonl` (default) or `text`. |
 | `input` | How the prompt is delivered on stdin: `text` (default), `json` (`{prompt, systemInstructions, mode, model, outputSchema?}`) or `none`. |
-| `envAllowlist` | Extra variables passed through from Rail's environment on top of the core allowlist. |
+| `envAllowlist` | Extra variables passed through from Crewyard's environment on top of the core allowlist. |
 | `env` | Static, non-secret variables. Secret-looking keys or values are rejected. |
 | `apiKeyEnv` | Required for `api-key` profiles: the variable that receives the key from the OS secret store. |
 | `versionArgs` | Arguments for a version probe (for example `["--version"]`). |
 | `codingAgent` | `false` limits the profile to `plan`/`review`. |
 
-The child also receives `RAIL_SESSION_ID`, `RAIL_MODE`, `RAIL_MODEL` (when selected), `RAIL_SESSION_TOKEN`,
-`RAIL_AGENT_ID`, `RAIL_TASK_ID` and `RAIL_PROJECT_ID`. The working directory is the session worktree.
+The child also receives `CREW_SESSION_ID`, `CREW_MODE`, `CREW_MODEL` (when selected), `CREW_SESSION_TOKEN`,
+`CREW_AGENT_ID`, `CREW_TASK_ID` and `CREW_PROJECT_ID`. The working directory is the session worktree.
 
 ## JSONL protocol v1
 
@@ -49,5 +49,5 @@ Exit code 0 and no fatal `error` means success. Without `usage` lines the sessio
 
 ## Execution bounds
 
-Timeout, output byte limit, process-group cancellation and log redaction are enforced by Rail, not by the process.
+Timeout, output byte limit, process-group cancellation and log redaction are enforced by Crewyard, not by the process.
 `fixtures/providers/fake-agent.ts` is a reference implementation used by the test suite.

@@ -1,18 +1,18 @@
 import { basename } from 'node:path';
-import { type LoadedConfig, loadConfig, type RailConfig } from '@agent-rail/config';
+import { type CrewConfig, type LoadedConfig, loadConfig } from '@crewyard/config';
 import {
   type Actor,
   type AutonomyMode,
+  CrewError,
   canonicalPath,
   fingerprint,
   isGitRepository,
   newId,
   nowIso,
-  RailError,
   remoteIdentity,
   repositoryRoot,
-} from '@agent-rail/core';
-import { all, one, parseJson, type RailContext, recordTransition } from '@agent-rail/storage';
+} from '@crewyard/core';
+import { all, type CrewContext, one, parseJson, recordTransition } from '@crewyard/storage';
 
 export interface Project {
   id: string;
@@ -98,21 +98,21 @@ export const mapRepository = (r: RepositoryRow): Repository => ({
   trusted: r.trusted === 1,
 });
 
-export function getProject(ctx: RailContext, idOrName: string): Project {
+export function getProject(ctx: CrewContext, idOrName: string): Project {
   const row = one<ProjectRow>(ctx.store.db, 'SELECT * FROM projects WHERE id = ? OR name = ?', idOrName, idOrName);
   if (!row) {
-    throw new RailError('NOT_FOUND', `Project not found: ${idOrName}`, {
-      suggestion: 'Run `rail project list` or `rail init` in the repository.',
+    throw new CrewError('NOT_FOUND', `Project not found: ${idOrName}`, {
+      suggestion: 'Run `crew project list` or `crew init` in the repository.',
     });
   }
   return mapProject(row);
 }
 
-export function listProjects(ctx: RailContext): Project[] {
+export function listProjects(ctx: CrewContext): Project[] {
   return all<ProjectRow>(ctx.store.db, 'SELECT * FROM projects ORDER BY name').map(mapProject);
 }
 
-export function listRepositories(ctx: RailContext, projectId?: string): Repository[] {
+export function listRepositories(ctx: CrewContext, projectId?: string): Repository[] {
   return (
     projectId
       ? all<RepositoryRow>(
@@ -124,23 +124,23 @@ export function listRepositories(ctx: RailContext, projectId?: string): Reposito
   ).map(mapRepository);
 }
 
-export function getRepository(ctx: RailContext, id: string): Repository {
+export function getRepository(ctx: CrewContext, id: string): Repository {
   const row = one<RepositoryRow>(ctx.store.db, 'SELECT * FROM repositories WHERE id = ?', id);
-  if (!row) throw new RailError('NOT_FOUND', `Repository not found: ${id}`);
+  if (!row) throw new CrewError('NOT_FOUND', `Repository not found: ${id}`);
   return mapRepository(row);
 }
 
-export function primaryRepository(ctx: RailContext, projectId: string): Repository {
+export function primaryRepository(ctx: CrewContext, projectId: string): Repository {
   const repos = listRepositories(ctx, projectId);
   if (repos.length === 0) {
-    throw new RailError('NOT_FOUND', `Project ${projectId} has no repositories`, {
-      suggestion: 'Run `rail init --repo PATH`.',
+    throw new CrewError('NOT_FOUND', `Project ${projectId} has no repositories`, {
+      suggestion: 'Run `crew init --repo PATH`.',
     });
   }
   return repos[0]!;
 }
 
-export async function findProjectForPath(ctx: RailContext, cwd: string): Promise<Project | null> {
+export async function findProjectForPath(ctx: CrewContext, cwd: string): Promise<Project | null> {
   if (!(await isGitRepository(cwd))) return null;
   const root = canonicalPath(await repositoryRoot(cwd));
   const repo = one<RepositoryRow>(ctx.store.db, 'SELECT * FROM repositories WHERE canonical_path = ?', root);
@@ -157,7 +157,7 @@ export async function findProjectForPath(ctx: RailContext, cwd: string): Promise
 }
 
 export async function resolveProject(
-  ctx: RailContext,
+  ctx: CrewContext,
   selector: string | undefined,
   cwd: string = process.cwd(),
 ): Promise<Project> {
@@ -166,12 +166,12 @@ export async function resolveProject(
   if (found) return found;
   const projects = listProjects(ctx);
   if (projects.length === 1) return projects[0]!;
-  throw new RailError('NOT_FOUND', 'No project selected and the current directory is not a registered repository', {
-    suggestion: 'Pass --project NAME or run `rail init` in the repository.',
+  throw new CrewError('NOT_FOUND', 'No project selected and the current directory is not a registered repository', {
+    suggestion: 'Pass --project NAME or run `crew init` in the repository.',
   });
 }
 
-export function loadProjectConfig(ctx: RailContext, projectId: string, flags?: Record<string, unknown>): LoadedConfig {
+export function loadProjectConfig(ctx: CrewContext, projectId: string, flags?: Record<string, unknown>): LoadedConfig {
   const project = getProject(ctx, projectId);
   const repo = primaryRepository(ctx, project.id);
   return loadConfig({
@@ -182,7 +182,7 @@ export function loadProjectConfig(ctx: RailContext, projectId: string, flags?: R
   });
 }
 
-export function projectConfig(ctx: RailContext, projectId: string): RailConfig {
+export function projectConfig(ctx: CrewContext, projectId: string): CrewConfig {
   return loadProjectConfig(ctx, projectId).config;
 }
 
@@ -197,11 +197,11 @@ export interface RegisterProjectInput {
 }
 
 export async function registerProject(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: RegisterProjectInput,
 ): Promise<{ project: Project; repository: Repository; created: boolean }> {
   if (!(await isGitRepository(input.repoPath))) {
-    throw new RailError('INVALID_INPUT', `${input.repoPath} is not a Git working tree`, {
+    throw new CrewError('INVALID_INPUT', `${input.repoPath} is not a Git working tree`, {
       suggestion: 'Run inside a Git repository.',
     });
   }
@@ -228,7 +228,7 @@ export async function registerProject(
     }
     const name = input.name ?? basename(root);
     if (one(db, 'SELECT id FROM projects WHERE name = ?', name)) {
-      throw new RailError('CONFLICT', `A project named ${name} already exists`, {
+      throw new CrewError('CONFLICT', `A project named ${name} already exists`, {
         suggestion: 'Pass --name to choose another name.',
       });
     }
@@ -273,7 +273,7 @@ export async function registerProject(
 }
 
 export function setProjectFlags(
-  ctx: RailContext,
+  ctx: CrewContext,
   projectId: string,
   flags: { intakePaused?: boolean; workersPaused?: boolean; autonomy?: AutonomyMode },
   actor: Actor,
@@ -300,7 +300,7 @@ export function setProjectFlags(
   });
 }
 
-export function recordPolicyRevision(ctx: RailContext, projectId: string, config: RailConfig, author: string): number {
+export function recordPolicyRevision(ctx: CrewContext, projectId: string, config: CrewConfig, author: string): number {
   const body = JSON.stringify(config);
   const bodyFingerprint = fingerprint(config);
   const at = nowIso(ctx.clock);
@@ -336,7 +336,7 @@ export function recordPolicyRevision(ctx: RailContext, projectId: string, config
   });
 }
 
-export function setRepositoryTrust(ctx: RailContext, repositoryId: string, trusted: boolean, actor: Actor): void {
+export function setRepositoryTrust(ctx: CrewContext, repositoryId: string, trusted: boolean, actor: Actor): void {
   const at = nowIso(ctx.clock);
   ctx.store.immediate((db) => {
     const repo = mapRepository(one<RepositoryRow>(db, 'SELECT * FROM repositories WHERE id = ?', repositoryId)!);

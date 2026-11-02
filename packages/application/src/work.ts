@@ -1,6 +1,6 @@
-import { type Actor, RailError } from '@agent-rail/core';
-import { loadProjectConfig } from '@agent-rail/projects';
-import type { RailContext } from '@agent-rail/storage';
+import { type Actor, CrewError } from '@crewyard/core';
+import { loadProjectConfig } from '@crewyard/projects';
+import type { CrewContext } from '@crewyard/storage';
 import {
   type ClaimResult,
   claimTask,
@@ -8,8 +8,8 @@ import {
   releaseLease,
   requiresPullRequest,
   showTask,
-} from '@agent-rail/tasks';
-import { allocateWorkspace, type Workspace } from '@agent-rail/workspaces';
+} from '@crewyard/tasks';
+import { allocateWorkspace, type Workspace } from '@crewyard/workspaces';
 import { impact } from './retrieval.ts';
 
 export interface PreparedClaim {
@@ -28,7 +28,7 @@ export interface PreparedClaim {
 }
 
 async function impactScopes(
-  ctx: RailContext,
+  ctx: CrewContext,
   projectId: string,
   taskId: string,
   hints: string[],
@@ -42,13 +42,13 @@ async function impactScopes(
       note: report.disclaimer,
     };
   } catch (error) {
-    if (error instanceof RailError && error.code === 'INDEX_STALE') return { scopes: [], note: error.message };
+    if (error instanceof CrewError && error.code === 'INDEX_STALE') return { scopes: [], note: error.message };
     throw error;
   }
 }
 
 export async function claimAndPrepare(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: { taskId: string; holder: LeaseHolder; actor: Actor; allocateWorkspace?: boolean },
 ): Promise<PreparedClaim> {
   const detail = showTask(ctx, input.taskId);

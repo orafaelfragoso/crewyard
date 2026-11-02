@@ -1,30 +1,30 @@
 import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { RailConfig } from '@agent-rail/config';
+import type { CrewConfig } from '@crewyard/config';
 import {
   type Actor,
+  CrewError,
   ensureDir,
   type FailureClass,
   fingerprint,
   newId,
   nowIso,
-  RailError,
   redact,
   run,
   SYSTEM_ACTOR,
   sanitizeEnv,
   sha256,
   shellCommand,
-} from '@agent-rail/core';
-import { one, type RailContext, recordTransition, toJson } from '@agent-rail/storage';
+} from '@crewyard/core';
+import { type CrewContext, one, recordTransition, toJson } from '@crewyard/storage';
 import { matchesAny } from './classify.ts';
 
-export type CommandSpec = RailConfig['validation']['fast'][number];
+export type CommandSpec = CrewConfig['validation']['fast'][number];
 export type ValidationScope = 'fast' | 'broad' | 'required';
 export type ValidationStatus = 'pending' | 'running' | 'passed' | 'failed' | 'error';
 
 export function selectValidation(
-  config: Pick<RailConfig, 'validation'>,
+  config: Pick<CrewConfig, 'validation'>,
   scope: 'fast' | 'broad',
   changedPaths: readonly string[],
 ): CommandSpec[] {
@@ -112,7 +112,7 @@ export function normalizeFailureOutput(output: string): string {
     .slice(-40)
     .join('\n')
     .replace(/\b[0-9a-f]{7,64}\b/g, '<sha>')
-    .replace(/(\/[\w.-]+)+\/(rail-[\w-]+|tmp[\w-]*)[\w/.-]*/g, '<path>')
+    .replace(/(\/[\w.-]+)+\/(crew-[\w-]+|tmp[\w-]*)[\w/.-]*/g, '<path>')
     .replace(/\d+(\.\d+)?\s*(ms|s)\b/g, '<duration>')
     .replace(/\b\d{4}-\d{2}-\d{2}T[\d:.]+Z?\b/g, '<time>')
     .trim();
@@ -138,7 +138,7 @@ export interface RunValidationInput {
   actor?: Actor;
 }
 
-export async function runValidation(ctx: RailContext, input: RunValidationInput): Promise<ValidationRun> {
+export async function runValidation(ctx: CrewContext, input: RunValidationInput): Promise<ValidationRun> {
   const actor = input.actor ?? SYSTEM_ACTOR;
   const env = sanitizeEnv(process.env, undefined, {});
   for (const key of input.envAllowlist ?? []) {
@@ -214,7 +214,7 @@ export async function runValidation(ctx: RailContext, input: RunValidationInput)
       status = 'error';
       exitCode = null;
       failureClass = 'unknown';
-      const message = error instanceof RailError ? error.message : String(error);
+      const message = error instanceof CrewError ? error.message : String(error);
       appendFileSync(outputRef, `${redact(message)}\n`);
       failureFingerprint = fingerprint({ scope: input.scope, command: spec.name, error: message });
       results.push({ name: spec.name, command: spec.command, exitCode: null, durationMs: 0, timedOut: false });
@@ -249,14 +249,14 @@ export async function runValidation(ctx: RailContext, input: RunValidationInput)
   });
 }
 
-export function getValidationRun(ctx: RailContext, id: string): ValidationRun {
+export function getValidationRun(ctx: CrewContext, id: string): ValidationRun {
   const row = one<ValidationRow>(ctx.store.db, 'SELECT * FROM validation_runs WHERE id = ?', id);
-  if (!row) throw new RailError('NOT_FOUND', `Validation run not found: ${id}`);
+  if (!row) throw new CrewError('NOT_FOUND', `Validation run not found: ${id}`);
   return mapRun(row);
 }
 
 export function latestValidation(
-  ctx: RailContext,
+  ctx: CrewContext,
   query: { candidateId?: string; prId?: string; commitSha?: string },
 ): ValidationRun | null {
   const row = one<ValidationRow>(

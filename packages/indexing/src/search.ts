@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
-import { RailError } from '@agent-rail/core';
-import { all, type RailContext } from '@agent-rail/storage';
+import { CrewError } from '@crewyard/core';
+import { all, type CrewContext } from '@crewyard/storage';
 import { readChunks, readLines } from './content.ts';
 import { cosine, decodeVector, type EmbeddingProvider, modelKey } from './embeddings.ts';
 import { requireSnapshot, type SnapshotRequest } from './freshness.ts';
@@ -285,7 +285,7 @@ function regexSearch(
   try {
     pattern = new RegExp(query, caseSensitive ? 'u' : 'iu');
   } catch (error) {
-    throw new RailError('INVALID_INPUT', `Invalid regular expression: ${(error as Error).message}`);
+    throw new CrewError('INVALID_INPUT', `Invalid regular expression: ${(error as Error).message}`);
   }
   return lineHits(
     c,
@@ -627,7 +627,7 @@ async function addSemantic(
   }
 }
 
-export async function search(ctx: RailContext, input: SearchInput): Promise<SearchResult> {
+export async function search(ctx: CrewContext, input: SearchInput): Promise<SearchResult> {
   const { snapshot, envelope } = await requireSnapshot(ctx, input);
   const model = snapshotModel(ctx.store, snapshot);
   const filter = compileFilter(input);
@@ -642,7 +642,7 @@ export async function search(ctx: RailContext, input: SearchInput): Promise<Sear
   const caseSensitive = input.caseSensitive ?? false;
   const notes: string[] = [];
   if (input.query.trim() === '' && mode !== 'hybrid')
-    throw new RailError('INVALID_INPUT', 'Search query must not be empty');
+    throw new CrewError('INVALID_INPUT', 'Search query must not be empty');
   let hits: SearchHit[];
   let truncated = false;
   switch (mode) {

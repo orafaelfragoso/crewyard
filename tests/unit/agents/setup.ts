@@ -7,9 +7,9 @@ import {
   createMemorySecretStore,
   defaultAgentRuntimeConfig,
   type ProfileView,
-} from '@agent-rail/agents';
-import { addSeconds, nowIso, type ProviderId } from '@agent-rail/core';
-import type { RailContext } from '@agent-rail/storage';
+} from '@crewyard/agents';
+import { addSeconds, nowIso, type ProviderId } from '@crewyard/core';
+import type { CrewContext } from '@crewyard/storage';
 
 export const FAKE_AGENT = join(import.meta.dir, '../../../fixtures/providers/fake-agent.ts');
 
@@ -31,7 +31,7 @@ export interface SeedProfile {
 }
 
 export async function seedAgent(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: {
     agentName?: string;
     profiles?: SeedProfile[];
@@ -74,7 +74,7 @@ export async function seedAgent(
 }
 
 export function seedLeasedTask(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: { generation?: number; leaseSeconds?: number } = {},
 ): { projectId: string; taskId: string; generation: number } {
   const at = nowIso(ctx.clock);

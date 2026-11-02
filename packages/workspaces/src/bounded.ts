@@ -1,12 +1,5 @@
 import { existsSync, statSync } from 'node:fs';
-import {
-  canonicalPath,
-  DEFAULT_ENV_ALLOWLIST,
-  isWithin,
-  RailError,
-  sanitizeEnv,
-  terminateTree,
-} from '@agent-rail/core';
+import { CrewError, canonicalPath, DEFAULT_ENV_ALLOWLIST, isWithin, sanitizeEnv, terminateTree } from '@crewyard/core';
 
 export type NetworkPolicy = 'provider-and-github-only' | 'unrestricted' | 'offline';
 
@@ -70,10 +63,10 @@ async function drain(
 }
 
 export function assertWithinRoots(path: string, roots: readonly string[]): string {
-  if (roots.length === 0) throw new RailError('POLICY_DENIED', 'No permitted filesystem roots were configured');
+  if (roots.length === 0) throw new CrewError('POLICY_DENIED', 'No permitted filesystem roots were configured');
   const target = canonicalPath(path);
   if (!roots.some((root) => isWithin(root, target))) {
-    throw new RailError('POLICY_DENIED', `Path ${path} is outside the permitted roots`, {
+    throw new CrewError('POLICY_DENIED', `Path ${path} is outside the permitted roots`, {
       details: { path: target, permittedRoots: roots.map((r) => canonicalPath(r)) },
     });
   }
@@ -81,17 +74,17 @@ export function assertWithinRoots(path: string, roots: readonly string[]): strin
 }
 
 export async function runBounded(cmd: readonly string[], options: BoundedOptions): Promise<BoundedResult> {
-  if (cmd.length === 0) throw new RailError('INVALID_INPUT', 'Command is empty');
+  if (cmd.length === 0) throw new CrewError('INVALID_INPUT', 'Command is empty');
   if (!(options.timeoutMs > 0) || !(options.maxOutputBytes > 0)) {
-    throw new RailError('INVALID_INPUT', 'timeoutMs and maxOutputBytes must be positive');
+    throw new CrewError('INVALID_INPUT', 'timeoutMs and maxOutputBytes must be positive');
   }
   const cwd = assertWithinRoots(options.cwd, options.permittedRoots);
   if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
-    throw new RailError('INVALID_INPUT', `Working directory does not exist: ${cwd}`);
+    throw new CrewError('INVALID_INPUT', `Working directory does not exist: ${cwd}`);
   }
   if (!options.allowPrivileged && typeof process.getuid === 'function' && process.getuid() === 0) {
-    throw new RailError('POLICY_DENIED', 'Refusing to run agent commands as root', {
-      suggestion: 'Run Agent Rail as a non-privileged user.',
+    throw new CrewError('POLICY_DENIED', 'Refusing to run agent commands as root', {
+      suggestion: 'Run Crewyard as a non-privileged user.',
     });
   }
   const network = networkEnv(options.network ?? 'provider-and-github-only');
@@ -112,7 +105,7 @@ export async function runBounded(cmd: readonly string[], options: BoundedOptions
       ...(options.verbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
   } catch (error) {
-    throw new RailError('UNAVAILABLE', `Cannot execute ${cmd[0]}`, { cause: error });
+    throw new CrewError('UNAVAILABLE', `Cannot execute ${cmd[0]}`, { cause: error });
   }
   if (options.input !== undefined && proc.stdin && typeof proc.stdin !== 'number') {
     proc.stdin.write(options.input);
@@ -177,7 +170,7 @@ export function platformLimitations(platform: NodeJS.Platform = process.platform
       id: 'filesystem-roots-advisory',
       severity: 'warning',
       message:
-        'Permitted filesystem roots are enforced for Agent Rail file operations and command working directories; child processes are not confined by the operating system.',
+        'Permitted filesystem roots are enforced for Crewyard file operations and command working directories; child processes are not confined by the operating system.',
     },
     {
       id: 'network-policy-advisory',

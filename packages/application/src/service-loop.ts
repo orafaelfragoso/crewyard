@@ -1,27 +1,27 @@
 import { hostname } from 'node:os';
-import { type AgentDefinition, listAgents, listSessions, reapOrphans } from '@agent-rail/agents';
-import { type Actor, nowIso, toRailError } from '@agent-rail/core';
-import { listProjects, loadProjectConfig, primaryRepository, recordPolicyRevision } from '@agent-rail/projects';
-import { type RemoteRecovery, reconcileLeases, runRecovery } from '@agent-rail/recovery';
-import { planDispatch } from '@agent-rail/scheduler';
+import { type AgentDefinition, listAgents, listSessions, reapOrphans } from '@crewyard/agents';
+import { type Actor, nowIso, toCrewError } from '@crewyard/core';
+import { listProjects, loadProjectConfig, primaryRepository, recordPolicyRevision } from '@crewyard/projects';
+import { type RemoteRecovery, reconcileLeases, runRecovery } from '@crewyard/recovery';
+import { planDispatch } from '@crewyard/scheduler';
 import {
   acquireLeadership,
   appendEvent,
+  type CrewContext,
   heartbeatWorker,
-  type RailContext,
   registerWorker,
   releaseLeadership,
   unregisterWorker,
-} from '@agent-rail/storage';
-import { showTask } from '@agent-rail/tasks';
+} from '@crewyard/storage';
+import { showTask } from '@crewyard/tasks';
 import { dispatchTask } from './agents.ts';
 import { buildIndex, indexState } from './retrieval.ts';
 
 export interface ProjectCycle {
   name: string;
-  intervalSeconds(ctx: RailContext, projectId: string): number;
+  intervalSeconds(ctx: CrewContext, projectId: string): number;
   run(
-    ctx: RailContext,
+    ctx: CrewContext,
     input: { projectId: string; leaderId: string; leaderGeneration: number },
   ): Promise<Record<string, unknown>>;
 }
@@ -33,9 +33,9 @@ export interface ServiceOptions {
   dispatch?: boolean;
 }
 
-const SERVICE_ACTOR: Actor = { kind: 'service', id: `rail-service@${hostname()}` };
+const SERVICE_ACTOR: Actor = { kind: 'service', id: `crew-service@${hostname()}` };
 
-export function selectAgentForTask(ctx: RailContext, taskId: string): AgentDefinition | null {
+export function selectAgentForTask(ctx: CrewContext, taskId: string): AgentDefinition | null {
   const task = showTask(ctx, taskId).task;
   const agents = listAgents(ctx, { managed: true });
   const running = new Map<string, number>();
@@ -58,7 +58,7 @@ export function selectAgentForTask(ctx: RailContext, taskId: string): AgentDefin
   );
 }
 
-export class RailService {
+export class CrewService {
   readonly workerId: string;
   private stopping = false;
   private readonly lastRun = new Map<string, number>();
@@ -66,7 +66,7 @@ export class RailService {
   private readonly leaders = new Map<string, number>();
 
   constructor(
-    private readonly ctx: RailContext,
+    private readonly ctx: CrewContext,
     private readonly options: ServiceOptions = {},
   ) {
     this.workerId = registerWorker(ctx.store, 'service', { pid: process.pid, host: hostname() });
@@ -82,7 +82,7 @@ export class RailService {
     while (!this.stopping) {
       const started = Date.now();
       await this.tick().catch((error: unknown) =>
-        this.log('service.tick_failed', { error: toRailError(error).message }),
+        this.log('service.tick_failed', { error: toCrewError(error).message }),
       );
       heartbeatWorker(this.ctx.store, this.workerId, 'running', {
         inflight: this.inflight.size,
@@ -116,7 +116,7 @@ export class RailService {
       try {
         await this.projectTick(project.id, project.workersPaused, project.intakePaused);
       } catch (error) {
-        this.log('service.project_failed', { error: toRailError(error).message }, project.id);
+        this.log('service.project_failed', { error: toCrewError(error).message }, project.id);
       }
     }
   }
@@ -131,7 +131,7 @@ export class RailService {
       const status = await indexState(this.ctx, { projectId }).catch(() => null);
       if (status && status.status !== 'fresh' && status.status !== 'building') {
         await buildIndex(this.ctx, { projectId, actor: SERVICE_ACTOR }).catch((error: unknown) =>
-          this.log('service.index_failed', { error: toRailError(error).message }, projectId),
+          this.log('service.index_failed', { error: toCrewError(error).message }, projectId),
         );
       }
     }
@@ -156,7 +156,7 @@ export class RailService {
         });
         if (Object.keys(result).length > 0) this.log(`service.${cycle.name}`, result, projectId);
       } catch (error) {
-        this.log(`service.${cycle.name}_failed`, { error: toRailError(error).message }, projectId);
+        this.log(`service.${cycle.name}_failed`, { error: toCrewError(error).message }, projectId);
       }
     }
 
@@ -182,7 +182,7 @@ export class RailService {
           .catch((error: unknown) =>
             this.log(
               'service.dispatch_failed',
-              { taskId: admission.taskId, error: toRailError(error).message },
+              { taskId: admission.taskId, error: toCrewError(error).message },
               projectId,
             ),
           )
@@ -191,7 +191,7 @@ export class RailService {
       } catch (error) {
         this.log(
           'service.dispatch_failed',
-          { taskId: admission.taskId, agentId: agent.id, error: toRailError(error).message },
+          { taskId: admission.taskId, agentId: agent.id, error: toCrewError(error).message },
           projectId,
         );
       }

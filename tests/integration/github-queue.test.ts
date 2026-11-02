@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { git, gitText } from '@agent-rail/core';
+import { git, gitText } from '@crewyard/core';
 import {
   decideMergeApproval,
   explainPullRequest,
@@ -10,8 +10,8 @@ import {
   requestIntegration,
   showPullRequest,
   syncRepository,
-} from '@agent-rail/integration';
-import { all } from '@agent-rail/storage';
+} from '@crewyard/integration';
+import { all } from '@crewyard/storage';
 import { createGitHubFixture, type GitHubFixture } from './github-fixture.ts';
 
 let fx: GitHubFixture | undefined;
@@ -48,7 +48,7 @@ function mergeCalls(f: GitHubFixture) {
   return f.mock.countCalls('PUT', /\/pulls\/\d+\/merge$/);
 }
 
-describe('rail-managed integration queue', () => {
+describe('crew-managed integration queue', () => {
   test('AT-03: ten independent PRs integrate without author rebases', async () => {
     fx = await createGitHubFixture({
       config: { validation: { broad: [{ name: 'smoke', command: check('present', 'README.md') }] } },
@@ -355,7 +355,7 @@ describe('github-managed integration queue', () => {
     expect(f.mock.countCalls('POST', 'EnqueuePullRequest')).toBe(1);
     f.mock.processMergeQueue('main');
     const result = await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
-    expect(result.sync?.merged).toEqual([expect.objectContaining({ number: n, outsideRail: false })]);
+    expect(result.sync?.merged).toEqual([expect.objectContaining({ number: n, outsideCrew: false })]);
     expect(mergeCalls(f)).toBe(0);
     expect(f.hookCalls.filter((h) => h.name === 'onMerged')).toHaveLength(1);
     await git(f.repo, ['fetch', '-q', 'origin']);

@@ -64,7 +64,7 @@ export const approvalClasses = [
   'high-risk',
 ] as const;
 
-export const railConfigSchema = z.strictObject({
+export const crewConfigSchema = z.strictObject({
   version: z.literal(CONFIG_VERSION),
   project: z.strictObject({
     name: z
@@ -153,13 +153,13 @@ export const railConfigSchema = z.strictObject({
     .prefault({}),
   integration: z
     .strictObject({
-      mode: z.enum(['auto', 'github-managed', 'rail-managed']).default('auto'),
+      mode: z.enum(['auto', 'github-managed', 'crew-managed']).default('auto'),
       auto_merge_eligible: z.boolean().default(true),
       require_github_checks: z.boolean().default(true),
       rebasing: z.enum(['only_when_required', 'never']).default('only_when_required'),
       speculative_validation: z.boolean().default(true),
       merge_method: z.enum(['merge', 'squash', 'rebase']).default('squash'),
-      branch_name_format: z.string().default('rail/{task_id}-{slug}'),
+      branch_name_format: z.string().default('crew/{task_id}-{slug}'),
       poll_interval_seconds: z.int().min(5).max(3_600).default(60),
     })
     .prefault({}),
@@ -200,5 +200,5 @@ export const railConfigSchema = z.strictObject({
     .prefault({}),
 });
 
-export type RailConfig = z.output<typeof railConfigSchema>;
-export type RailConfigInput = z.input<typeof railConfigSchema>;
+export type CrewConfig = z.output<typeof crewConfigSchema>;
+export type CrewConfigInput = z.input<typeof crewConfigSchema>;

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { type RailConfig, railConfigSchema } from '@agent-rail/config';
+import { type CrewConfig, crewConfigSchema } from '@crewyard/config';
 import {
   type ContextFingerprintProvider,
   classifyPaths,
@@ -15,8 +15,8 @@ import {
   type StructuredFindings,
   selectValidation,
   updateFindingStatus,
-} from '@agent-rail/reviews';
-import { all } from '@agent-rail/storage';
+} from '@crewyard/reviews';
+import { all } from '@crewyard/storage';
 import { createTestContext, type TestContext, tempDir } from '../../helpers/index.ts';
 
 let ctx: TestContext | undefined;
@@ -69,7 +69,7 @@ class Context implements ContextFingerprintProvider {
 function setup(overrides: Record<string, unknown> = {}): {
   ctx: TestContext;
   repositoryId: string;
-  config: RailConfig;
+  config: CrewConfig;
 } {
   const c = createTestContext();
   const at = '2026-11-02T12:00:00Z';
@@ -88,7 +88,7 @@ function setup(overrides: Record<string, unknown> = {}): {
   return {
     ctx: c,
     repositoryId: 'repo_1',
-    config: railConfigSchema.parse({ version: 1, project: { name: 'p' }, ...overrides }),
+    config: crewConfigSchema.parse({ version: 1, project: { name: 'p' }, ...overrides }),
   };
 }
 

@@ -38,7 +38,7 @@ How each PRD release gate is exercised. Run everything with `bun test`. CI runs 
 | Interrupted / externally modified PRs converge | `tests/integration/github-sync.test.ts`, AT-09, AT-18 |
 | Incremental indexing with provenance | `tests/unit/indexing/incremental.test.ts`, AT-19; numbers in `docs/benchmarks/method.md` |
 | Identical evidence → 0 duplicate LLM reviews | AT-07 |
-| Observability through CLI/TUI | `tests/unit/telemetry/metrics.test.ts` (10,000-event paging), `rail dashboard --snapshot` |
+| Observability through CLI/TUI | `tests/unit/telemetry/metrics.test.ts` (10,000-event paging), `crew dashboard --snapshot` |
 | End-to-end autonomous delivery (J-02) | `tests/e2e/pipeline.test.ts`, `tests/e2e/service-dispatch.test.ts` |
 
 ## Not yet demonstrated

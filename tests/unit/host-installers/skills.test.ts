@@ -1,15 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { loadSkills, parseSkillFrontmatter, validateSkill } from '@agent-rail/host-installers';
+import { loadSkills, parseSkillFrontmatter, validateSkill } from '@crewyard/host-installers';
 
 const SKILLS_DIR = join(import.meta.dir, '..', '..', '..', 'skills');
 const REQUIRED = [
-  'rail-context',
-  'rail-execution',
-  'rail-integration',
-  'rail-planning',
-  'rail-recovery',
-  'rail-review',
+  'crew-context',
+  'crew-execution',
+  'crew-integration',
+  'crew-planning',
+  'crew-recovery',
+  'crew-review',
 ];
 const skills = loadSkills(SKILLS_DIR);
 const text = (name: string) =>
@@ -23,20 +23,20 @@ describe('bundled skills (FR-SKL-01..03)', () => {
     expect(skills.map((s) => s.name)).toEqual(REQUIRED);
   });
 
-  const contractOf = (name: string) => /## Rail contract\n([\s\S]*?)\n## /.exec(text(name))?.[1] ?? '';
+  const contractOf = (name: string) => /## Crewyard contract\n([\s\S]*?)\n## /.exec(text(name))?.[1] ?? '';
 
   test('every skill carries the same FR-SKL-03 contract', () => {
-    const contract = contractOf('rail-execution');
+    const contract = contractOf('crew-execution');
     for (const clause of [
-      /Inspect `rail_get_state` and the project policy/,
-      /`rail_claim_task` before modifying/,
+      /Inspect `crew_get_state` and the project policy/,
+      /`crew_claim_task` before modifying/,
       /assigned worktree/,
-      /Renew the lease with `rail_heartbeat`/,
+      /Renew the lease with `crew_heartbeat`/,
       /Do not rebase proactively/,
-      /structured evidence with `rail_submit_work`/,
+      /structured evidence with `crew_submit_work`/,
       /Never bypass merge authority/,
-      /`rail_report_blocker` instead of retrying indefinitely/,
-      /next safe action with `rail_get_next_action`/,
+      /`crew_report_blocker` instead of retrying indefinitely/,
+      /next safe action with `crew_get_next_action`/,
     ]) {
       expect(contract).toMatch(clause);
     }
@@ -44,11 +44,11 @@ describe('bundled skills (FR-SKL-01..03)', () => {
   });
 
   test.each(REQUIRED)('%s maps MCP tools to CLI commands in JSON mode', (name) => {
-    expect(text(name)).toMatch(/\| `rail_[a-z_]+` \| `rail [a-z]+ [^`]*--json`/);
+    expect(text(name)).toMatch(/\| `crew_[a-z_]+` \| `crew [a-z]+ [^`]*--json`/);
   });
 
-  test('rail-integration states it cannot merge directly', () => {
-    expect(text('rail-integration')).toContain('cannot merge directly');
+  test('crew-integration states it cannot merge directly', () => {
+    expect(text('crew-integration')).toContain('cannot merge directly');
   });
 });
 
@@ -58,10 +58,10 @@ describe('AT-15 static check: skills grant no administrative capability', () => 
     ['force push', /git\s+push\s+[^\n]*(--force|-f\b)/i],
     ['proactive rebase command', /git\s+rebase/i],
     ['hard reset', /git\s+reset\s+--hard/i],
-    ['credential or account administration', /rail\s+account\s+(add|remove)|rail\s+config\s+set/i],
+    ['credential or account administration', /crew\s+account\s+(add|remove)|crew\s+config\s+set/i],
     [
       'operator-only queue/service control',
-      /rail\s+(queue\s+(tick|pause|resume)|service\s|workspace\s+clean|goal\s+approve)/i,
+      /crew\s+(queue\s+(tick|pause|resume)|service\s|workspace\s+clean|goal\s+approve)/i,
     ],
     ['secret store access', /keychain|secret-tool|credential manager|security\s+find-generic-password/i],
     ['admin bypass flag', /--admin\b|--no-verify\b|--force\b/i],

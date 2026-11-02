@@ -48,7 +48,7 @@ export const THEMES: readonly Theme[] = [
 
 export function initialTheme(env: NodeJS.ProcessEnv = process.env): Theme {
   if (env.NO_COLOR !== undefined && env.NO_COLOR !== '') return THEMES[2]!;
-  const requested = env.RAIL_THEME;
+  const requested = env.CREW_THEME;
   return THEMES.find((t) => t.name === requested) ?? THEMES[0]!;
 }
 

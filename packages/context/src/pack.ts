@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import { addSeconds, newId, nowIso, RailError } from '@agent-rail/core';
+import { addSeconds, CrewError, newId, nowIso } from '@crewyard/core';
 import {
   DEFAULT_INDEX_CONFIG,
   type EmbeddingProvider,
@@ -14,8 +14,8 @@ import {
   type SymbolInfo,
   search,
   snapshotByCommit,
-} from '@agent-rail/indexing';
-import { one, parseJson, type RailContext } from '@agent-rail/storage';
+} from '@crewyard/indexing';
+import { type CrewContext, one, parseJson } from '@crewyard/storage';
 import { estimateExcerptTokens, linesWithinBudget, TOKEN_ESTIMATOR } from './tokens.ts';
 
 export interface ContextPackInput extends SnapshotRequest {
@@ -102,7 +102,7 @@ function decodeCursor(cursor: string): CursorState {
     typeof state.l !== 'number' ||
     typeof state.n !== 'number'
   ) {
-    throw new RailError('INVALID_INPUT', 'Malformed context pack cursor');
+    throw new CrewError('INVALID_INPUT', 'Malformed context pack cursor');
   }
   return state as CursorState;
 }
@@ -211,7 +211,7 @@ function materialize(
   return { excerpts, tokens, next: null, warnings };
 }
 
-export async function buildContextPack(ctx: RailContext, input: ContextPackInput): Promise<ContextPack> {
+export async function buildContextPack(ctx: CrewContext, input: ContextPackInput): Promise<ContextPack> {
   const config = input.config ?? DEFAULT_INDEX_CONFIG;
   const budget = Math.max(256, input.budgetTokens ?? config.max_context_tokens);
   const maxLines = Math.min(Math.max(input.maxExcerptLines ?? 60, 5), 400);
@@ -298,19 +298,19 @@ export interface FetchPageInput {
   budgetTokens?: number;
 }
 
-export async function fetchContextPackPage(ctx: RailContext, input: FetchPageInput): Promise<ContextPack> {
+export async function fetchContextPackPage(ctx: CrewContext, input: FetchPageInput): Promise<ContextPack> {
   const cursor = decodeCursor(input.cursor);
   const row = one<{ payload: string; snapshot_id: string | null }>(
     ctx.store.db,
     "SELECT payload, snapshot_id FROM context_artifacts WHERE id = ? AND kind = 'context_pack'",
     cursor.p,
   );
-  if (!row) throw new RailError('NOT_FOUND', `Context pack not found or expired: ${cursor.p}`);
+  if (!row) throw new CrewError('NOT_FOUND', `Context pack not found or expired: ${cursor.p}`);
   const payload = parseJson<PackPayload | null>(row.payload, null);
-  if (!payload) throw new RailError('INTERNAL', `Context pack ${cursor.p} payload is unreadable`);
+  if (!payload) throw new CrewError('INTERNAL', `Context pack ${cursor.p} payload is unreadable`);
   const snapshot = snapshotByCommit(ctx.store.db, payload.repositoryId, payload.commitSha);
   if (!row.snapshot_id || snapshot?.id !== payload.snapshotId || snapshot.status !== 'available') {
-    throw new RailError('INDEX_STALE', `Snapshot for ${payload.commitSha} is no longer available`, {
+    throw new CrewError('INDEX_STALE', `Snapshot for ${payload.commitSha} is no longer available`, {
       details: { repositoryId: payload.repositoryId, commitSha: payload.commitSha },
       suggestion: indexCommand(payload.repositoryId, payload.commitSha),
     });

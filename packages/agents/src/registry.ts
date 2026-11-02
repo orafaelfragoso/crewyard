@@ -1,15 +1,10 @@
-import type { AccountProfile, AuthMechanism, ProviderAdapter, ProviderId } from '@agent-rail/core';
-import { RailError } from '@agent-rail/core';
-import { claudeLoginCommand, createClaudeAdapter } from '@agent-rail/provider-claude';
-import { codexLoginCommand, createCodexAdapter } from '@agent-rail/provider-codex';
-import { type AdapterOptions, createGenericAdapter, settingBool } from '@agent-rail/provider-generic';
-import {
-  createOllamaAdapter,
-  ollamaCodingEnabled,
-  ollamaEndpoint,
-  ollamaIsLoopback,
-} from '@agent-rail/provider-ollama';
-import { createOpencodeAdapter, opencodeLoginCommand } from '@agent-rail/provider-opencode';
+import type { AccountProfile, AuthMechanism, ProviderAdapter, ProviderId } from '@crewyard/core';
+import { CrewError } from '@crewyard/core';
+import { claudeLoginCommand, createClaudeAdapter } from '@crewyard/provider-claude';
+import { codexLoginCommand, createCodexAdapter } from '@crewyard/provider-codex';
+import { type AdapterOptions, createGenericAdapter, settingBool } from '@crewyard/provider-generic';
+import { createOllamaAdapter, ollamaCodingEnabled, ollamaEndpoint, ollamaIsLoopback } from '@crewyard/provider-ollama';
+import { createOpencodeAdapter, opencodeLoginCommand } from '@crewyard/provider-opencode';
 import { type SecretStore, systemSecretStore } from './secrets.ts';
 
 export type SessionMode = 'execute' | 'plan' | 'review';
@@ -87,7 +82,7 @@ export const PROVIDER_MANIFESTS: Readonly<Record<ProviderId, ProviderManifest>> 
     loginCommand: () => null,
     destination: () => 'operator-defined',
     disclosure: () =>
-      `The configured executable receives the prompt on stdin and can read the worktree; Agent Rail cannot know where it sends ${AGENT_CONTEXT}.`,
+      `The configured executable receives the prompt on stdin and can read the worktree; Crewyard cannot know where it sends ${AGENT_CONTEXT}.`,
   },
   ollama: {
     id: 'ollama',
@@ -112,7 +107,7 @@ export function isProviderId(value: string): value is ProviderId {
 
 export function providerManifest(id: string): ProviderManifest {
   if (!isProviderId(id)) {
-    throw new RailError('INVALID_INPUT', `Unknown provider: ${id}`, { details: { known: PROVIDER_IDS } });
+    throw new CrewError('INVALID_INPUT', `Unknown provider: ${id}`, { details: { known: PROVIDER_IDS } });
   }
   return PROVIDER_MANIFESTS[id];
 }

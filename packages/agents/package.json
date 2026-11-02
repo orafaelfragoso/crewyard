@@ -1,5 +1,5 @@
 {
-  "name": "@agent-rail/agents",
+  "name": "@crewyard/agents",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,13 +9,13 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@agent-rail/core": "workspace:*",
-    "@agent-rail/storage": "workspace:*",
-    "@agent-rail/config": "workspace:*",
-    "@agent-rail/provider-codex": "workspace:*",
-    "@agent-rail/provider-claude": "workspace:*",
-    "@agent-rail/provider-opencode": "workspace:*",
-    "@agent-rail/provider-generic": "workspace:*",
-    "@agent-rail/provider-ollama": "workspace:*"
+    "@crewyard/core": "workspace:*",
+    "@crewyard/storage": "workspace:*",
+    "@crewyard/config": "workspace:*",
+    "@crewyard/provider-codex": "workspace:*",
+    "@crewyard/provider-claude": "workspace:*",
+    "@crewyard/provider-opencode": "workspace:*",
+    "@crewyard/provider-generic": "workspace:*",
+    "@crewyard/provider-ollama": "workspace:*"
   }
 }

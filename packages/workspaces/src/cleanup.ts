@@ -1,6 +1,6 @@
-import type { RailConfig } from '@agent-rail/config';
-import { type Actor, fingerprint, nowIso, RailError, type TaskState } from '@agent-rail/core';
-import { all, one, type RailContext } from '@agent-rail/storage';
+import type { CrewConfig } from '@crewyard/config';
+import { type Actor, CrewError, fingerprint, nowIso, type TaskState } from '@crewyard/core';
+import { all, type CrewContext, one } from '@crewyard/storage';
 import { listWorkspaces, repositoryConfig, requireRepository, type Workspace } from './model.ts';
 import { type DestructiveAuthorization, inspectWorkspace, type RemoveResult, removeWorkspace } from './preservation.ts';
 
@@ -39,8 +39,8 @@ export interface CleanupPreview {
 const FINISHED_TASK_STATES: ReadonlySet<TaskState> = new Set(['MERGED', 'DONE', 'CANCELLED']);
 
 export async function previewCleanup(
-  ctx: RailContext,
-  options: { repositoryId?: string; config?: RailConfig } = {},
+  ctx: CrewContext,
+  options: { repositoryId?: string; config?: CrewConfig } = {},
 ): Promise<CleanupPreview> {
   const db = ctx.store.db;
   const now = ctx.clock.now().getTime();
@@ -48,7 +48,7 @@ export async function previewCleanup(
     ...(options.repositoryId ? { repositoryId: options.repositoryId } : {}),
     states: ['allocating', 'ready', 'in_use', 'preserved', 'needs_reconciliation'],
   });
-  const configs = new Map<string, RailConfig>();
+  const configs = new Map<string, CrewConfig>();
   const items: CleanupItem[] = [];
   for (const ws of workspaces) {
     const repo = requireRepository(ctx, ws.repositoryId);
@@ -116,13 +116,13 @@ export interface CleanupApplyResult {
 }
 
 export async function applyCleanup(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: {
     previewFingerprint: string;
     actor: Actor;
     repositoryId?: string;
     authorization?: DestructiveAuthorization;
-    config?: RailConfig;
+    config?: CrewConfig;
   },
 ): Promise<CleanupApplyResult> {
   const preview = await previewCleanup(ctx, {
@@ -130,8 +130,8 @@ export async function applyCleanup(
     ...(input.config ? { config: input.config } : {}),
   });
   if (preview.fingerprint !== input.previewFingerprint) {
-    throw new RailError('CONFLICT', 'Workspaces changed since the cleanup preview', {
-      suggestion: 'Run `rail workspace cleanup --preview` again and review the new list.',
+    throw new CrewError('CONFLICT', 'Workspaces changed since the cleanup preview', {
+      suggestion: 'Run `crew workspace cleanup --preview` again and review the new list.',
       retryable: true,
     });
   }

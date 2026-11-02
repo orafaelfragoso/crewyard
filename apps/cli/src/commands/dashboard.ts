@@ -1,6 +1,6 @@
-import { createDashboardActions, defaultQueueActions } from '@agent-rail/application';
-import { resolveProject } from '@agent-rail/projects';
-import { loadDashboard, renderSnapshot, runDashboard, VIEWS, type ViewName } from '@agent-rail/tui';
+import { createDashboardActions, defaultQueueActions } from '@crewyard/application';
+import { resolveProject } from '@crewyard/projects';
+import { loadDashboard, renderSnapshot, runDashboard, VIEWS, type ViewName } from '@crewyard/tui';
 import type { Command } from 'commander';
 import { emit } from '../output.ts';
 import { action, operatorActor } from '../program.ts';

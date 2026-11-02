@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { silentLogger } from '@agent-rail/core';
-import { staticTokenProvider } from '@agent-rail/github';
+import { silentLogger } from '@crewyard/core';
+import { staticTokenProvider } from '@crewyard/github';
 import {
   createClientFactory,
   enqueueOrReviveInTx,
@@ -11,15 +11,8 @@ import {
   requestIntegration,
   showPullRequest,
   syncRepository,
-} from '@agent-rail/integration';
-import {
-  acquireLeadership,
-  all,
-  claimDueOutbox,
-  getOutbox,
-  openRailStore,
-  type RailContext,
-} from '@agent-rail/storage';
+} from '@crewyard/integration';
+import { acquireLeadership, all, type CrewContext, claimDueOutbox, getOutbox, openCrewStore } from '@crewyard/storage';
 import { ManualClock } from '../helpers/index.ts';
 import { createGitHubFixture, type GitHubFixture } from '../integration/github-fixture.ts';
 
@@ -124,8 +117,8 @@ describe('AT-18: restart during outbox execution', () => {
     if (remoteApplied) f.mock.mergeExternally(number);
 
     clock.advance(120);
-    const store = openRailStore({ dirs: f.ctx.dirs, clock, durability: 'normal' });
-    const restarted: RailContext = { store, dirs: f.ctx.dirs, logger: silentLogger, clock };
+    const store = openCrewStore({ dirs: f.ctx.dirs, clock, durability: 'normal' });
+    const restarted: CrewContext = { store, dirs: f.ctx.dirs, logger: silentLogger, clock };
     const env = {
       ...f.env,
       github: createClientFactory(restarted, {

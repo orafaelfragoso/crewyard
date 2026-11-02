@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { buildContextPack, fetchContextPackPage } from '@agent-rail/context';
-import { indexRepository } from '@agent-rail/indexing';
-import { one } from '@agent-rail/storage';
+import { buildContextPack, fetchContextPackPage } from '@crewyard/context';
+import { indexRepository } from '@crewyard/indexing';
+import { one } from '@crewyard/storage';
 import { createIndexFixture, type IndexFixture } from '../indexing/fixture.ts';
 
 let fx: IndexFixture | undefined;

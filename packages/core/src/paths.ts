@@ -1,11 +1,11 @@
 import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
-import { RailError } from './errors.ts';
+import { CrewError } from './errors.ts';
 
-const APP = 'agent-rail';
+const APP = 'crewyard';
 
-export interface RailDirs {
+export interface CrewDirs {
   data: string;
   config: string;
   database: string;
@@ -20,30 +20,30 @@ export interface RailDirs {
 export function resolveDirs(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
-): RailDirs {
+): CrewDirs {
   const path = platform === 'win32' ? win32 : posix;
   const home = env.HOME ?? env.USERPROFILE ?? homedir();
   let data: string;
   let config: string;
-  if (env.RAIL_DATA_DIR) {
-    data = path.resolve(env.RAIL_DATA_DIR);
-    config = path.resolve(env.RAIL_CONFIG_DIR ?? path.join(data, 'config'));
+  if (env.CREW_DATA_DIR) {
+    data = path.resolve(env.CREW_DATA_DIR);
+    config = path.resolve(env.CREW_CONFIG_DIR ?? path.join(data, 'config'));
   } else if (platform === 'darwin') {
     data = path.join(home, 'Library', 'Application Support', APP);
-    config = env.RAIL_CONFIG_DIR ?? path.join(home, 'Library', 'Preferences', APP);
+    config = env.CREW_CONFIG_DIR ?? path.join(home, 'Library', 'Preferences', APP);
   } else if (platform === 'win32') {
     const local = env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local');
     const roaming = env.APPDATA ?? path.join(home, 'AppData', 'Roaming');
     data = path.join(local, APP);
-    config = env.RAIL_CONFIG_DIR ?? path.join(roaming, APP);
+    config = env.CREW_CONFIG_DIR ?? path.join(roaming, APP);
   } else {
     data = path.join(env.XDG_DATA_HOME ?? path.join(home, '.local', 'share'), APP);
-    config = env.RAIL_CONFIG_DIR ?? path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), APP);
+    config = env.CREW_CONFIG_DIR ?? path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), APP);
   }
   return {
     data,
     config,
-    database: path.join(data, 'agent-rail.sqlite'),
+    database: path.join(data, 'crewyard.sqlite'),
     cacheIndex: path.join(data, 'cache', 'index'),
     worktrees: path.join(data, 'worktrees'),
     artifacts: path.join(data, 'artifacts'),
@@ -74,7 +74,7 @@ export function isWithin(root: string, candidate: string): boolean {
 export function safeJoin(root: string, ...segments: string[]): string {
   const target = resolve(root, ...segments);
   if (!isWithin(root, target)) {
-    throw new RailError('POLICY_DENIED', `Path escapes permitted root: ${segments.join('/')}`, {
+    throw new CrewError('POLICY_DENIED', `Path escapes permitted root: ${segments.join('/')}`, {
       details: { root },
       suggestion: 'Use a path inside the permitted workspace root.',
     });

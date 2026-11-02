@@ -1,5 +1,5 @@
-import type { ConfidenceTier } from '@agent-rail/core';
-import { all, type RailContext } from '@agent-rail/storage';
+import type { ConfidenceTier } from '@crewyard/core';
+import { all, type CrewContext } from '@crewyard/storage';
 import { readLines } from './content.ts';
 import { requireSnapshot, type SnapshotRequest } from './freshness.ts';
 import { SYNTAX_NOTE, snapshotModel } from './graph.ts';
@@ -28,7 +28,7 @@ export interface FindSymbolResult extends ResultEnvelope {
   note: string;
 }
 
-export async function findSymbol(ctx: RailContext, input: FindSymbolInput): Promise<FindSymbolResult> {
+export async function findSymbol(ctx: CrewContext, input: FindSymbolInput): Promise<FindSymbolResult> {
   const { snapshot, envelope } = await requireSnapshot(ctx, input);
   const model = snapshotModel(ctx.store, snapshot);
   const q = splitQualified(input.name.trim());
@@ -84,7 +84,7 @@ export interface FindReferencesResult extends ResultEnvelope {
   note: string;
 }
 
-export async function findReferences(ctx: RailContext, input: FindReferencesInput): Promise<FindReferencesResult> {
+export async function findReferences(ctx: CrewContext, input: FindReferencesInput): Promise<FindReferencesResult> {
   const defs = await findSymbol(ctx, {
     ...input,
     limit: 50,
