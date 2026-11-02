@@ -1,0 +1,122 @@
+# Agent Rail repository configuration: .agent-rail/config.yaml
+# Safe to commit. Never put secrets here; `rail config validate` rejects secret-like keys.
+# Precedence: CLI flags > RAIL_* environment variables > this file > user config > built-in defaults.
+# Every value below is the built-in default unless the comment says otherwise.
+version: 1
+
+project:
+  name: sample-project            # letters, digits, dot, underscore, dash (required)
+  repository: .                   # path to the Git repository, relative to this file's repository root
+  base_branch: main
+  autonomy: guarded               # observe | assisted | guarded | autopilot
+
+agents:
+  max_parallel: 6                 # concurrent managed agent sessions (1-64)
+  default_task_lease_seconds: 900 # task lease length before it must be renewed (30-86400)
+  heartbeat_interval_seconds: 120 # at most half the lease (5-3600)
+  max_retries_per_failure: 2      # attempts per failure fingerprint before ESCALATED (0-20)
+  cancel_grace_seconds: 10        # SIGTERM -> SIGKILL grace when cancelling a session tree
+  session_timeout_minutes: 90
+  max_output_bytes: 52428800      # per-session captured output limit (50 MiB)
+  allow_profile_fallback: false   # route to another permitted account profile only when true
+
+scheduler:
+  max_open_prs: 8                 # admission backpressure: stop new implementation work above this
+  max_queue_age_minutes: 120
+  protect_high_risk_scopes: true  # exclusive reservations for high-risk scopes
+  fairness: weighted              # weighted | fifo | strict-priority
+  wip:
+    agent: 1                      # tasks per agent
+    # global: 12                  # optional limits; unset means "no extra limit"
+    # project: 6
+    # repository: 6
+    # account: 3
+  integration_capacity_per_branch: 1
+  reserve_recovery_capacity: 1    # slots kept free for recovery/CI/review work
+  tick_interval_seconds: 15
+
+index:
+  enabled: true
+  incremental: true
+  languages: [typescript, javascript, python, rust]
+  semantic_embeddings: optional   # off | optional | required
+  embedding:
+    provider: none                # none | ollama
+    # model: nomic-embed-text
+    # endpoint: http://127.0.0.1:11434
+    consent_external: false       # must be true before any non-local embedding endpoint is used
+  max_context_tokens: 8000        # default context pack budget
+  max_file_bytes: 1048576         # files larger than this are not indexed
+  exclude:
+    - '**/node_modules/**'
+    - '**/target/**'
+    - '**/dist/**'
+
+review:
+  enabled: true
+  incremental: true
+  cache_enabled: true             # reuse review evidence only when the fingerprint is unchanged
+  require_review_for_high_risk: true
+  cache_ttl_hours: 168
+  # reviewer_agent: reviewer      # agent definition used for AI review
+  policy_version: '1'             # bump to invalidate cached reviews after a policy change
+
+integration:
+  mode: auto                      # auto | github-managed | rail-managed
+  auto_merge_eligible: true       # set false for observe/assisted
+  require_github_checks: true
+  rebasing: only_when_required    # only_when_required | never
+  speculative_validation: true
+  merge_method: squash            # merge | squash | rebase
+  branch_name_format: 'rail/{task_id}-{slug}'
+  poll_interval_seconds: 60
+
+security:
+  credential_store: system        # system | encrypted-file
+  network: provider-and-github-only  # provider-and-github-only | unrestricted | offline
+  require_approval_for:           # security-sensitive | database-migration | deployment-config | dependency-change | high-risk
+    - security-sensitive
+    - database-migration
+    - deployment-config
+  # sensitive_paths replaces the built-in path classes when set (see docs/policies/default-policies.md).
+  sensitive_paths:
+    security-sensitive: ['**/auth/**', '**/security/**', '**/*secret*', '**/*credential*', '**/.env*']
+    database-migration: ['**/migrations/**', '**/*.sql']
+    deployment-config: ['.github/workflows/**', '**/Dockerfile', '**/terraform/**']
+    dependency-change: ['**/package.json', '**/bun.lock']
+  data_routing:                   # which provider profiles may receive repository content
+    codex: allow
+    claude: allow
+    ollama: allow
+
+workspace:
+  setup_commands: []              # read-only setup; repo-defined scripts need operator permission
+  install_commands:
+    - bun install --frozen-lockfile
+  env_allowlist: [CI, NODE_ENV]   # extra variables passed to agent processes (names only)
+  secret_refs: []                 # names of secrets in the OS secret store, e.g. npm-token
+  timeout_seconds: 600
+  cleanup: after_merge            # after_merge | manual | retention
+  retention_days: 14
+
+validation:
+  fast:                           # selected by affected paths
+    - name: unit
+      command: bun test tests/unit
+      paths: ['src/**', 'tests/unit/**']
+      timeout_seconds: 900
+    - name: typecheck
+      command: bun run typecheck
+  broad:                          # run on integration candidates
+    - name: full-test
+      command: bun test
+      timeout_seconds: 1800
+
+observability:
+  local_only: true                # telemetry never leaves the machine (cannot be disabled)
+  keep_events_days: 90
+  rates:                          # optional configured rates; costs computed from them are labelled as such
+    - provider: claude
+      model: example-model
+      input_per_mtok_usd: 3
+      output_per_mtok_usd: 15
