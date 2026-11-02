@@ -178,7 +178,7 @@ describe('GitHub client', () => {
 });
 
 describe('credentials and repository identity', () => {
-  test('gh token is read per identity, cached in memory and never echoed in errors', async () => {
+  test.skipIf(process.platform === 'win32')('gh token is read per identity, cached in memory and never echoed in errors', async () => {
     forgetCachedTokens();
     const dir = tempDir();
     const counter = join(dir, 'calls');

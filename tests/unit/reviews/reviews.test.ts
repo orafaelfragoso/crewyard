@@ -278,10 +278,11 @@ describe('validation', () => {
   test('runs commands with timeouts and records exact revision, environment and failure fingerprint', async () => {
     const { ctx: c, repositoryId } = setup();
     const cwd = tempDir();
+    const win = process.platform === 'win32';
     const commands = [
       { name: 'ok', command: 'echo fine', paths: [], timeout_seconds: 10 },
-      { name: 'unit', command: 'echo "boom at 12ms"; exit 3', paths: [], timeout_seconds: 10 },
-      { name: 'never', command: 'true', paths: [], timeout_seconds: 10 },
+      { name: 'unit', command: win ? 'echo boom at 12ms & exit /b 3' : 'echo "boom at 12ms"; exit 3', paths: [], timeout_seconds: 10 },
+      { name: 'never', command: win ? 'exit /b 0' : 'true', paths: [], timeout_seconds: 10 },
     ];
     const run = await runValidation(c, { repositoryId, scope: 'broad', cwd, commitSha: 'c1', treeSha: 't1', commands });
     expect(run).toMatchObject({
