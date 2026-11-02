@@ -24,9 +24,10 @@ import { TASK_STATES, type ToolEnvelope } from '@crewyard/core';
 import type { CrewContext } from '@crewyard/storage';
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/server';
 import * as z from 'zod';
+import pkg from '../../../package.json' with { type: 'json' };
 import { registerPrompts, registerResources } from './resources.ts';
 
-export const SERVER_VERSION = '1.0.0';
+export const SERVER_VERSION = pkg.version;
 export const TOOL_SCHEMA_VERSION = 1;
 
 const revision = {

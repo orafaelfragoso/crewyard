@@ -40,7 +40,7 @@
     },
     "apps/cli": {
       "name": "@crewyard/cli",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/application": "workspace:*",
         "@crewyard/config": "workspace:*",
@@ -53,7 +53,7 @@
     },
     "apps/mcp": {
       "name": "@crewyard/mcp",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/application": "workspace:*",
         "@crewyard/core": "workspace:*",
@@ -63,7 +63,7 @@
     },
     "packages/agents": {
       "name": "@crewyard/agents",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/config": "workspace:*",
         "@crewyard/core": "workspace:*",
@@ -77,7 +77,7 @@
     },
     "packages/application": {
       "name": "@crewyard/application",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/agents": "workspace:*",
         "@crewyard/config": "workspace:*",
@@ -100,7 +100,7 @@
     },
     "packages/config": {
       "name": "@crewyard/config",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/core": "workspace:*",
         "yaml": "2.9.1",
@@ -109,7 +109,7 @@
     },
     "packages/context": {
       "name": "@crewyard/context",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/config": "workspace:*",
         "@crewyard/core": "workspace:*",
@@ -119,25 +119,25 @@
     },
     "packages/core": {
       "name": "@crewyard/core",
-      "version": "1.0.0",
+      "version": "0.1.0",
     },
     "packages/github": {
       "name": "@crewyard/github",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/core": "workspace:*",
       },
     },
     "packages/host-installers": {
       "name": "@crewyard/host-installers",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/core": "workspace:*",
       },
     },
     "packages/indexing": {
       "name": "@crewyard/indexing",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/config": "workspace:*",
         "@crewyard/core": "workspace:*",
@@ -151,7 +151,7 @@
     },
     "packages/integration": {
       "name": "@crewyard/integration",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/config": "workspace:*",
         "@crewyard/core": "workspace:*",
@@ -163,7 +163,7 @@
     },
     "packages/projects": {
       "name": "@crewyard/projects",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/config": "workspace:*",
         "@crewyard/core": "workspace:*",
@@ -172,7 +172,7 @@
     },
     "packages/providers/claude": {
       "name": "@crewyard/provider-claude",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/core": "workspace:*",
         "@crewyard/provider-generic": "workspace:*",
@@ -180,7 +180,7 @@
     },
     "packages/providers/codex": {
       "name": "@crewyard/provider-codex",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/core": "workspace:*",
         "@crewyard/provider-generic": "workspace:*",
@@ -188,14 +188,14 @@
     },
     "packages/providers/generic": {
       "name": "@crewyard/provider-generic",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/core": "workspace:*",
       },
     },
     "packages/providers/ollama": {
       "name": "@crewyard/provider-ollama",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/core": "workspace:*",
         "@crewyard/provider-generic": "workspace:*",
@@ -203,7 +203,7 @@
     },
     "packages/providers/opencode": {
       "name": "@crewyard/provider-opencode",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/core": "workspace:*",
         "@crewyard/provider-generic": "workspace:*",
@@ -211,7 +211,7 @@
     },
     "packages/recovery": {
       "name": "@crewyard/recovery",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/agents": "workspace:*",
         "@crewyard/config": "workspace:*",
@@ -224,7 +224,7 @@
     },
     "packages/reviews": {
       "name": "@crewyard/reviews",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/config": "workspace:*",
         "@crewyard/core": "workspace:*",
@@ -233,7 +233,7 @@
     },
     "packages/scheduler": {
       "name": "@crewyard/scheduler",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/config": "workspace:*",
         "@crewyard/core": "workspace:*",
@@ -243,14 +243,14 @@
     },
     "packages/storage": {
       "name": "@crewyard/storage",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/core": "workspace:*",
       },
     },
     "packages/tasks": {
       "name": "@crewyard/tasks",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/config": "workspace:*",
         "@crewyard/core": "workspace:*",
@@ -259,7 +259,7 @@
     },
     "packages/telemetry": {
       "name": "@crewyard/telemetry",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/core": "workspace:*",
         "@crewyard/storage": "workspace:*",
@@ -267,7 +267,7 @@
     },
     "packages/tui": {
       "name": "@crewyard/tui",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/core": "workspace:*",
         "@crewyard/storage": "workspace:*",
@@ -278,7 +278,7 @@
     },
     "packages/workspaces": {
       "name": "@crewyard/workspaces",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@crewyard/config": "workspace:*",
         "@crewyard/core": "workspace:*",
