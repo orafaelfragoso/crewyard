@@ -12,7 +12,6 @@
     "@agent-rail/core": "workspace:*",
     "@agent-rail/storage": "workspace:*",
     "@agent-rail/config": "workspace:*",
-    "@agent-rail/workspaces": "workspace:*",
     "@agent-rail/provider-codex": "workspace:*",
     "@agent-rail/provider-claude": "workspace:*",
     "@agent-rail/provider-opencode": "workspace:*",

@@ -9,6 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@agent-rail/core": "workspace:*"
+    "@agent-rail/core": "workspace:*",
+    "@agent-rail/provider-generic": "workspace:*"
   }
 }
