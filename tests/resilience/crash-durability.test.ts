@@ -12,8 +12,7 @@ async function crashRun(dataDir: string, runId: number): Promise<number> {
   const decoder = new TextDecoder();
   let buffered = '';
   let lastAck = -1;
-  const killAfter = 20 + Math.floor(Math.random() * 60);
-  const timer = setTimeout(() => proc.kill('SIGKILL'), killAfter);
+  let timer: ReturnType<typeof setTimeout> | undefined;
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -21,6 +20,8 @@ async function crashRun(dataDir: string, runId: number): Promise<number> {
     const lines = buffered.split('\n');
     buffered = lines.pop() ?? '';
     for (const line of lines) lastAck = Number(line.split(' ')[0]);
+    if (lastAck >= 0 && timer === undefined)
+      timer = setTimeout(() => proc.kill('SIGKILL'), Math.floor(Math.random() * 40));
   }
   clearTimeout(timer);
   await proc.exited;
@@ -54,7 +55,7 @@ describe('crash durability', () => {
         ).n;
         expect(events).toBeGreaterThanOrEqual(ack + 1);
       }
-      expect(acknowledged).toBeGreaterThan(50);
+      expect(acknowledged).toBe(100);
     } finally {
       store.close();
     }
