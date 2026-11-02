@@ -48,10 +48,10 @@ Linux (x64, arm64), macOS (arm64, x64) and Windows (x64) are supported.
 Download the binary for your platform from the GitHub release, verify it, and put it on `PATH`:
 
 ```bash
-curl -LO https://github.com/<owner>/agent-rail/releases/download/v1.0.0/rail-linux-x64
-curl -LO https://github.com/<owner>/agent-rail/releases/download/v1.0.0/SHA256SUMS
+curl -LO https://github.com/orafaelfragoso/agent-rail/releases/download/v1.0.0/rail-linux-x64
+curl -LO https://github.com/orafaelfragoso/agent-rail/releases/download/v1.0.0/SHA256SUMS
 sha256sum --ignore-missing -c SHA256SUMS
-gh attestation verify rail-linux-x64 --repo <owner>/agent-rail
+gh attestation verify rail-linux-x64 --repo orafaelfragoso/agent-rail
 install -m 755 rail-linux-x64 ~/.local/bin/rail
 ```
 
