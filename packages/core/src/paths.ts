@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path';
 import { RailError } from './errors.ts';
 
 const APP = 'agent-rail';
@@ -21,34 +21,35 @@ export function resolveDirs(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
 ): RailDirs {
+  const path = platform === 'win32' ? win32 : posix;
   const home = env.HOME ?? env.USERPROFILE ?? homedir();
   let data: string;
   let config: string;
   if (env.RAIL_DATA_DIR) {
-    data = resolve(env.RAIL_DATA_DIR);
-    config = resolve(env.RAIL_CONFIG_DIR ?? join(data, 'config'));
+    data = path.resolve(env.RAIL_DATA_DIR);
+    config = path.resolve(env.RAIL_CONFIG_DIR ?? path.join(data, 'config'));
   } else if (platform === 'darwin') {
-    data = join(home, 'Library', 'Application Support', APP);
-    config = env.RAIL_CONFIG_DIR ?? join(home, 'Library', 'Preferences', APP);
+    data = path.join(home, 'Library', 'Application Support', APP);
+    config = env.RAIL_CONFIG_DIR ?? path.join(home, 'Library', 'Preferences', APP);
   } else if (platform === 'win32') {
-    const local = env.LOCALAPPDATA ?? join(home, 'AppData', 'Local');
-    const roaming = env.APPDATA ?? join(home, 'AppData', 'Roaming');
-    data = join(local, APP);
-    config = env.RAIL_CONFIG_DIR ?? join(roaming, APP);
+    const local = env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local');
+    const roaming = env.APPDATA ?? path.join(home, 'AppData', 'Roaming');
+    data = path.join(local, APP);
+    config = env.RAIL_CONFIG_DIR ?? path.join(roaming, APP);
   } else {
-    data = join(env.XDG_DATA_HOME ?? join(home, '.local', 'share'), APP);
-    config = env.RAIL_CONFIG_DIR ?? join(env.XDG_CONFIG_HOME ?? join(home, '.config'), APP);
+    data = path.join(env.XDG_DATA_HOME ?? path.join(home, '.local', 'share'), APP);
+    config = env.RAIL_CONFIG_DIR ?? path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), APP);
   }
   return {
     data,
     config,
-    database: join(data, 'agent-rail.sqlite'),
-    cacheIndex: join(data, 'cache', 'index'),
-    worktrees: join(data, 'worktrees'),
-    artifacts: join(data, 'artifacts'),
-    logs: join(data, 'logs'),
-    backups: join(data, 'backups'),
-    run: join(data, 'run'),
+    database: path.join(data, 'agent-rail.sqlite'),
+    cacheIndex: path.join(data, 'cache', 'index'),
+    worktrees: path.join(data, 'worktrees'),
+    artifacts: path.join(data, 'artifacts'),
+    logs: path.join(data, 'logs'),
+    backups: path.join(data, 'backups'),
+    run: path.join(data, 'run'),
   };
 }
 
