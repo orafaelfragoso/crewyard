@@ -178,29 +178,32 @@ describe('GitHub client', () => {
 });
 
 describe('credentials and repository identity', () => {
-  test.skipIf(process.platform === 'win32')('gh token is read per identity, cached in memory and never echoed in errors', async () => {
-    forgetCachedTokens();
-    const dir = tempDir();
-    const counter = join(dir, 'calls');
-    const gh = join(dir, 'gh');
-    writeFileSync(
-      gh,
-      `#!/bin/sh\necho "$GH_CONFIG_DIR $*" >> ${counter}\nif [ "$GH_CONFIG_DIR" = "${dir}/work" ]; then echo ghp_${'x'.repeat(36)}; else exit 1; fi\n`,
-    );
-    chmodSync(gh, 0o755);
-    const work = ghTokenProvider({ host: 'github.com', configDir: join(dir, 'work'), ghBinary: gh });
-    expect(await work()).toBe(`ghp_${'x'.repeat(36)}`);
-    expect(await work()).toBe(`ghp_${'x'.repeat(36)}`);
-    const personal = ghTokenProvider({ host: 'github.com', configDir: join(dir, 'personal'), ghBinary: gh });
-    const error = await personal().catch((e: unknown) => e);
-    expect(error).toMatchObject({ code: 'UNAUTHENTICATED' });
-    expect(JSON.stringify(error)).not.toContain('ghp_');
-    expect(readFileSync(counter, 'utf8').trim().split('\n')).toEqual([
-      `${dir}/work auth token --hostname github.com`,
-      `${dir}/personal auth token --hostname github.com`,
-    ]);
-    forgetCachedTokens();
-  });
+  test.skipIf(process.platform === 'win32')(
+    'gh token is read per identity, cached in memory and never echoed in errors',
+    async () => {
+      forgetCachedTokens();
+      const dir = tempDir();
+      const counter = join(dir, 'calls');
+      const gh = join(dir, 'gh');
+      writeFileSync(
+        gh,
+        `#!/bin/sh\necho "$GH_CONFIG_DIR $*" >> ${counter}\nif [ "$GH_CONFIG_DIR" = "${dir}/work" ]; then echo ghp_${'x'.repeat(36)}; else exit 1; fi\n`,
+      );
+      chmodSync(gh, 0o755);
+      const work = ghTokenProvider({ host: 'github.com', configDir: join(dir, 'work'), ghBinary: gh });
+      expect(await work()).toBe(`ghp_${'x'.repeat(36)}`);
+      expect(await work()).toBe(`ghp_${'x'.repeat(36)}`);
+      const personal = ghTokenProvider({ host: 'github.com', configDir: join(dir, 'personal'), ghBinary: gh });
+      const error = await personal().catch((e: unknown) => e);
+      expect(error).toMatchObject({ code: 'UNAUTHENTICATED' });
+      expect(JSON.stringify(error)).not.toContain('ghp_');
+      expect(readFileSync(counter, 'utf8').trim().split('\n')).toEqual([
+        `${dir}/work auth token --hostname github.com`,
+        `${dir}/personal auth token --hostname github.com`,
+      ]);
+      forgetCachedTokens();
+    },
+  );
 
   test('remote validation refuses another repository', () => {
     const expected = { host: 'github.com', owner: 'acme', name: 'widgets' };
