@@ -1,12 +1,17 @@
 import {
   type AgentTool,
   agentClaim,
+  agentGetReview,
   agentHeartbeat,
   agentListTasks,
   agentNextAction,
   agentProgress,
+  agentQueueStatus,
   agentReportBlocker,
+  agentRequestIntegration,
+  agentRequestReview,
   agentState,
+  agentSubmitPr,
   agentSubmitWork,
   authorize,
   type Caller,
@@ -314,6 +319,58 @@ export function createRailMcpServer(
     true,
     z.object({ ...handoff, kind: z.enum(['ready_for_pr', 'needs_review', 'completed']).optional() }),
     (a) => agentSubmitWork(ctx, caller, a),
+  );
+
+  const prSelector = z.object({ projectId, taskId: lease.taskId.optional(), prNumber: z.int().positive().optional() });
+  const optionalSelector = (a: z.output<typeof prSelector>) => ({
+    projectId: a.projectId ?? null,
+    ...(a.taskId ? { taskId: a.taskId } : {}),
+    ...(a.prNumber ? { prNumber: a.prNumber } : {}),
+  });
+
+  tool(
+    'rail_submit_pr',
+    'Submit pull request',
+    'Publish your handed-off task branch (never force-pushed) and attach or open its PR through the policy-controlled outbox. Does not merge.',
+    true,
+    z.object({ taskId: lease.taskId }),
+    (a) => agentSubmitPr(ctx, caller, a),
+  );
+
+  tool(
+    'rail_get_review',
+    'Get review',
+    'Current review artifacts and open structured findings for your task or a PR. AI review never overrides required checks.',
+    false,
+    prSelector,
+    (a) => agentGetReview(ctx, caller, optionalSelector(a)),
+  );
+
+  tool(
+    'rail_request_review',
+    'Request review',
+    'Queue an evidence-fingerprinted review of your task PR. Identical evidence reuses the cached review instead of invoking a reviewer again.',
+    true,
+    z.object({ taskId: lease.taskId }),
+    (a) => agentRequestReview(ctx, caller, a),
+  );
+
+  tool(
+    'rail_request_integration',
+    'Request integration',
+    'Request admission of your task PR to the integration queue (idempotent). Merging is performed only by the integration controller within GitHub branch protections.',
+    true,
+    z.object({ taskId: lease.taskId }),
+    (a) => agentRequestIntegration(ctx, caller, a),
+  );
+
+  tool(
+    'rail_get_queue_status',
+    'Get queue status',
+    'Queue order, mode and the exact ordered blockers for your PR (or the whole queue).',
+    false,
+    prSelector,
+    (a) => agentQueueStatus(ctx, caller, optionalSelector(a)),
   );
 
   for (const extra of extraTools) {

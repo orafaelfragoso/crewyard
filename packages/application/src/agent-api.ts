@@ -1,5 +1,14 @@
 import { type HandoffKind, RailError, type TaskState } from '@agent-rail/core';
+import {
+  explainPullRequest,
+  getQueueStatus,
+  listPullRequests,
+  requestIntegration,
+  requestPullRequestReview,
+  showPullRequest,
+} from '@agent-rail/integration';
 import { getProject, loadProjectConfig, primaryRepository } from '@agent-rail/projects';
+import { listFindings, listReviews } from '@agent-rail/reviews';
 import type { RailContext } from '@agent-rail/storage';
 import {
   getNextAction,
@@ -20,6 +29,8 @@ import {
   callerProject,
   leaseFor,
 } from './caller.ts';
+import { contextFingerprints, integrationEnv, reviewersFor } from './integration.ts';
+import { publishTask } from './publish.ts';
 import { serviceStatus } from './service-control.ts';
 import { claimAndPrepare, type PreparedClaim } from './work.ts';
 
@@ -240,4 +251,110 @@ export function agentSubmitWork(
   input: HandoffArgs & { kind?: 'ready_for_pr' | 'needs_review' | 'completed' },
 ) {
   return handoff(ctx, caller, input.kind ?? 'ready_for_pr', 'rail_submit_work', input);
+}
+
+function ownedTask(ctx: RailContext, caller: Caller, taskId: string) {
+  const detail = showTask(ctx, taskId);
+  callerProject(caller, detail.task.projectId);
+  const agentId = callerAgentId(caller);
+  const holder = detail.lease?.holder ?? detail.lastLease?.holder ?? null;
+  const owns =
+    holder !== null &&
+    ((holder.kind === 'agent' && holder.id === agentId) || (caller.kind === 'session' && caller.taskId === taskId));
+  if (!owns) {
+    throw new RailError('NOT_AUTHORIZED', `Only the agent that worked on ${taskId} may publish or queue it`, {
+      details: { holder },
+    });
+  }
+  return detail;
+}
+
+function prForTask(ctx: RailContext, taskId: string) {
+  const pr = listPullRequests(ctx, { taskId, limit: 1 })[0];
+  if (!pr)
+    throw new RailError('NOT_FOUND', `No pull request is recorded for ${taskId}`, {
+      suggestion: 'Call rail_submit_pr first.',
+    });
+  return pr;
+}
+
+export async function agentSubmitPr(ctx: RailContext, caller: Caller, input: { taskId: string }) {
+  assertToolAllowed(caller, 'rail_submit_pr');
+  ownedTask(ctx, caller, input.taskId);
+  return publishTask(ctx, {
+    taskId: input.taskId,
+    actor: callerActor(caller),
+    leaderId: `mcp:${process.pid}`,
+    enqueue: false,
+  });
+}
+
+export function agentGetReview(
+  ctx: RailContext,
+  caller: Caller,
+  input: { taskId?: string; prNumber?: number; projectId?: string | null },
+) {
+  const projectId = authorize(caller, 'rail_get_review', input.projectId);
+  const repo = primaryRepository(ctx, projectId);
+  const pr = input.taskId
+    ? prForTask(ctx, input.taskId)
+    : input.prNumber
+      ? showPullRequest(ctx, { repositoryId: repo.id, number: input.prNumber })
+      : null;
+  if (!pr) throw new RailError('INVALID_INPUT', 'Pass taskId or prNumber');
+  return {
+    pullRequest: {
+      number: pr.number,
+      headSha: pr.headSha,
+      state: pr.state,
+      checksState: pr.checksState,
+      reviewDecision: pr.reviewDecision,
+    },
+    reviews: listReviews(ctx, { prId: pr.id }),
+    openFindings: listFindings(ctx, { prId: pr.id, status: 'open' }),
+    note: 'AI review is supplementary evidence; required GitHub checks and reviews remain authoritative.',
+  };
+}
+
+export async function agentRequestReview(ctx: RailContext, caller: Caller, input: { taskId: string }) {
+  assertToolAllowed(caller, 'rail_request_review');
+  const detail = ownedTask(ctx, caller, input.taskId);
+  const pr = prForTask(ctx, input.taskId);
+  return requestPullRequestReview(
+    ctx,
+    { prId: pr.id },
+    {
+      reviewers: reviewersFor(ctx, detail.task.projectId),
+      context: contextFingerprints(ctx),
+      env: integrationEnv(ctx),
+    },
+  );
+}
+
+export async function agentRequestIntegration(ctx: RailContext, caller: Caller, input: { taskId: string }) {
+  assertToolAllowed(caller, 'rail_request_integration');
+  const detail = ownedTask(ctx, caller, input.taskId);
+  const pr = prForTask(ctx, input.taskId);
+  return requestIntegration(
+    ctx,
+    { prId: pr.id, priority: detail.task.priority, requestedBy: callerActor(caller) },
+    integrationEnv(ctx),
+  );
+}
+
+export function agentQueueStatus(
+  ctx: RailContext,
+  caller: Caller,
+  input: { taskId?: string; prNumber?: number; projectId?: string | null },
+) {
+  const projectId = authorize(caller, 'rail_get_queue_status', input.projectId);
+  const repo = primaryRepository(ctx, projectId);
+  const env = integrationEnv(ctx);
+  const pr = input.taskId
+    ? prForTask(ctx, input.taskId)
+    : input.prNumber
+      ? showPullRequest(ctx, { repositoryId: repo.id, number: input.prNumber })
+      : null;
+  if (!pr) return getQueueStatus(ctx, { repositoryId: repo.id, baseBranch: repo.defaultBase }, env);
+  return { queue: getQueueStatus(ctx, { prId: pr.id }, env), explanation: explainPullRequest(ctx, pr.id, env) };
 }
