@@ -1,0 +1,29 @@
+{
+  "name": "@agent-rail/application",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@agent-rail/core": "workspace:*",
+    "@agent-rail/storage": "workspace:*",
+    "@agent-rail/config": "workspace:*",
+    "@agent-rail/telemetry": "workspace:*",
+    "@agent-rail/projects": "workspace:*",
+    "@agent-rail/indexing": "workspace:*",
+    "@agent-rail/context": "workspace:*",
+    "@agent-rail/tasks": "workspace:*",
+    "@agent-rail/scheduler": "workspace:*",
+    "@agent-rail/workspaces": "workspace:*",
+    "@agent-rail/agents": "workspace:*",
+    "@agent-rail/github": "workspace:*",
+    "@agent-rail/reviews": "workspace:*",
+    "@agent-rail/integration": "workspace:*",
+    "@agent-rail/recovery": "workspace:*",
+    "@agent-rail/host-installers": "workspace:*"
+  }
+}

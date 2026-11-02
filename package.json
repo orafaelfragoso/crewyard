@@ -1,0 +1,62 @@
+{
+  "name": "agent-rail",
+  "version": "1.0.0",
+  "description": "Local-first coordination engine for independent AI coding agents.",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "packages/providers/*",
+    "apps/*"
+  ],
+  "bin": {
+    "rail": "apps/cli/src/main.ts"
+  },
+  "scripts": {
+    "rail": "bun apps/cli/src/main.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "bun test",
+    "test:unit": "bun test tests/unit packages",
+    "test:concurrency": "bun test tests/concurrency",
+    "build:binaries": "bun scripts/build-binaries.ts",
+    "sbom": "bun scripts/sbom.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.4",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/bun": "1.4.4",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "typescript": "7.0.2",
+    "@agent-rail/cli": "workspace:*",
+    "@agent-rail/mcp": "workspace:*",
+    "@agent-rail/agents": "workspace:*",
+    "@agent-rail/application": "workspace:*",
+    "@agent-rail/config": "workspace:*",
+    "@agent-rail/context": "workspace:*",
+    "@agent-rail/core": "workspace:*",
+    "@agent-rail/github": "workspace:*",
+    "@agent-rail/host-installers": "workspace:*",
+    "@agent-rail/indexing": "workspace:*",
+    "@agent-rail/integration": "workspace:*",
+    "@agent-rail/projects": "workspace:*",
+    "@agent-rail/provider-claude": "workspace:*",
+    "@agent-rail/provider-codex": "workspace:*",
+    "@agent-rail/provider-generic": "workspace:*",
+    "@agent-rail/provider-ollama": "workspace:*",
+    "@agent-rail/provider-opencode": "workspace:*",
+    "@agent-rail/recovery": "workspace:*",
+    "@agent-rail/reviews": "workspace:*",
+    "@agent-rail/scheduler": "workspace:*",
+    "@agent-rail/storage": "workspace:*",
+    "@agent-rail/tasks": "workspace:*",
+    "@agent-rail/telemetry": "workspace:*",
+    "@agent-rail/tui": "workspace:*",
+    "@agent-rail/workspaces": "workspace:*"
+  },
+  "engines": {
+    "bun": ">=1.4.4"
+  }
+}

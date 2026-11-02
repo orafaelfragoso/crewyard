@@ -1,0 +1,17 @@
+{
+  "name": "@agent-rail/mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/main.ts",
+  "types": "src/main.ts",
+  "exports": {
+    ".": "./src/main.ts"
+  },
+  "dependencies": {
+    "@agent-rail/core": "workspace:*",
+    "@agent-rail/application": "workspace:*",
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "4.6.7"
+  }
+}
