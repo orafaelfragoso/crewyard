@@ -9,6 +9,11 @@ import { createTempGitRepo, createTestContext, type TestContext } from '../helpe
 
 const MAIN = join(import.meta.dir, '../../apps/mcp/src/main.ts');
 const REQUIRED = [
+  'rail_submit_pr',
+  'rail_get_review',
+  'rail_request_review',
+  'rail_request_integration',
+  'rail_get_queue_status',
   'rail_get_state',
   'rail_search_context',
   'rail_get_symbol',

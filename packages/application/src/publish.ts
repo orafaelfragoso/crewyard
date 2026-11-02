@@ -1,0 +1,271 @@
+import { type Actor, git, nowIso, RailError } from '@agent-rail/core';
+import {
+  type IntegrationEnv,
+  listPullRequests,
+  type PullRequestRecord,
+  requestIntegration,
+  requestPullRequestReview,
+  submitPullRequest,
+} from '@agent-rail/integration';
+import { getProject, loadProjectConfig, primaryRepository } from '@agent-rail/projects';
+import { one, type RailContext, recordRemoteOperation, recordTransition } from '@agent-rail/storage';
+import { listApprovals, requestApprovalInTx, showTask, transitionTask } from '@agent-rail/tasks';
+import { collectCommits, getWorkspace, listWorkspaces, setExpectedRemoteHead } from '@agent-rail/workspaces';
+import { contextFingerprints, integrationEnv, reviewersFor } from './integration.ts';
+
+export interface PublishResult {
+  taskId: string;
+  branch: string;
+  headSha: string;
+  pushed: boolean;
+  pullRequest: PullRequestRecord | null;
+  operationStatus: string;
+  review: { type: string; decision: string; status: string | null; reviewerInvoked: boolean; error: string | null }[];
+  queued: boolean;
+  notes: string[];
+}
+
+async function remoteBranchHead(cwd: string, branch: string): Promise<string | null> {
+  const result = await git(cwd, ['ls-remote', '--heads', 'origin', `refs/heads/${branch}`], {
+    allowFailure: true,
+    timeoutMs: 60_000,
+  });
+  if (result.exitCode !== 0) {
+    throw new RailError('OFFLINE', `Cannot reach origin: ${result.stderr.trim().slice(0, 300)}`, { retryable: true });
+  }
+  return result.stdout.trim().split(/\s+/)[0] || null;
+}
+
+async function isAncestor(cwd: string, ancestor: string, descendant: string): Promise<boolean> {
+  return (await git(cwd, ['merge-base', '--is-ancestor', ancestor, descendant], { allowFailure: true })).exitCode === 0;
+}
+
+function assertPublishAllowed(
+  ctx: RailContext,
+  projectId: string,
+  taskId: string,
+  headSha: string,
+  actor: Actor,
+): void {
+  const project = getProject(ctx, projectId);
+  if (project.autonomy === 'observe') {
+    throw new RailError('POLICY_DENIED', 'Project is in observe mode: Rail does not publish branches or pull requests');
+  }
+  if (project.autonomy !== 'assisted' || actor.kind === 'operator') return;
+  const subjectId = `${taskId}@${headSha}`;
+  const approved = listApprovals(ctx, { subjectKind: 'pr_publish', subjectId }).some((a) => a.status === 'approved');
+  if (approved) return;
+  ctx.store.immediate((db) =>
+    requestApprovalInTx(
+      db,
+      {
+        projectId,
+        subjectKind: 'pr_publish',
+        subjectId,
+        reason: `Publish ${taskId} at ${headSha.slice(0, 12)} as a pull request`,
+        requestedBy: actor,
+      },
+      nowIso(ctx.clock),
+    ),
+  );
+  throw new RailError('APPROVAL_REQUIRED', `Assisted mode: an operator must approve publishing ${taskId}`, {
+    suggestion: `rail pr submit --task ${taskId} (as operator) or approve the pending pr_publish request.`,
+  });
+}
+
+function prBody(task: ReturnType<typeof showTask>['task']): string {
+  const h = task.handoff;
+  return [
+    `Rail task **${task.id}**: ${task.objective || task.title}`,
+    '',
+    '### Acceptance criteria',
+    ...task.acceptanceCriteria.map((c) => `- [ ] ${c}`),
+    '',
+    '### Handoff',
+    h?.summary ?? '(no summary)',
+    ...(h?.testEvidence?.length
+      ? [
+          '',
+          '### Test evidence',
+          ...h.testEvidence.map((t) => `- \`${t.command}\`: ${t.status}${t.summary ? ` — ${t.summary}` : ''}`),
+        ]
+      : []),
+    ...(h?.remainingIssues?.length ? ['', '### Remaining issues', ...h.remainingIssues.map((i) => `- ${i}`)] : []),
+    '',
+    '_Opened by Agent Rail. GitHub branch protections and required checks remain authoritative._',
+  ].join('\n');
+}
+
+export async function publishTask(
+  ctx: RailContext,
+  input: { taskId: string; actor: Actor; leaderId: string; env?: IntegrationEnv; review?: boolean; enqueue?: boolean },
+): Promise<PublishResult> {
+  const task = showTask(ctx, input.taskId).task;
+  if (!['SUBMITTED', 'REVIEWING', 'REVISION', 'BLOCKED'].includes(task.state)) {
+    throw new RailError('INVALID_TRANSITION', `${task.id} is ${task.state}; only handed-off work can be published`);
+  }
+  const workspace = listWorkspaces(ctx, { taskId: task.id }).find((w) => w.state !== 'cleaned');
+  if (!workspace) throw new RailError('NOT_FOUND', `${task.id} has no workspace to publish`);
+  const commits = await collectCommits(ctx, workspace.id);
+  if (commits.commits.length === 0)
+    throw new RailError('INVALID_INPUT', `${task.id} has no commits on ${workspace.branch}`);
+  const headSha = commits.headSha;
+  assertPublishAllowed(ctx, task.projectId, task.id, headSha, input.actor);
+  const repo = primaryRepository(ctx, task.projectId);
+  const config = loadProjectConfig(ctx, task.projectId).config;
+  const env = input.env ?? integrationEnv(ctx);
+  const notes: string[] = [];
+
+  const remoteHead = await remoteBranchHead(workspace.path, workspace.branch);
+  const expected = getWorkspace(ctx, workspace.id).expectedRemoteHead;
+  let pushed = false;
+  if (remoteHead !== headSha) {
+    if (remoteHead && remoteHead !== expected && !(await isAncestor(workspace.path, remoteHead, headSha))) {
+      throw new RailError(
+        'HEAD_MISMATCH',
+        `origin/${workspace.branch} moved to ${remoteHead.slice(0, 12)} outside Rail`,
+        {
+          details: { remoteHead, expected, local: headSha },
+          suggestion: 'Inspect the external change; Rail never force-pushes over it.',
+        },
+      );
+    }
+    const push = await git(
+      workspace.path,
+      ['push', '--porcelain', 'origin', `${headSha}:refs/heads/${workspace.branch}`],
+      {
+        allowFailure: true,
+        timeoutMs: 180_000,
+      },
+    );
+    ctx.store.immediate((db) =>
+      recordRemoteOperation(db, {
+        operationId: null,
+        host: 'git',
+        method: 'push',
+        target: `origin/${workspace.branch}`,
+        request: { headSha, previous: remoteHead },
+        responseStatus: push.exitCode,
+        result: { stderr: push.stderr.slice(0, 2_000) },
+      }),
+    );
+    if (push.exitCode !== 0) {
+      const confirmed = await remoteBranchHead(workspace.path, workspace.branch).catch(() => null);
+      if (confirmed !== headSha) {
+        throw new RailError('EXTERNAL_FAILURE', `git push failed: ${push.stderr.trim().slice(0, 500)}`, {
+          retryable: true,
+        });
+      }
+      notes.push('push reported an error but the remote already has the expected head');
+    }
+    pushed = true;
+  }
+  setExpectedRemoteHead(ctx, workspace.id, { sha: headSha, expectedPrevious: expected, actor: input.actor });
+
+  const submitted = await submitPullRequest(
+    ctx,
+    {
+      repositoryId: repo.id,
+      taskId: task.id,
+      headRef: workspace.branch,
+      headSha,
+      baseRef: task.baseBranch ?? repo.defaultBase,
+      title: `${task.title} (${task.id})`,
+      body: prBody(task),
+      actor: input.actor,
+    },
+    { leaderId: input.leaderId, env },
+  );
+  const pr =
+    submitted.pullRequest ??
+    listPullRequests(ctx, { repositoryId: repo.id, taskId: task.id, state: 'open' })[0] ??
+    null;
+  ctx.store.immediate((db) =>
+    recordTransition(
+      db,
+      {
+        type: 'task.published',
+        actor: input.actor,
+        projectId: task.projectId,
+        taskId: task.id,
+        payload: { branch: workspace.branch, headSha, pushed, pr: pr?.number ?? null },
+      },
+      { action: 'task.publish', input: { taskId: task.id, headSha }, decision: submitted.status },
+    ),
+  );
+  if (!pr) {
+    return {
+      taskId: task.id,
+      branch: workspace.branch,
+      headSha,
+      pushed,
+      pullRequest: null,
+      operationStatus: submitted.status,
+      review: [],
+      queued: false,
+      notes: [...notes, 'pull request creation is pending in the outbox'],
+    };
+  }
+
+  const review: PublishResult['review'] = [];
+  if (input.review !== false && config.review.enabled) {
+    if (showTask(ctx, task.id).task.state === 'SUBMITTED') {
+      transitionTask(ctx, {
+        taskId: task.id,
+        to: 'REVIEWING',
+        actor: input.actor,
+        reason: `review of PR #${pr.number}`,
+      });
+    }
+    const result = await requestPullRequestReview(
+      ctx,
+      { prId: pr.id },
+      { reviewers: reviewersFor(ctx, task.projectId), context: contextFingerprints(ctx), env },
+    );
+    for (const o of result.outcomes) {
+      review.push({
+        type: o.reviewType,
+        decision: o.decision,
+        status: o.review?.status ?? null,
+        reviewerInvoked: o.reviewerInvoked,
+        error: o.error,
+      });
+    }
+  }
+  let queued = false;
+  const autonomy = getProject(ctx, task.projectId).autonomy;
+  if (
+    input.enqueue !== false &&
+    (autonomy === 'guarded' || autonomy === 'autopilot' || input.actor.kind === 'operator')
+  ) {
+    await requestIntegration(ctx, { prId: pr.id, priority: task.priority, requestedBy: input.actor }, env);
+    queued = true;
+  }
+  return {
+    taskId: task.id,
+    branch: workspace.branch,
+    headSha,
+    pushed,
+    pullRequest: pr,
+    operationStatus: submitted.status,
+    review,
+    queued,
+    notes,
+  };
+}
+
+export function tasksAwaitingPublication(ctx: RailContext, projectId: string): string[] {
+  return (
+    ctx.store.db
+      .query(
+        `SELECT t.id FROM tasks t WHERE t.project_id = ? AND t.state = 'SUBMITTED' AND t.repository_id IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM pull_requests p WHERE p.task_id = t.id AND p.state = 'open')
+         AND EXISTS (SELECT 1 FROM workspaces w WHERE w.task_id = t.id AND w.state <> 'cleaned') ORDER BY t.id`,
+      )
+      .all(projectId) as { id: string }[]
+  ).map((r) => r.id);
+}
+
+export function hasOpenPr(ctx: RailContext, taskId: string): boolean {
+  return one(ctx.store.db, `SELECT 1 FROM pull_requests WHERE task_id = ? AND state = 'open'`, taskId) !== null;
+}
