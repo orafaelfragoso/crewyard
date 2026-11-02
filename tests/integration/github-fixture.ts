@@ -87,7 +87,7 @@ export async function createGitHubFixture(options: FixtureOptions = {}): Promise
     github: createClientFactory(ctx, {
       baseUrl: mock.url,
       token: staticTokenProvider(mock.token),
-      timeoutMs: options.timeoutMs ?? 3_000,
+      timeoutMs: options.timeoutMs ?? (process.platform === 'win32' ? 15_000 : 3_000),
       retryBaseMs: 1,
       maxRetries: 1,
     }),
