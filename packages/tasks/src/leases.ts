@@ -93,6 +93,11 @@ function countActiveLeases(db: Database, where: string, ...params: string[]): nu
   );
 }
 
+function agentWipLimit(db: Database, agentId: string, fallback: number): number {
+  const row = one<{ max_parallel: number }>(db, 'SELECT max_parallel FROM agents WHERE id = ?', agentId);
+  return row ? Math.max(row.max_parallel, 1) : fallback;
+}
+
 function assertWipLimits(db: Database, task: Task, holder: LeaseHolder, config: RailConfig): void {
   const wip = config.scheduler.wip;
   const checks: { scope: string; limit: number | undefined; used: () => number }[] = [
@@ -105,7 +110,7 @@ function assertWipLimits(db: Database, task: Task, holder: LeaseHolder, config: 
     },
     {
       scope: 'agent',
-      limit: holder.kind === 'agent' ? wip.agent : undefined,
+      limit: holder.kind === 'agent' ? agentWipLimit(db, holder.id, wip.agent) : undefined,
       used: () => countActiveLeases(db, "l.holder_kind = 'agent' AND l.holder_id = ?", holder.id),
     },
   ];

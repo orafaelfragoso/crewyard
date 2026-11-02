@@ -74,7 +74,9 @@ export function registerAgentCommands(program: Command): void {
       action(async (ctx, opts) => {
         const apiKey = await readSecret(opts);
         const settings: Record<string, unknown> = {
-          ...(opts.command ? { command: opts.command } : {}),
+          ...(opts.command
+            ? { command: (opts.command as string[])[0], args: (opts.command as string[]).slice(1), codingAgent: true }
+            : {}),
           ...(opts.endpoint ? { endpoint: String(opts.endpoint) } : {}),
         };
         const profile = await addProfile(ctx, {
