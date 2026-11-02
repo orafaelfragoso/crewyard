@@ -10,4 +10,13 @@ registerSystemCommands(program, pkg.version);
 registerWorkCommands(program);
 registerAgentCommands(program);
 
+program
+  .command('mcp')
+  .description('run the MCP stdio server (stdout carries protocol messages only)')
+  .action(async () => {
+    const { runMcpServer } = await import('@agent-rail/mcp');
+    const project = program.opts<{ project?: string }>().project ?? process.env.RAIL_PROJECT;
+    await runMcpServer(project ? { project } : {});
+  });
+
 process.exitCode = await runProgram(program, process.argv);
