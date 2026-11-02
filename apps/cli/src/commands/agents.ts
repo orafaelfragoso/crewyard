@@ -231,23 +231,21 @@ export function registerAgentCommands(program: Command): void {
         emit(opts, created, (a) => `${a.name} (${a.id}) role=${a.role}`);
       }),
     );
-  agent
-    .command('list')
-    .action(
-      action((ctx, opts) =>
-        emit(opts, listAgents(ctx), (rows) =>
-          table(
-            rows.map((a) => ({
-              id: a.id,
-              name: a.name,
-              role: a.role,
-              managed: a.managed,
-              providers: a.providerPreferences.map((p) => p.provider).join(','),
-            })),
-          ),
+  agent.command('list').action(
+    action((ctx, opts) =>
+      emit(opts, listAgents(ctx), (rows) =>
+        table(
+          rows.map((a) => ({
+            id: a.id,
+            name: a.name,
+            role: a.role,
+            managed: a.managed,
+            providers: a.providerPreferences.map((p) => p.provider).join(','),
+          })),
         ),
       ),
-    );
+    ),
+  );
   agent
     .command('show <agent>')
     .action(action((ctx, opts, ref: string) => emit(opts, getAgent(ctx, ref), (a) => JSON.stringify(a, null, 2))));
