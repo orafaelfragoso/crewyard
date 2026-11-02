@@ -32,6 +32,16 @@ function binaryName(t: ReleaseTarget): string {
   return `rail-${t.os}-${t.arch}${t.os === 'windows' ? '.exe' : ''}`;
 }
 
+const stubInkDevtools: Bun.BunPlugin = {
+  name: 'stub-ink-devtools',
+  setup(build) {
+    build.onResolve({ filter: /devtools\.js$/ }, (args) =>
+      /[\\/]ink[\\/]build[\\/]/.test(args.importer) ? { path: 'ink-devtools', namespace: 'rail-stub' } : undefined,
+    );
+    build.onLoad({ filter: /.*/, namespace: 'rail-stub' }, () => ({ contents: 'export {};', loader: 'js' }));
+  },
+};
+
 async function compile(t: ReleaseTarget, outdir: string): Promise<Artifact> {
   const file = binaryName(t);
   const outfile = join(outdir, file);
@@ -41,6 +51,8 @@ async function compile(t: ReleaseTarget, outdir: string): Promise<Artifact> {
       compile: { target: t.target, outfile },
       minify: true,
       sourcemap: 'linked',
+      plugins: [stubInkDevtools],
+      throw: false,
     });
     if (!result.success || !existsSync(outfile)) {
       const reason = result.logs.map((log) => log.message).join('; ') || 'compiler produced no output';
@@ -48,7 +60,8 @@ async function compile(t: ReleaseTarget, outdir: string): Promise<Artifact> {
     }
     return { ...t, status: 'available', file, size: statSync(outfile).size, sha256: await sha256File(outfile) };
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+    const nested = error instanceof AggregateError ? error.errors.map((e: unknown) => String(e)).join('; ') : '';
+    const reason = nested || (error instanceof Error ? error.message : String(error));
     return { ...t, status: 'unavailable', reason, alternative: BUN_RUNTIME_ALTERNATIVE };
   }
 }
