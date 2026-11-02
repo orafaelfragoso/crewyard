@@ -103,12 +103,15 @@ function DashboardBody(props: DashboardProps & { data: DashboardData; view: View
     setFilter('');
   };
   const report = (p: Promise<ActionResult>) =>
-    p.then((r) => setMessage(r.ok ? r.message : `failed: ${r.message}`)).catch((e: unknown) => setMessage(`failed: ${(e as Error).message}`));
+    p
+      .then((r) => setMessage(r.ok ? r.message : `failed: ${r.message}`))
+      .catch((e: unknown) => setMessage(`failed: ${(e as Error).message}`));
 
   const selectedTask = () => filteredTasks(data, filter)[selected];
   const selectedQueue = () => filteredQueue(data, filter)[selected];
   const selectedSession = () => filteredSessions(data, filter)[selected];
-  const selectedProject = () => (view === 'Projects' ? filteredProjects(data, filter)[selected]?.id : effectiveProject) ?? null;
+  const selectedProject = () =>
+    (view === 'Projects' ? filteredProjects(data, filter)[selected]?.id : effectiveProject) ?? null;
 
   useInput((input, key) => {
     if (mode.kind === 'filter' || mode.kind === 'search' || mode.kind === 'reason') {
@@ -161,7 +164,8 @@ function DashboardBody(props: DashboardProps & { data: DashboardData; view: View
     if (input === 'G') return setSelected(clamp(count - 1));
     if (input === '?') return setMode({ kind: 'help' });
     if (input === 't') return setTheme((t) => THEMES[(THEMES.indexOf(t) + 1) % THEMES.length]!);
-    if (input === '/') return setMode(view === 'Context' ? { kind: 'search', text: context.query } : { kind: 'filter', text: filter });
+    if (input === '/')
+      return setMode(view === 'Context' ? { kind: 'search', text: context.query } : { kind: 'filter', text: filter });
     if (input === '[') return events.older();
     if (input === ']') return events.newer();
     if (input === 'L') return events.live();
@@ -186,26 +190,57 @@ function DashboardBody(props: DashboardProps & { data: DashboardData; view: View
           .catch((e: unknown) => setMessage((e as Error).message));
         return;
       }
-      if (input === 'r') return setMode({ kind: 'reason', label: `Retry ${task.id} — reason`, text: '', run: (r) => actions.retryTask(task.id, r) });
-      if (input === 'e') return setMode({ kind: 'reason', label: `Escalate ${task.id} — reason`, text: '', run: (r) => actions.escalateTask(task.id, r) });
-      if (input === 'a') return setMode({ kind: 'confirm', label: `Approve gate for ${task.id}?`, run: () => actions.approveTask(task.id) });
+      if (input === 'r')
+        return setMode({
+          kind: 'reason',
+          label: `Retry ${task.id} — reason`,
+          text: '',
+          run: (r) => actions.retryTask(task.id, r),
+        });
+      if (input === 'e')
+        return setMode({
+          kind: 'reason',
+          label: `Escalate ${task.id} — reason`,
+          text: '',
+          run: (r) => actions.escalateTask(task.id, r),
+        });
+      if (input === 'a')
+        return setMode({
+          kind: 'confirm',
+          label: `Approve gate for ${task.id}?`,
+          run: () => actions.approveTask(task.id),
+        });
     }
     if (view === 'Queue') {
       const entry = selectedQueue();
       if (!entry) return;
       if ((key.return || input === 'o') && entry.url) return report(actions.openUrl(entry.url));
       if (input === 'r') {
-        return setMode({ kind: 'reason', label: `Retry PR #${entry.prNumber} — reason`, text: '', run: (r) => actions.retryQueueEntry(entry.entryId, r) });
+        return setMode({
+          kind: 'reason',
+          label: `Retry PR #${entry.prNumber} — reason`,
+          text: '',
+          run: (r) => actions.retryQueueEntry(entry.entryId, r),
+        });
       }
       if (input === 'e') {
-        return setMode({ kind: 'reason', label: `Escalate PR #${entry.prNumber} — reason`, text: '', run: (r) => actions.escalateQueueEntry(entry.entryId, r) });
+        return setMode({
+          kind: 'reason',
+          label: `Escalate PR #${entry.prNumber} — reason`,
+          text: '',
+          run: (r) => actions.escalateQueueEntry(entry.entryId, r),
+        });
       }
     }
     if (view === 'Sessions' && input === 'c') {
       const session = selectedSession();
       if (!session) return;
       if (!session.managed) return setMessage('unmanaged sessions cannot be cancelled by Rail');
-      return setMode({ kind: 'confirm', label: `Cancel session ${session.id} (terminates its process tree)? [y/N]`, run: () => actions.cancelSession(session.id) });
+      return setMode({
+        kind: 'confirm',
+        label: `Cancel session ${session.id} (terminates its process tree)? [y/N]`,
+        run: () => actions.cancelSession(session.id),
+      });
     }
   });
 
@@ -233,7 +268,12 @@ function DashboardBody(props: DashboardProps & { data: DashboardData; view: View
         ) : mode.kind === 'inspect' ? (
           <Box flexDirection="column">
             <Text bold>{mode.title}</Text>
-            <Text>{mode.body.split('\n').slice(0, bodyHeight - 2).join('\n')}</Text>
+            <Text>
+              {mode.body
+                .split('\n')
+                .slice(0, bodyHeight - 2)
+                .join('\n')}
+            </Text>
             <Text color={theme.muted}>press any key to close</Text>
           </Box>
         ) : view === 'Overview' ? (
@@ -247,9 +287,23 @@ function DashboardBody(props: DashboardProps & { data: DashboardData; view: View
         ) : view === 'Queue' ? (
           <QueueView {...props2} />
         ) : view === 'Context' ? (
-          <ContextView theme={theme} result={context.result} query={context.query} selected={selected} height={bodyHeight} busy={context.busy} />
+          <ContextView
+            theme={theme}
+            result={context.result}
+            query={context.query}
+            selected={selected}
+            height={bodyHeight}
+            busy={context.busy}
+          />
         ) : view === 'Events' ? (
-          <EventsView theme={theme} events={events.state.items} selected={selected} height={bodyHeight} follow={events.state.follow} filter={filter} />
+          <EventsView
+            theme={theme}
+            events={events.state.items}
+            selected={selected}
+            height={bodyHeight}
+            follow={events.state.follow}
+            filter={filter}
+          />
         ) : (
           <MetricsView {...props2} />
         )}

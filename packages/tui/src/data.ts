@@ -101,12 +101,23 @@ export function useEventBrowser(ctx: RailContext, projectId: string | null, page
 
   const older = () => {
     if (state.before === null) return;
-    const page = pageEvents(ctx, { ...(projectId ? { projectId } : {}), limit: pageSize, direction: 'older', beforeSeq: state.before });
-    if (page.items.length > 0) setState({ items: page.items, before: page.cursor.before, after: page.cursor.after, follow: false });
+    const page = pageEvents(ctx, {
+      ...(projectId ? { projectId } : {}),
+      limit: pageSize,
+      direction: 'older',
+      beforeSeq: state.before,
+    });
+    if (page.items.length > 0)
+      setState({ items: page.items, before: page.cursor.before, after: page.cursor.after, follow: false });
   };
   const newer = () => {
     if (state.after === null) return;
-    const page = pageEvents(ctx, { ...(projectId ? { projectId } : {}), limit: pageSize, direction: 'newer', afterSeq: state.after });
+    const page = pageEvents(ctx, {
+      ...(projectId ? { projectId } : {}),
+      limit: pageSize,
+      direction: 'newer',
+      afterSeq: state.after,
+    });
     if (page.items.length === 0) setState((s) => ({ ...s, follow: true }));
     else setState({ items: page.items, before: page.cursor.before, after: page.cursor.after, follow: false });
   };

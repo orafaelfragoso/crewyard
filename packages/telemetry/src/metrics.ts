@@ -54,7 +54,10 @@ function dist(values: number[], label: string): { p50: Measured<number>; p95: Me
 const round = (n: number) => Math.round(n * 100) / 100;
 const hoursBetween = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 3_600_000;
 
-export function computeMetrics(ctx: RailContext, options: { projectId?: string | null; sinceDays?: number } = {}): MetricsReport {
+export function computeMetrics(
+  ctx: RailContext,
+  options: { projectId?: string | null; sinceDays?: number } = {},
+): MetricsReport {
   const db = ctx.store.db;
   const until = nowIso(ctx.clock);
   const sinceDays = options.sinceDays ?? 30;
@@ -221,9 +224,17 @@ export function usageBreakdown(ctx: RailContext, since: string, projectId: strin
     model: r.model,
     sessions: r.sessions,
     inputTokens: r.input_known > 0 ? measured(r.input_tokens ?? 0) : unknown('provider did not report input tokens'),
-    outputTokens: r.output_known > 0 ? measured(r.output_tokens ?? 0) : unknown('provider did not report output tokens'),
+    outputTokens:
+      r.output_known > 0 ? measured(r.output_tokens ?? 0) : unknown('provider did not report output tokens'),
     costUsd: r.cost_known > 0 ? measured(round(r.cost_usd ?? 0)) : unknown('no reported usage cost or configured rate'),
-    costSource: r.reported > 0 && r.configured > 0 ? 'mixed' : r.reported > 0 ? 'reported' : r.configured > 0 ? 'configured_rate' : 'unknown',
+    costSource:
+      r.reported > 0 && r.configured > 0
+        ? 'mixed'
+        : r.reported > 0
+          ? 'reported'
+          : r.configured > 0
+            ? 'configured_rate'
+            : 'unknown',
     sessionsWithUnknownUsage: r.unknown_sessions,
   }));
 }

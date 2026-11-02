@@ -11,7 +11,11 @@ export interface FollowHandlers {
   onResync?(reason: string, cursor: number): void | Promise<void>;
 }
 
-export async function followEvents(ctx: RailContext, options: FollowOptions, handlers: FollowHandlers): Promise<number> {
+export async function followEvents(
+  ctx: RailContext,
+  options: FollowOptions,
+  handlers: FollowHandlers,
+): Promise<number> {
   let cursor = options.afterSeq ?? latestSeq(ctx.store.db);
   const pollMs = options.pollMs ?? 500;
   while (!options.signal?.aborted) {
