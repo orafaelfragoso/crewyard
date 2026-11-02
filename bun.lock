@@ -158,7 +158,6 @@
         "@agent-rail/github": "workspace:*",
         "@agent-rail/reviews": "workspace:*",
         "@agent-rail/storage": "workspace:*",
-        "@agent-rail/tasks": "workspace:*",
       },
     },
     "packages/projects": {
