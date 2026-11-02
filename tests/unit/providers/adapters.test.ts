@@ -124,7 +124,7 @@ describe('generic process adapter', () => {
     const ready = join(input.cwd, 'ready');
     const handle = await adapter.launch({
       ...input,
-      prompt: `FAKE:["--spawn-child","${pidFile}","--ready","${ready}","--ignore-sigterm","--sleep","30000"]`,
+      prompt: `FAKE:${JSON.stringify(['--spawn-child', pidFile, '--ready', ready, '--ignore-sigterm', '--sleep', '30000'])}`,
     });
     const events = drain(handle);
     while (!(await Bun.file(ready).exists())) await Bun.sleep(20);
