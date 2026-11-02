@@ -6,7 +6,11 @@ export function listEventPage(ctx: RailContext, query: EventQuery & { direction?
   return pageEvents(ctx, query);
 }
 
-export async function exportEvents(ctx: RailContext, file: string, query: Omit<EventQuery, 'afterSeq' | 'limit' | 'order'> = {}) {
+export async function exportEvents(
+  ctx: RailContext,
+  file: string,
+  query: Omit<EventQuery, 'afterSeq' | 'limit' | 'order'> = {},
+) {
   const out = createWriteStream(file, { encoding: 'utf8', mode: 0o600 });
   let cursor = 0;
   let count = 0;

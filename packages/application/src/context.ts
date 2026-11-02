@@ -29,7 +29,10 @@ export function createRailContext(options: ContextOptions = {}): RailContext {
   return { store, dirs, logger, clock };
 }
 
-export async function envelope<T>(ctx: RailContext, fn: (operationId: string) => Promise<T> | T): Promise<ToolEnvelope<T>> {
+export async function envelope<T>(
+  ctx: RailContext,
+  fn: (operationId: string) => Promise<T> | T,
+): Promise<ToolEnvelope<T>> {
   const operationId = newId('op');
   try {
     const data = await fn(operationId);

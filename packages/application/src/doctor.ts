@@ -42,7 +42,14 @@ export const runtimeCheck: CheckFn = async () => {
 
 export const gitCheck: CheckFn = async () => {
   const version = await versionOf('git');
-  if (!version) return { id: 'tools.git', category: 'tools', status: 'error', summary: 'git not found', repair: 'Install Git 2.38 or newer.' };
+  if (!version)
+    return {
+      id: 'tools.git',
+      category: 'tools',
+      status: 'error',
+      summary: 'git not found',
+      repair: 'Install Git 2.38 or newer.',
+    };
   const match = /(\d+)\.(\d+)/.exec(version);
   const ok = !!match && (Number(match[1]) > 2 || (Number(match[1]) === 2 && Number(match[2]) >= 38));
   return {
@@ -65,7 +72,10 @@ export const ghCheck: CheckFn = async () => {
       repair: 'Install the GitHub CLI and run `gh auth login`.',
     };
   }
-  const status = await run(['gh', 'auth', 'status', '--hostname', 'github.com'], { allowFailure: true, timeoutMs: 15_000 });
+  const status = await run(['gh', 'auth', 'status', '--hostname', 'github.com'], {
+    allowFailure: true,
+    timeoutMs: 15_000,
+  });
   return {
     id: 'tools.gh',
     category: 'tools',
@@ -77,7 +87,11 @@ export const ghCheck: CheckFn = async () => {
 
 export const filesystemCheck: CheckFn = async (ctx) => {
   const checks: DoctorCheck[] = [];
-  for (const [name, path] of Object.entries({ data: ctx.dirs.data, config: ctx.dirs.config, worktrees: ctx.dirs.worktrees })) {
+  for (const [name, path] of Object.entries({
+    data: ctx.dirs.data,
+    config: ctx.dirs.config,
+    worktrees: ctx.dirs.worktrees,
+  })) {
     try {
       ensureDir(path);
       accessSync(path, constants.W_OK | constants.R_OK);
@@ -122,7 +136,9 @@ export const sqliteCheck: CheckFn = async (ctx) => {
       category: 'storage',
       status: status.pending.length === 0 ? 'ok' : 'warn',
       summary: `schema v${status.currentVersion} of v${status.latestVersion}`,
-      ...(status.pending.length ? { repair: 'Run any rail command to apply migrations (a backup is taken first).' } : {}),
+      ...(status.pending.length
+        ? { repair: 'Run any rail command to apply migrations (a backup is taken first).' }
+        : {}),
     });
   } catch (error) {
     checks.push({ id: 'sqlite.schema', category: 'storage', status: 'error', summary: (error as Error).message });
@@ -145,7 +161,9 @@ export const sqliteCheck: CheckFn = async (ctx) => {
         id: 'sqlite.locking',
         category: 'storage',
         status: locked ? 'ok' : 'error',
-        summary: locked ? 'write locks are exclusive across connections' : 'write locks are NOT exclusive; leases are unsafe',
+        summary: locked
+          ? 'write locks are exclusive across connections'
+          : 'write locks are NOT exclusive; leases are unsafe',
         ...(locked ? {} : { repair: 'Move the data directory off network/virtual filesystems (set RAIL_DATA_DIR).' }),
       });
     } finally {
@@ -230,6 +248,10 @@ export async function runDoctor(ctx: RailContext, checks: readonly CheckFn[] = B
     }),
   );
   const flat = results.flat();
-  const status: CheckStatus = flat.some((c) => c.status === 'error') ? 'error' : flat.some((c) => c.status === 'warn') ? 'warn' : 'ok';
+  const status: CheckStatus = flat.some((c) => c.status === 'error')
+    ? 'error'
+    : flat.some((c) => c.status === 'warn')
+      ? 'warn'
+      : 'ok';
   return { generatedAt: nowIso(ctx.clock), status, checks: flat };
 }

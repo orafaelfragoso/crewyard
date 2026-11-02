@@ -73,6 +73,7 @@ export interface StartSessionInput {
   outputSchema?: Record<string, unknown>;
   timeoutMinutes?: number;
   actor?: Actor;
+  claimToken?: string | null;
 }
 
 export interface StartedSession {
@@ -306,6 +307,9 @@ export class SessionSupervisor {
         RAIL_AGENT_ID: agent.id,
         ...(binding.taskId ? { RAIL_TASK_ID: binding.taskId } : {}),
         ...(binding.projectId ? { RAIL_PROJECT_ID: binding.projectId } : {}),
+        ...(input.claimToken && input.leaseBinding
+          ? { RAIL_CLAIM_TOKEN: input.claimToken, RAIL_LEASE_GENERATION: String(input.leaseBinding.leaseGeneration) }
+          : {}),
       },
       timeoutMs: prepared.timeoutMs,
       maxOutputBytes: agent.budget?.maxOutputBytes ?? this.config.agents.max_output_bytes,
