@@ -119,7 +119,7 @@ describe('managed session supervision', () => {
       cwd,
       mode: 'execute',
       timeoutMinutes: 5,
-      prompt: `FAKE:["--echo-env","RAIL_SESSION_TOKEN","--dump-env","RAIL_SESSION_TOKEN=${tokenFile}","--ready","${ready}","--sleep","1500"]`,
+      prompt: `FAKE:${JSON.stringify(['--echo-env', 'RAIL_SESSION_TOKEN', '--dump-env', `RAIL_SESSION_TOKEN=${tokenFile}`, '--ready', ready, '--sleep', '1500'])}`,
     });
     await waitFor(() => Bun.file(ready).exists());
     const messages = listSessionEvents(ctx, started.sessionId, { types: ['agent.message'] });
@@ -165,7 +165,7 @@ describe('managed session supervision', () => {
       agentId,
       cwd,
       mode: 'execute',
-      prompt: `FAKE:["--spawn-child","${pidFile}","--ready","${ready}","--ignore-sigterm","--sleep","60000"]`,
+      prompt: `FAKE:${JSON.stringify(['--spawn-child', pidFile, '--ready', ready, '--ignore-sigterm', '--sleep', '60000'])}`,
     });
     await waitFor(() => Bun.file(ready).exists());
     const child = Number(readFileSync(pidFile, 'utf8'));
