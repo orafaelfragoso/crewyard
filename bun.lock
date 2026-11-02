@@ -73,7 +73,6 @@
         "@agent-rail/provider-ollama": "workspace:*",
         "@agent-rail/provider-opencode": "workspace:*",
         "@agent-rail/storage": "workspace:*",
-        "@agent-rail/workspaces": "workspace:*",
       },
     },
     "packages/application": {
@@ -156,6 +155,7 @@
         "@agent-rail/config": "workspace:*",
         "@agent-rail/core": "workspace:*",
         "@agent-rail/github": "workspace:*",
+        "@agent-rail/projects": "workspace:*",
         "@agent-rail/reviews": "workspace:*",
         "@agent-rail/storage": "workspace:*",
       },

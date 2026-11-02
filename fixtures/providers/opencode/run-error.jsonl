@@ -1,0 +1,2 @@
+{"type":"error","timestamp":1793653871280,"sessionID":"ses_e61e5ef04ffel5t83ypFVg0zB0","error":{"type":"provider.no-route","message":"Model unavailable: nope/none"}}
+{"type":"error","timestamp":1767036065000,"sessionID":"ses_494719016ffe85dkDMj0FPRbHK","error":{"name":"APIError","data":{"message":"Rate limit exceeded"}}}

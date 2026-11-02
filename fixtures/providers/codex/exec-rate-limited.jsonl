@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"01a19e1b-0000-7000-8000-000000000001"}
+{"type":"turn.started"}
+{"type":"error","message":"stream error: exceeded retry limit, last status: 429 Too Many Requests, request id: req_123"}
+{"type":"turn.failed","error":{"message":"You've hit your usage limit. Try again in 42 minutes."}}
