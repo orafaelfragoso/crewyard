@@ -53,16 +53,24 @@ export function initialTheme(env: NodeJS.ProcessEnv = process.env): Theme {
 }
 
 export function stateColor(theme: Theme, state: string): string | undefined {
-  if (['DONE', 'MERGED', 'merged', 'passed', 'completed', 'healthy', 'eligible', 'SUCCESS', 'success'].includes(state)) {
+  if (
+    ['DONE', 'MERGED', 'merged', 'passed', 'completed', 'healthy', 'eligible', 'SUCCESS', 'success'].includes(state)
+  ) {
     return theme.ok;
   }
-  if (['BLOCKED', 'ESCALATED', 'failed', 'quarantined', 'escalated', 'blocked', 'FAILURE', 'failure', 'lost'].includes(state)) {
+  if (
+    ['BLOCKED', 'ESCALATED', 'failed', 'quarantined', 'escalated', 'blocked', 'FAILURE', 'failure', 'lost'].includes(
+      state,
+    )
+  ) {
     return theme.error;
   }
   if (['REVISION', 'CANCEL_REQUESTED', 'waiting', 'pending', 'rate_limited', 'PENDING', 'orphaned'].includes(state)) {
     return theme.warn;
   }
-  if (['RUNNING', 'CLAIMED', 'VALIDATING', 'REVIEWING', 'running', 'validating', 'merging', 'candidate'].includes(state)) {
+  if (
+    ['RUNNING', 'CLAIMED', 'VALIDATING', 'REVIEWING', 'running', 'validating', 'merging', 'candidate'].includes(state)
+  ) {
     return theme.accent;
   }
   return undefined;

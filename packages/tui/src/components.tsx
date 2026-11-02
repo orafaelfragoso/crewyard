@@ -42,7 +42,11 @@ export function Table<T>(props: {
               <Text
                 key={c.header}
                 {...(isSelected
-                  ? { backgroundColor: theme.selectionBg, color: theme.selectionFg, inverse: theme.selectionBg === undefined }
+                  ? {
+                      backgroundColor: theme.selectionBg,
+                      color: theme.selectionFg,
+                      inverse: theme.selectionBg === undefined,
+                    }
                   : { color: c.color?.(row) })}
               >
                 {fit(c.value(row), c.width)}

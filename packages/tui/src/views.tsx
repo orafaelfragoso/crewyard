@@ -2,7 +2,7 @@ import type { RailEvent } from '@agent-rail/storage';
 import type { Measured, ProjectRow, QueueRow, SessionRow, TaskBoardRow } from '@agent-rail/telemetry';
 import { Box, Text } from 'ink';
 import type { ContextHit, ContextSearchResult } from './actions.ts';
-import { type Column, KeyValue, localTime, Panel, shortSha, StateText, Table } from './components.tsx';
+import { type Column, KeyValue, localTime, Panel, StateText, shortSha, Table } from './components.tsx';
 import type { DashboardData } from './data.ts';
 import { stateColor, type Theme } from './theme.ts';
 
@@ -28,7 +28,9 @@ export function filteredTasks(data: DashboardData, filter: string): TaskBoardRow
   return data.tasks.filter((t) => matches(filter, t.id, t.title, t.state, t.owner, t.risk, t.blocker));
 }
 export function filteredSessions(data: DashboardData, filter: string): SessionRow[] {
-  return data.sessions.filter((s) => matches(filter, s.id, s.agent, s.providerId, s.profile, s.model, s.taskId, s.state));
+  return data.sessions.filter((s) =>
+    matches(filter, s.id, s.agent, s.providerId, s.profile, s.model, s.taskId, s.state),
+  );
 }
 export function filteredQueue(data: DashboardData, filter: string): QueueRow[] {
   return data.queue.filter((q) => matches(filter, q.prNumber, q.prTitle, q.status, q.baseBranch, q.mode));
@@ -36,7 +38,18 @@ export function filteredQueue(data: DashboardData, filter: string): QueueRow[] {
 
 export function OverviewView({ theme, data }: ViewProps) {
   const o = data.overview;
-  const states = ['READY', 'CLAIMED', 'RUNNING', 'SUBMITTED', 'REVIEWING', 'REVISION', 'QUEUED', 'VALIDATING', 'BLOCKED', 'ESCALATED'] as const;
+  const states = [
+    'READY',
+    'CLAIMED',
+    'RUNNING',
+    'SUBMITTED',
+    'REVIEWING',
+    'REVISION',
+    'QUEUED',
+    'VALIDATING',
+    'BLOCKED',
+    'ESCALATED',
+  ] as const;
   return (
     <Box flexDirection="column">
       <Box>
@@ -50,11 +63,20 @@ export function OverviewView({ theme, data }: ViewProps) {
           <KeyValue theme={theme} label="Open PRs" value={o.openPrs} />
           <KeyValue theme={theme} label="Queued" value={o.queued} />
           <KeyValue theme={theme} label="Merged (24h)" value={o.mergedLast24h} color={theme.ok} />
-          <KeyValue theme={theme} label="Pending approvals" value={o.pendingApprovals} color={o.pendingApprovals ? theme.warn : undefined} />
+          <KeyValue
+            theme={theme}
+            label="Pending approvals"
+            value={o.pendingApprovals}
+            color={o.pendingApprovals ? theme.warn : undefined}
+          />
           <KeyValue
             theme={theme}
             label="Service"
-            value={o.service.running ? `running (${localTime(o.service.lastHeartbeatAt)})` : 'stopped — autonomous work is not running'}
+            value={
+              o.service.running
+                ? `running (${localTime(o.service.lastHeartbeatAt)})`
+                : 'stopped — autonomous work is not running'
+            }
             color={o.service.running ? theme.ok : theme.warn}
           />
           {o.projects.map((p) => (
@@ -70,7 +92,10 @@ export function OverviewView({ theme, data }: ViewProps) {
       <Panel theme={theme} title="Alerts">
         {o.alerts.length === 0 ? <Text color={theme.muted}>No unread alerts</Text> : null}
         {o.alerts.slice(0, 8).map((a) => (
-          <Text key={`${a.at}${a.title}`} color={a.level === 'error' ? theme.error : a.level === 'info' ? undefined : theme.warn}>
+          <Text
+            key={`${a.at}${a.title}`}
+            color={a.level === 'error' ? theme.error : a.level === 'info' ? undefined : theme.warn}
+          >
             [{a.level}] {a.title} {a.body ? `— ${a.body}` : ''}
           </Text>
         ))}
@@ -83,21 +108,45 @@ export function ProjectsView({ theme, data, selected, height, filter }: ViewProp
   const columns: Column<ProjectRow>[] = [
     { header: 'Project', width: 18, value: (r) => r.name },
     { header: 'Autonomy', width: 10, value: (r) => r.autonomy },
-    { header: 'Intake', width: 8, value: (r) => (r.intakePaused ? 'paused' : 'open'), color: (r) => (r.intakePaused ? theme.warn : theme.ok) },
+    {
+      header: 'Intake',
+      width: 8,
+      value: (r) => (r.intakePaused ? 'paused' : 'open'),
+      color: (r) => (r.intakePaused ? theme.warn : theme.ok),
+    },
     { header: 'Base', width: 10, value: (r) => r.defaultBase },
     { header: 'Indexed', width: 10, value: (r) => shortSha(r.indexedCommit) },
-    { header: 'Index', width: 10, value: (r) => r.indexStatus, color: (r) => stateColor(theme, r.indexStatus === 'available' ? 'passed' : 'pending') },
+    {
+      header: 'Index',
+      width: 10,
+      value: (r) => r.indexStatus,
+      color: (r) => stateColor(theme, r.indexStatus === 'available' ? 'passed' : 'pending'),
+    },
     { header: 'Backlog', width: 8, value: (r) => String(r.backlog) },
     { header: 'Policy', width: 7, value: (r) => `r${r.policyRevision}` },
     { header: 'Repository', width: 40, value: (r) => r.repository },
   ];
-  return <Table theme={theme} columns={columns} rows={filteredProjects(data, filter)} selected={selected} height={height} empty="No projects. Run `rail init`." />;
+  return (
+    <Table
+      theme={theme}
+      columns={columns}
+      rows={filteredProjects(data, filter)}
+      selected={selected}
+      height={height}
+      empty="No projects. Run `rail init`."
+    />
+  );
 }
 
 export function TasksView({ theme, data, selected, height, filter }: ViewProps) {
   const columns: Column<TaskBoardRow>[] = [
     { header: 'Task', width: 10, value: (r) => r.id },
-    { header: 'State', width: 16, value: (r) => (r.paused ? `${r.state} (paused)` : r.state), color: (r) => stateColor(theme, r.state) },
+    {
+      header: 'State',
+      width: 16,
+      value: (r) => (r.paused ? `${r.state} (paused)` : r.state),
+      color: (r) => stateColor(theme, r.state),
+    },
     { header: 'Pri', width: 4, value: (r) => String(r.priority) },
     { header: 'Risk', width: 6, value: (r) => r.risk, color: (r) => (r.risk === 'high' ? theme.error : undefined) },
     { header: 'Owner', width: 14, value: (r) => r.owner ?? '—' },
@@ -106,7 +155,16 @@ export function TasksView({ theme, data, selected, height, filter }: ViewProps) 
     { header: 'Try', width: 4, value: (r) => String(r.attempts) },
     { header: 'Title / blocker', width: 50, value: (r) => (r.blocker ? `${r.title} ⟂ ${r.blocker}` : r.title) },
   ];
-  return <Table theme={theme} columns={columns} rows={filteredTasks(data, filter)} selected={selected} height={height} empty="No tasks." />;
+  return (
+    <Table
+      theme={theme}
+      columns={columns}
+      rows={filteredTasks(data, filter)}
+      selected={selected}
+      height={height}
+      empty="No tasks."
+    />
+  );
 }
 
 export function SessionsView({ theme, data, selected, height, filter }: ViewProps) {
@@ -119,19 +177,33 @@ export function SessionsView({ theme, data, selected, height, filter }: ViewProp
     { header: 'Model', width: 14, value: (r) => r.model ?? 'default' },
     { header: 'Task', width: 9, value: (r) => r.taskId ?? '—' },
     { header: 'State', width: 10, value: (r) => r.state, color: (r) => stateColor(theme, r.state) },
-    { header: 'Tokens in/out', width: 15, value: (r) => (r.usageStatus === 'unknown' ? 'unknown' : `${r.inputTokens ?? 0}/${r.outputTokens ?? 0}`) },
+    {
+      header: 'Tokens in/out',
+      width: 15,
+      value: (r) => (r.usageStatus === 'unknown' ? 'unknown' : `${r.inputTokens ?? 0}/${r.outputTokens ?? 0}`),
+    },
     { header: 'Last activity', width: 40, value: (r) => r.lastOutput ?? '' },
   ];
   const current = rows[selected];
   return (
     <Box flexDirection="column">
-      <Table theme={theme} columns={columns} rows={rows} selected={selected} height={Math.max(3, height - 4)} empty="No sessions." />
+      <Table
+        theme={theme}
+        columns={columns}
+        rows={rows}
+        selected={selected}
+        height={Math.max(3, height - 4)}
+        empty="No sessions."
+      />
       {current && !current.managed ? (
-        <Text color={theme.warn}>Unmanaged session: Rail cannot cancel it, enforce its workspace, or account its usage.</Text>
+        <Text color={theme.warn}>
+          Unmanaged session: Rail cannot cancel it, enforce its workspace, or account its usage.
+        </Text>
       ) : null}
       {current ? (
         <Text color={theme.muted}>
-          pid {current.pid ?? '—'} · started {localTime(current.startedAt)} · heartbeat {localTime(current.lastHeartbeatAt)}
+          pid {current.pid ?? '—'} · started {localTime(current.startedAt)} · heartbeat{' '}
+          {localTime(current.lastHeartbeatAt)}
         </Text>
       ) : null}
     </Box>
@@ -145,7 +217,12 @@ export function QueueView({ theme, data, selected, height, filter }: ViewProps) 
     { header: 'Base', width: 10, value: (r) => r.baseBranch },
     { header: 'Mode', width: 15, value: (r) => r.mode },
     { header: 'Status', width: 12, value: (r) => r.status, color: (r) => stateColor(theme, r.status) },
-    { header: 'Checks', width: 9, value: (r) => r.checks ?? 'unknown', color: (r) => stateColor(theme, r.checks ?? '') },
+    {
+      header: 'Checks',
+      width: 9,
+      value: (r) => r.checks ?? 'unknown',
+      color: (r) => stateColor(theme, r.checks ?? ''),
+    },
     { header: 'Base/Head', width: 17, value: (r) => `${shortSha(r.baseSha)}/${shortSha(r.headSha)}` },
     { header: 'Stack', width: 8, value: (r) => (r.stackId ? `${r.stackId.slice(-4)}:${r.stackOrder}` : '—') },
     { header: 'Title', width: 36, value: (r) => r.prTitle },
@@ -153,7 +230,14 @@ export function QueueView({ theme, data, selected, height, filter }: ViewProps) 
   const current = rows[selected];
   return (
     <Box flexDirection="column">
-      <Table theme={theme} columns={columns} rows={rows} selected={selected} height={Math.max(3, height - 5)} empty="Integration queue is empty." />
+      <Table
+        theme={theme}
+        columns={columns}
+        rows={rows}
+        selected={selected}
+        height={Math.max(3, height - 5)}
+        empty="Integration queue is empty."
+      />
       {current ? (
         <Box flexDirection="column">
           <Text bold>Blockers for #{current.prNumber}:</Text>
@@ -169,7 +253,14 @@ export function QueueView({ theme, data, selected, height, filter }: ViewProps) 
   );
 }
 
-export function ContextView(props: { theme: Theme; result: ContextSearchResult | null; query: string; selected: number; height: number; busy: boolean }) {
+export function ContextView(props: {
+  theme: Theme;
+  result: ContextSearchResult | null;
+  query: string;
+  selected: number;
+  height: number;
+  busy: boolean;
+}) {
   const { theme, result } = props;
   const columns: Column<ContextHit>[] = [
     { header: 'Score', width: 6, value: (h) => h.score.toFixed(2) },
@@ -185,16 +276,31 @@ export function ContextView(props: { theme: Theme; result: ContextSearchResult |
       </Text>
       {result ? (
         <Text color={theme.muted}>
-          commit {shortSha(result.commitSha)} · retrieved {localTime(result.retrievedAt)} · ~{result.tokenEstimate} tokens
+          commit {shortSha(result.commitSha)} · retrieved {localTime(result.retrievedAt)} · ~{result.tokenEstimate}{' '}
+          tokens
           {result.warnings.length ? ` · ${result.warnings.join('; ')}` : ''}
         </Text>
       ) : null}
-      <Table theme={theme} columns={columns} rows={result?.hits ?? []} selected={props.selected} height={Math.max(3, props.height - 2)} empty="No results." />
+      <Table
+        theme={theme}
+        columns={columns}
+        rows={result?.hits ?? []}
+        selected={props.selected}
+        height={Math.max(3, props.height - 2)}
+        empty="No results."
+      />
     </Box>
   );
 }
 
-export function EventsView(props: { theme: Theme; events: RailEvent[]; selected: number; height: number; follow: boolean; filter: string }) {
+export function EventsView(props: {
+  theme: Theme;
+  events: RailEvent[];
+  selected: number;
+  height: number;
+  follow: boolean;
+  filter: string;
+}) {
   const rows = props.events.filter((e) => matches(props.filter, e.type, e.taskId, e.prId, e.actor.id, e.correlationId));
   const columns: Column<RailEvent>[] = [
     { header: 'Seq', width: 7, value: (e) => String(e.seq) },
@@ -207,8 +313,17 @@ export function EventsView(props: { theme: Theme; events: RailEvent[]; selected:
   ];
   return (
     <Box flexDirection="column">
-      <Text color={props.theme.muted}>{props.follow ? 'Live (following newest)' : 'Paged history — press L to resume live'} · [ older · ] newer</Text>
-      <Table theme={props.theme} columns={columns} rows={rows} selected={props.selected} height={Math.max(3, props.height - 1)} empty="No events." />
+      <Text color={props.theme.muted}>
+        {props.follow ? 'Live (following newest)' : 'Paged history — press L to resume live'} · [ older · ] newer
+      </Text>
+      <Table
+        theme={props.theme}
+        columns={columns}
+        rows={rows}
+        selected={props.selected}
+        height={Math.max(3, props.height - 1)}
+        empty="No events."
+      />
     </Box>
   );
 }
@@ -223,13 +338,32 @@ export function MetricsView({ theme, data }: ViewProps) {
   return (
     <Box flexDirection="column">
       <Box>
-        <Panel theme={theme} title={`Delivery (last ${Math.round((Date.parse(m.window.until) - Date.parse(m.window.since)) / 86_400_000)} days)`}>
+        <Panel
+          theme={theme}
+          title={`Delivery (last ${Math.round((Date.parse(m.window.until) - Date.parse(m.window.since)) / 86_400_000)} days)`}
+        >
           <KeyValue theme={theme} label="Merged PRs" value={m.throughput.mergedPrs} />
           <KeyValue theme={theme} label="Merged / day" value={m.throughput.perDay} />
-          <KeyValue theme={theme} label="Lead time p50/p95" value={`${fmt(m.leadTimeHours.p50, 'h')} / ${fmt(m.leadTimeHours.p95, 'h')}`} />
-          <KeyValue theme={theme} label="Queue wait p50/p95" value={`${fmt(m.queueWaitMinutes.p50, 'm')} / ${fmt(m.queueWaitMinutes.p95, 'm')}`} />
+          <KeyValue
+            theme={theme}
+            label="Lead time p50/p95"
+            value={`${fmt(m.leadTimeHours.p50, 'h')} / ${fmt(m.leadTimeHours.p95, 'h')}`}
+          />
+          <KeyValue
+            theme={theme}
+            label="Queue wait p50/p95"
+            value={`${fmt(m.queueWaitMinutes.p50, 'm')} / ${fmt(m.queueWaitMinutes.p95, 'm')}`}
+          />
           <KeyValue theme={theme} label="Open PR age p50" value={fmt(m.openPrAgeHours.p50, 'h')} />
-          <KeyValue theme={theme} label="WIP" value={Object.entries(m.wip).map(([k, v]) => `${k}:${v}`).join(' ') || '0'} />
+          <KeyValue
+            theme={theme}
+            label="WIP"
+            value={
+              Object.entries(m.wip)
+                .map(([k, v]) => `${k}:${v}`)
+                .join(' ') || '0'
+            }
+          />
         </Panel>
         <Panel theme={theme} title="Efficiency">
           <KeyValue theme={theme} label="Review cache hit" value={fmt(m.reviewCache.hitRatio)} />
@@ -237,15 +371,21 @@ export function MetricsView({ theme, data }: ViewProps) {
           <KeyValue theme={theme} label="CI min / merge" value={fmt(m.ciMinutesPerMerge)} />
           <KeyValue theme={theme} label="CI reruns" value={m.ciReruns} />
           <KeyValue theme={theme} label="Recoveries" value={m.recoveries} />
-          <KeyValue theme={theme} label="Escalations" value={m.escalations} color={m.escalations ? theme.warn : undefined} />
+          <KeyValue
+            theme={theme}
+            label="Escalations"
+            value={m.escalations}
+            color={m.escalations ? theme.warn : undefined}
+          />
         </Panel>
       </Box>
       <Panel theme={theme} title="Usage by provider / account / model (unknown is never shown as zero)">
         {m.usage.length === 0 ? <Text color={theme.muted}>No usage recorded</Text> : null}
         {m.usage.map((u) => (
           <Text key={`${u.providerId}${u.profileId}${u.model}`}>
-            {`${u.providerId}/${u.profileId ?? '—'}/${u.model ?? 'default'}`.padEnd(40)} sessions {u.sessions} · in {fmt(u.inputTokens)} · out{' '}
-            {fmt(u.outputTokens)} · cost {u.costUsd.status === 'measured' ? `$${u.costUsd.value} (${u.costSource})` : 'unknown'}
+            {`${u.providerId}/${u.profileId ?? '—'}/${u.model ?? 'default'}`.padEnd(40)} sessions {u.sessions} · in{' '}
+            {fmt(u.inputTokens)} · out {fmt(u.outputTokens)} · cost{' '}
+            {u.costUsd.status === 'measured' ? `$${u.costUsd.value} (${u.costSource})` : 'unknown'}
           </Text>
         ))}
       </Panel>
@@ -258,7 +398,8 @@ export function StatusLine(props: { theme: Theme; data: DashboardData; message: 
   return (
     <Box>
       <Text color={data.stale ? theme.error : theme.muted}>
-        {data.stale ? `STALE — reconnecting (${data.error ?? 'unknown error'}) · ` : ''}cursor {data.cursor} · updated {localTime(data.loadedAt)}
+        {data.stale ? `STALE — reconnecting (${data.error ?? 'unknown error'}) · ` : ''}cursor {data.cursor} · updated{' '}
+        {localTime(data.loadedAt)}
       </Text>
       {props.message ? <Text color={theme.accent}> · {props.message}</Text> : null}
     </Box>

@@ -48,9 +48,11 @@ export function overviewProjection(ctx: RailContext, projectId?: string | null):
       autonomy: p.autonomy,
     })),
     tasksByState: Object.fromEntries(
-      all<{ state: TaskState; n: number }>(db, `SELECT state, COUNT(*) AS n FROM tasks ${pf} GROUP BY state`, ...params).map(
-        (r) => [r.state, r.n],
-      ),
+      all<{ state: TaskState; n: number }>(
+        db,
+        `SELECT state, COUNT(*) AS n FROM tasks ${pf} GROUP BY state`,
+        ...params,
+      ).map((r) => [r.state, r.n]),
     ),
     runningSessions: one<{ n: number }>(
       db,
@@ -80,13 +82,31 @@ export function overviewProjection(ctx: RailContext, projectId?: string | null):
       `SELECT COUNT(*) AS n FROM approvals WHERE status = 'pending' ${projectId ? 'AND project_id = ?' : ''}`,
       ...params,
     )!.n,
-    service: { running: serviceAlive, lastHeartbeatAt: freshest?.lastHeartbeatAt ?? null, workerId: freshest?.workerId ?? null },
-    alerts: all<{ level: Alert['level']; title: string; body: string; created_at: string; task_id: string | null; pr_id: string | null }>(
+    service: {
+      running: serviceAlive,
+      lastHeartbeatAt: freshest?.lastHeartbeatAt ?? null,
+      workerId: freshest?.workerId ?? null,
+    },
+    alerts: all<{
+      level: Alert['level'];
+      title: string;
+      body: string;
+      created_at: string;
+      task_id: string | null;
+      pr_id: string | null;
+    }>(
       db,
       `SELECT level, title, body, created_at, task_id, pr_id FROM notifications WHERE read_at IS NULL ${projectId ? 'AND project_id = ?' : ''}
        ORDER BY created_at DESC LIMIT 20`,
       ...params,
-    ).map((n) => ({ level: n.level, title: n.title, body: n.body, at: n.created_at, taskId: n.task_id, prId: n.pr_id })),
+    ).map((n) => ({
+      level: n.level,
+      title: n.title,
+      body: n.body,
+      at: n.created_at,
+      taskId: n.task_id,
+      prId: n.pr_id,
+    })),
   };
 }
 
@@ -104,7 +124,10 @@ export interface TaskBoardRow {
   paused: boolean;
 }
 
-export function taskBoard(ctx: RailContext, options: { projectId?: string | null; search?: string; limit?: number; offset?: number } = {}): TaskBoardRow[] {
+export function taskBoard(
+  ctx: RailContext,
+  options: { projectId?: string | null; search?: string; limit?: number; offset?: number } = {},
+): TaskBoardRow[] {
   const where: string[] = [];
   const params: (string | number)[] = [];
   if (options.projectId) {

@@ -18,7 +18,11 @@ export interface DashboardOptions {
   initialView?: ViewName;
 }
 
-export async function runDashboard(ctx: RailContext, actions: DashboardActions, options: DashboardOptions): Promise<void> {
+export async function runDashboard(
+  ctx: RailContext,
+  actions: DashboardActions,
+  options: DashboardOptions,
+): Promise<void> {
   const instance = render(
     createElement(Dashboard, {
       ctx,
