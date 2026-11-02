@@ -21,7 +21,8 @@
     "test:unit": "bun test tests/unit packages",
     "test:concurrency": "bun test tests/concurrency",
     "build:binaries": "bun scripts/build-binaries.ts",
-    "sbom": "bun scripts/sbom.ts"
+    "sbom": "bun scripts/sbom.ts",
+    "docs:cli": "bun scripts/gen-cli-reference.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",

@@ -19,11 +19,11 @@ Each release contains the binaries, `manifest.json`, `sbom.cdx.json` (CycloneDX 
 ```bash
 VERSION=v1.0.0
 ASSET=rail-linux-x64          # rail-linux-arm64, rail-darwin-arm64, rail-darwin-x64, rail-windows-x64.exe
-BASE=https://github.com/<owner>/agent-rail/releases/download/$VERSION
+BASE=https://github.com/orafaelfragoso/agent-rail/releases/download/$VERSION
 curl -LO "$BASE/$ASSET" -LO "$BASE/SHA256SUMS"
 
 sha256sum --ignore-missing -c SHA256SUMS          # macOS: shasum -a 256 --ignore-missing -c SHA256SUMS
-gh attestation verify "$ASSET" --repo <owner>/agent-rail
+gh attestation verify "$ASSET" --repo orafaelfragoso/agent-rail
 
 install -m 755 "$ASSET" ~/.local/bin/rail
 rail version
@@ -35,19 +35,21 @@ macOS may quarantine downloaded binaries. After verifying the checksum and attes
 
 ## Install with the Bun runtime
 
+Agent Rail is not yet published to npm; the workspace packages are private. Until a package is published, the Bun-runtime install is a source checkout (below), run with `bun apps/cli/src/main.ts` or linked as `rail`:
+
 ```bash
-bun install -g agent-rail     # provides `rail`
+git clone git@github.com:orafaelfragoso/agent-rail.git && cd agent-rail
+bun install --frozen-lockfile
+ln -s "$PWD/apps/cli/src/main.ts" ~/.local/bin/rail   # requires bun on PATH (shebang)
 rail version
 ```
 
-Without a global install, `bunx agent-rail <command>` runs the same CLI, and `bunx agent-rail mcp` is the MCP server command to register in hosts.
-
-npm publishing is enabled per release only when the maintainers configure it; when the npm package is not available for a version, use the binary or a source checkout.
+When npm publishing is enabled for a release, `bun install -g agent-rail` will provide the same `rail` command.
 
 ## Install from source
 
 ```bash
-git clone https://github.com/<owner>/agent-rail.git
+git clone https://github.com/orafaelfragoso/agent-rail.git
 cd agent-rail
 bun install --frozen-lockfile
 bun run rail doctor           # runs apps/cli/src/main.ts
@@ -93,7 +95,7 @@ Credentials are never in these files: they stay in the OS secret store (macOS Ke
 ## Upgrade
 
 1. Stop the service: `rail service stop`. Close agent hosts running `rail mcp`.
-2. Replace the binary (verify as above), or `bun install -g agent-rail@<version>`, or `git pull && bun install --frozen-lockfile`.
+2. Replace the binary (verify as above), or `git pull && bun install --frozen-lockfile` for a source install.
 3. Run `rail doctor`. The first command after an upgrade applies pending database migrations.
 4. Re-run `rail install --target ...` to refresh the installed Skills; it only changes Rail-owned content.
 5. Start the service again: `rail service start`.
