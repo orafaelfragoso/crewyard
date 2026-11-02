@@ -45,10 +45,11 @@ const mergeCalls = (f: GitHubFixture) => f.mock.countCalls('PUT', /\/pulls\/\d+\
 describe('merge side effects under failure', () => {
   test('AT-09: a timeout after GitHub merged is reconciled without a second merge call', async () => {
     const clock = new ManualClock(new Date());
-    fx = await createGitHubFixture({ clock, timeoutMs: 400 });
+    const timeoutMs = process.platform === 'win32' ? 3_000 : 400;
+    fx = await createGitHubFixture({ clock, timeoutMs });
     const f = fx;
     const { number, pr } = await queuedPull(f);
-    f.mock.faults.push({ method: 'PUT', path: /\/merge$/, action: 'timeout-after-apply', delayMs: 1_500 });
+    f.mock.faults.push({ method: 'PUT', path: /\/merge$/, action: 'timeout-after-apply', delayMs: timeoutMs + 1_100 });
 
     const first = await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
     expect(first.queues[0]!.notes.join(' ')).toContain('ambiguous');

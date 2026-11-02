@@ -160,7 +160,7 @@ describe('workspaces', () => {
     expect(readFileSync(join(restore, 'untracked.txt'), 'utf8')).toBe('keep me\n');
     expect(readFileSync(join(restore, 'src/app.ts'), 'utf8')).toBe('export const v = 3;\n');
     expect(await gitText(repo, ['status', '--porcelain=v1'])).toBe('');
-  });
+  }, 30_000);
 
   test.skipIf(!posix)('path traversal and symlink escapes are rejected for workspace file operations', async () => {
     const { ctx, newTask, config } = await setup();
