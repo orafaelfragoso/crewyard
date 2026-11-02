@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
-import { type Actor, newId, nowIso, RailError, revParse, SYSTEM_ACTOR, toRailError } from '@agent-rail/core';
-import { all, one, type RailContext, recordTransition } from '@agent-rail/storage';
+import { type Actor, CrewError, newId, nowIso, revParse, SYSTEM_ACTOR, toCrewError } from '@crewyard/core';
+import { all, type CrewContext, one, recordTransition } from '@crewyard/storage';
 import { ancestors, diffTrees, hasCommit, listTree, readBlobs, treeSha } from './git-source.ts';
 import { type BlobPlan, type BlobRecord, expectedParser, processBlob, SKIP_PARSER, skippedRecord } from './process.ts';
 import {
@@ -60,7 +60,7 @@ export interface ResolvedCommit {
   ref: string | null;
 }
 
-export async function resolveCommit(ctx: RailContext, selector: SnapshotSelector): Promise<ResolvedCommit> {
+export async function resolveCommit(ctx: CrewContext, selector: SnapshotSelector): Promise<ResolvedCommit> {
   const repo = loadRepository(ctx.store.db, selector.repositoryId);
   const sha = selector.sha?.toLowerCase();
   if (sha && FULL_SHA.test(sha) && snapshotByCommit(ctx.store.db, repo.id, sha)) {
@@ -70,13 +70,13 @@ export async function resolveCommit(ctx: RailContext, selector: SnapshotSelector
   const target = selector.sha ?? selector.ref ?? (selector.worktreePath ? 'HEAD' : repo.defaultBase);
   const commitSha = await revParse(cwd, target);
   if (!commitSha) {
-    throw new RailError('NOT_FOUND', `Cannot resolve ${target} to a commit in ${cwd}`, {
+    throw new CrewError('NOT_FOUND', `Cannot resolve ${target} to a commit in ${cwd}`, {
       details: { repositoryId: repo.id, ref: target },
       suggestion: 'Fetch the branch or pass a full commit SHA that exists locally.',
     });
   }
   if (selector.worktreePath && !(await hasCommit(repo.canonicalPath, commitSha))) {
-    throw new RailError(
+    throw new CrewError(
       'INVALID_INPUT',
       `Worktree ${selector.worktreePath} does not share objects with ${repo.canonicalPath}`,
       {
@@ -149,7 +149,7 @@ interface ParentChoice {
 }
 
 async function chooseParent(
-  ctx: RailContext,
+  ctx: CrewContext,
   repo: RepositoryRecord,
   commitSha: string,
   revision: string,
@@ -177,7 +177,7 @@ async function chooseParent(
 }
 
 function claimSnapshot(
-  ctx: RailContext,
+  ctx: CrewContext,
   resolved: ResolvedCommit,
   tree: string,
   revision: string,
@@ -192,7 +192,7 @@ function claimSnapshot(
       existing?.status === 'building' &&
       ctx.clock.now().getTime() - Date.parse(existing.startedAt) < STALE_BUILD_MS
     ) {
-      throw new RailError('BUSY', `Snapshot for ${resolved.commitSha} is already being built`, {
+      throw new CrewError('BUSY', `Snapshot for ${resolved.commitSha} is already being built`, {
         details: { snapshotId: existing.id },
         suggestion: 'Wait for the running index build to finish, then retry.',
       });
@@ -225,12 +225,12 @@ function existingParsers(db: Database, shas: readonly string[]): Map<string, str
   return out;
 }
 
-export async function indexRepository(ctx: RailContext, options: IndexOptions): Promise<IndexResult> {
+export async function indexRepository(ctx: CrewContext, options: IndexOptions): Promise<IndexResult> {
   const started = performance.now();
   const config = options.config ?? DEFAULT_INDEX_CONFIG;
   if (!config.enabled) {
-    throw new RailError('POLICY_DENIED', 'Indexing is disabled by configuration (index.enabled: false)', {
-      suggestion: 'Set index.enabled: true in .agent-rail/config.yaml.',
+    throw new CrewError('POLICY_DENIED', 'Indexing is disabled by configuration (index.enabled: false)', {
+      suggestion: 'Set index.enabled: true in .crewyard/config.yaml.',
     });
   }
   const resolved = await resolveCommit(ctx, options);
@@ -416,12 +416,12 @@ interface FinalizeInput {
   coverage: Record<string, unknown>;
 }
 
-function finalizeSnapshot(ctx: RailContext, input: FinalizeInput): Snapshot {
+function finalizeSnapshot(ctx: CrewContext, input: FinalizeInput): Snapshot {
   const at = nowIso(ctx.clock);
   return ctx.store.immediate((db) => {
     const count = one<{ n: number }>(db, 'SELECT COUNT(*) AS n FROM files WHERE snapshot_id = ?', input.snapshotId)!.n;
     if (count !== input.expectedFiles) {
-      throw new RailError(
+      throw new CrewError(
         'INTERNAL',
         `Snapshot ${input.snapshotId} has ${count} files, expected ${input.expectedFiles}`,
       );
@@ -470,13 +470,13 @@ function finalizeSnapshot(ctx: RailContext, input: FinalizeInput): Snapshot {
 }
 
 function failSnapshot(
-  ctx: RailContext,
+  ctx: CrewContext,
   snapshotId: string,
   repo: RepositoryRecord,
   error: unknown,
   actor: Actor,
 ): void {
-  const message = toRailError(error).message.slice(0, 1_000);
+  const message = toCrewError(error).message.slice(0, 1_000);
   const at = nowIso(ctx.clock);
   try {
     ctx.store.immediate((db) => {
@@ -496,7 +496,7 @@ function failSnapshot(
       );
     });
   } catch (inner) {
-    ctx.logger.error('failed to record index failure', { snapshotId, error: toRailError(inner).message });
+    ctx.logger.error('failed to record index failure', { snapshotId, error: toCrewError(inner).message });
   }
 }
 

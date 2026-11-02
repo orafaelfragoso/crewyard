@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { addProfile, createAccountPolicy, createAgent } from '@agent-rail/agents';
-import { initRepository, RailService } from '@agent-rail/application';
-import { git } from '@agent-rail/core';
-import { listEvents } from '@agent-rail/storage';
-import { addTask, showTask } from '@agent-rail/tasks';
+import { addProfile, createAccountPolicy, createAgent } from '@crewyard/agents';
+import { CrewService, initRepository } from '@crewyard/application';
+import { git } from '@crewyard/core';
+import { listEvents } from '@crewyard/storage';
+import { addTask, showTask } from '@crewyard/tasks';
 import { createTempGitRepo, createTestContext, type TestContext } from '../helpers/index.ts';
 
 const AGENT = join(import.meta.dir, '../../fixtures/providers/committing-agent.ts');
@@ -59,7 +59,7 @@ describe('service dispatch', () => {
           actor: { kind: 'operator', id: 'op' },
         }).id,
     );
-    const service = new RailService(c, { cycles: [] });
+    const service = new CrewService(c, { cycles: [] });
     await service.tick();
     await waitFor(() => ids.every((id) => showTask(c, id).task.state === 'SUBMITTED'));
     await service.stop();
@@ -70,6 +70,6 @@ describe('service dispatch', () => {
     const dispatched = listEvents(c.store, { types: ['service.dispatched'] });
     expect(new Set(dispatched.map((e) => e.payload.sessionId)).size).toBe(3);
     expect((await git(repo, ['rev-parse', 'HEAD'])).stdout.trim()).toBe(headBefore);
-    expect((await git(repo, ['status', '--porcelain'])).stdout.trim()).toBe('?? .agent-rail/');
+    expect((await git(repo, ['status', '--porcelain'])).stdout.trim()).toBe('?? .crewyard/');
   }, 60_000);
 });

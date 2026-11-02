@@ -1,4 +1,4 @@
-import type { RailContext } from '@agent-rail/storage';
+import type { CrewContext } from '@crewyard/storage';
 import { render, renderToString } from 'ink';
 import { createElement } from 'react';
 import type { DashboardActions } from './actions.ts';
@@ -19,7 +19,7 @@ export interface DashboardOptions {
 }
 
 export async function runDashboard(
-  ctx: RailContext,
+  ctx: CrewContext,
   actions: DashboardActions,
   options: DashboardOptions,
 ): Promise<void> {
@@ -35,7 +35,7 @@ export async function runDashboard(
   await instance.waitUntilExit();
 }
 
-export function renderSnapshot(ctx: RailContext, projectId: string | null, columns = 120): string {
+export function renderSnapshot(ctx: CrewContext, projectId: string | null, columns = 120): string {
   const data = loadDashboard(ctx, projectId, true);
   const theme = initialTheme({ ...process.env, NO_COLOR: '1' });
   const props = { theme, data, selected: 0, height: 40, width: columns, filter: '' };

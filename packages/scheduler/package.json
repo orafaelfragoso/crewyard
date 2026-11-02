@@ -1,5 +1,5 @@
 {
-  "name": "@agent-rail/scheduler",
+  "name": "@crewyard/scheduler",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,9 +9,9 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@agent-rail/core": "workspace:*",
-    "@agent-rail/storage": "workspace:*",
-    "@agent-rail/config": "workspace:*",
-    "@agent-rail/tasks": "workspace:*"
+    "@crewyard/core": "workspace:*",
+    "@crewyard/storage": "workspace:*",
+    "@crewyard/config": "workspace:*",
+    "@crewyard/tasks": "workspace:*"
   }
 }

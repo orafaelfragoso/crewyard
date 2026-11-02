@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { ensureDir, nowIso, RailError, sha256 } from '@agent-rail/core';
+import { CrewError, ensureDir, nowIso, sha256 } from '@crewyard/core';
 import initialSql from '../migrations/0001_initial.sql' with { type: 'text' };
 import { all, type Store } from './db.ts';
 
@@ -41,21 +41,21 @@ export function migrationStatus(store: Store): MigrationStatus {
   );
   const currentVersion = applied.at(-1)?.version ?? 0;
   if (currentVersion > LATEST_SCHEMA_VERSION) {
-    throw new RailError(
+    throw new CrewError(
       'SCHEMA_TOO_NEW',
-      `Database schema version ${currentVersion} is newer than this rail build supports (${LATEST_SCHEMA_VERSION})`,
-      { suggestion: 'Upgrade rail to a version that supports this database, or restore a backup.', retryable: false },
+      `Database schema version ${currentVersion} is newer than this crew build supports (${LATEST_SCHEMA_VERSION})`,
+      { suggestion: 'Upgrade crew to a version that supports this database, or restore a backup.', retryable: false },
     );
   }
   for (const row of applied) {
     const known = MIGRATIONS.find((m) => m.version === row.version);
     if (!known || sha256(known.sql) !== row.checksum) {
-      throw new RailError(
+      throw new CrewError(
         'MIGRATION_FAILED',
         `Migration ${row.version} (${row.name}) checksum does not match this build`,
         {
           suggestion:
-            'The database was migrated by a different build. Restore from backup or use the matching rail version.',
+            'The database was migrated by a different build. Restore from backup or use the matching crew version.',
           retryable: false,
         },
       );
@@ -76,7 +76,7 @@ export function migrationStatus(store: Store): MigrationStatus {
 export function backupDatabase(store: Store, backupDir: string, label = 'backup'): string {
   ensureDir(backupDir);
   const target = join(backupDir, `${label}-${nowIso(store.clock).replaceAll(':', '-')}-${process.pid}.sqlite`);
-  if (existsSync(target)) throw new RailError('CONFLICT', `Backup target already exists: ${target}`);
+  if (existsSync(target)) throw new CrewError('CONFLICT', `Backup target already exists: ${target}`);
   store.db.query('VACUUM INTO ?').run(target);
   return target;
 }

@@ -1,5 +1,5 @@
-import type { RailConfig } from '@agent-rail/config';
-import type { AccountProfile, ProviderId } from '@agent-rail/core';
+import type { CrewConfig } from '@crewyard/config';
+import type { AccountProfile, ProviderId } from '@crewyard/core';
 import { type DataDestination, providerManifest } from './registry.ts';
 
 export interface DataRoutingDecision {
@@ -23,7 +23,7 @@ const PLACEHOLDER_PROFILE: Omit<AccountProfile, 'providerId'> = {
 };
 
 export function dataRoutingDecision(
-  config: Pick<RailConfig, 'security'>,
+  config: Pick<CrewConfig, 'security'>,
   providerId: ProviderId,
   profile?: AccountProfile,
 ): DataRoutingDecision {

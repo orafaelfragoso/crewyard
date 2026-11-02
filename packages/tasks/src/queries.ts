@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
-import { RailError, type TaskState } from '@agent-rail/core';
-import { all, one } from '@agent-rail/storage';
+import { CrewError, type TaskState } from '@crewyard/core';
+import { all, one } from '@crewyard/storage';
 import {
   type ApprovalRow,
   compareTaskIds,
@@ -21,7 +21,7 @@ export function findTask(db: Database, taskId: string): Task | null {
 export function requireTask(db: Database, taskId: string): Task {
   const task = findTask(db, taskId);
   if (!task) {
-    throw new RailError('NOT_FOUND', `Task not found: ${taskId}`, { suggestion: 'Run `rail task list`.' });
+    throw new CrewError('NOT_FOUND', `Task not found: ${taskId}`, { suggestion: 'Run `crew task list`.' });
   }
   return task;
 }
@@ -132,7 +132,7 @@ export function projectFlags(
     'SELECT intake_paused, workers_paused, autonomy, policy_revision FROM projects WHERE id = ?',
     projectId,
   );
-  if (!row) throw new RailError('NOT_FOUND', `Project not found: ${projectId}`);
+  if (!row) throw new CrewError('NOT_FOUND', `Project not found: ${projectId}`);
   return {
     intakePaused: row.intake_paused === 1,
     workersPaused: row.workers_paused === 1,

@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite';
-import { railConfigSchema } from '@agent-rail/config';
-import { fingerprint, RailError } from '@agent-rail/core';
-import { one } from '@agent-rail/storage';
+import { crewConfigSchema } from '@crewyard/config';
+import { CrewError, fingerprint } from '@crewyard/core';
+import { one } from '@crewyard/storage';
 import { EXTRACTOR_REVISION } from './grammars.ts';
 import type { IndexConfig, Snapshot, SnapshotStatus } from './types.ts';
 
@@ -19,8 +19,8 @@ export function loadRepository(db: Database, repositoryId: string): RepositoryRe
     repositoryId,
   );
   if (!row) {
-    throw new RailError('NOT_FOUND', `Repository not found: ${repositoryId}`, {
-      suggestion: 'Run `rail project list` to see registered repositories.',
+    throw new CrewError('NOT_FOUND', `Repository not found: ${repositoryId}`, {
+      suggestion: 'Run `crew project list` to see registered repositories.',
     });
   }
   return { id: row.id, projectId: row.project_id, canonicalPath: row.canonical_path, defaultBase: row.default_base };
@@ -87,7 +87,7 @@ export function latestAvailable(db: Database, repositoryId: string): Snapshot | 
   return row ? mapSnapshot(row) : null;
 }
 
-export const DEFAULT_INDEX_CONFIG: IndexConfig = railConfigSchema.shape.index.parse(undefined);
+export const DEFAULT_INDEX_CONFIG: IndexConfig = crewConfigSchema.shape.index.parse(undefined);
 
 export function indexRevision(config: IndexConfig): string {
   const rules = fingerprint({

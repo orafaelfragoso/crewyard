@@ -1,9 +1,9 @@
 import { join } from 'node:path';
-import { type RailConfig, type RailConfigInput, railConfigSchema } from '@agent-rail/config';
-import { type AutonomyMode, type Clock, git, gitText } from '@agent-rail/core';
-import { staticTokenProvider } from '@agent-rail/github';
-import { createClientFactory, type IntegrationEnv, type TaskHooks } from '@agent-rail/integration';
-import { registerProject } from '@agent-rail/projects';
+import { type CrewConfig, type CrewConfigInput, crewConfigSchema } from '@crewyard/config';
+import { type AutonomyMode, type Clock, git, gitText } from '@crewyard/core';
+import { staticTokenProvider } from '@crewyard/github';
+import { createClientFactory, type IntegrationEnv, type TaskHooks } from '@crewyard/integration';
+import { registerProject } from '@crewyard/projects';
 import { createTempGitRepo, createTestContext, type TestContext, tempDir, writeFiles } from '../helpers/index.ts';
 import { type MockGitHub, startMockGitHub } from '../helpers/mock-github.ts';
 
@@ -19,7 +19,7 @@ export interface GitHubFixture {
   repo: string;
   repositoryId: string;
   projectId: string;
-  config: RailConfig;
+  config: CrewConfig;
   env: IntegrationEnv;
   hookCalls: HookCall[];
   pushBranch(name: string, files: Record<string, string>, from?: string): Promise<string>;
@@ -29,7 +29,7 @@ export interface GitHubFixture {
 
 export interface FixtureOptions {
   files?: Record<string, string>;
-  config?: Omit<RailConfigInput, 'version' | 'project'>;
+  config?: Omit<CrewConfigInput, 'version' | 'project'>;
   autonomy?: AutonomyMode;
   clock?: Clock;
   timeoutMs?: number;
@@ -51,7 +51,7 @@ function recordingHooks(calls: HookCall[]): TaskHooks {
 
 export async function createGitHubFixture(options: FixtureOptions = {}): Promise<GitHubFixture> {
   const ctx = createTestContext(options.clock ? { clock: options.clock } : {});
-  const bare = join(tempDir('rail-origin-'), 'origin.git');
+  const bare = join(tempDir('crew-origin-'), 'origin.git');
   await git(ctx.root, ['init', '-q', '--bare', '-b', 'main', bare]);
   const mock = startMockGitHub({ gitDir: bare });
   const repo = await createTempGitRepo(
@@ -74,7 +74,7 @@ export async function createGitHubFixture(options: FixtureOptions = {}): Promise
       `UPDATE repositories SET remote_url = ?, remote_host = 'github.com', remote_owner = ?, remote_name = ? WHERE id = ?`,
     )
     .run(mock.remoteUrl, mock.owner, mock.name, repository.id);
-  const config = railConfigSchema.parse({
+  const config = crewConfigSchema.parse({
     version: 1,
     project: { name: project.name, autonomy },
     ...options.config,

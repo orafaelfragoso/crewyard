@@ -1,6 +1,6 @@
-import type { approvalClasses } from '@agent-rail/config';
-import type { HandoffKind, Risk, TaskOrigin, TaskState, WorkItemKind } from '@agent-rail/core';
-import { parseJson } from '@agent-rail/storage';
+import type { approvalClasses } from '@crewyard/config';
+import type { HandoffKind, Risk, TaskOrigin, TaskState, WorkItemKind } from '@crewyard/core';
+import { parseJson } from '@crewyard/storage';
 
 export type ApprovalClass = (typeof approvalClasses)[number];
 

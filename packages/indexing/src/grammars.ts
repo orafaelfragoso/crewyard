@@ -1,4 +1,4 @@
-import { RailError } from '@agent-rail/core';
+import { CrewError } from '@crewyard/core';
 import jsWasm from 'tree-sitter-javascript/tree-sitter-javascript.wasm' with { type: 'file' };
 import pyWasm from 'tree-sitter-python/tree-sitter-python.wasm' with { type: 'file' };
 import rsWasm from 'tree-sitter-rust/tree-sitter-rust.wasm' with { type: 'file' };
@@ -29,7 +29,7 @@ let sharedParser: Parser | null = null;
 async function loadLanguage(language: ParserLanguage): Promise<Language> {
   const loaded = await Language.load(await Bun.file(GRAMMARS[language].wasm).bytes());
   if (loaded.abiVersion < MIN_COMPATIBLE_VERSION || loaded.abiVersion > LANGUAGE_VERSION) {
-    throw new RailError(
+    throw new CrewError(
       'UNSUPPORTED_CAPABILITY',
       `Grammar ${GRAMMARS[language].id} has ABI ${loaded.abiVersion}; web-tree-sitter supports ${MIN_COMPATIBLE_VERSION}-${LANGUAGE_VERSION}`,
       { retryable: false },

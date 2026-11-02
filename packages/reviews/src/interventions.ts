@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
-import { type Actor, newId, nowIso } from '@agent-rail/core';
-import { one, type RailContext, recordTransition } from '@agent-rail/storage';
+import { type Actor, newId, nowIso } from '@crewyard/core';
+import { type CrewContext, one, recordTransition } from '@crewyard/storage';
 
 export type ApprovalSubject = 'goal_plan' | 'task' | 'pr_publish' | 'merge' | 'repo_hooks' | 'cleanup';
 export type NotificationLevel = 'info' | 'warning' | 'error' | 'action_required';
@@ -92,7 +92,7 @@ export function requestInterventionInTx(
   return { notificationId, approvalId, created };
 }
 
-export function requestIntervention(ctx: RailContext, input: InterventionInput, actor: Actor): InterventionRecord {
+export function requestIntervention(ctx: CrewContext, input: InterventionInput, actor: Actor): InterventionRecord {
   const at = nowIso(ctx.clock);
   return ctx.store.immediate((db) => requestInterventionInTx(db, input, actor, at));
 }

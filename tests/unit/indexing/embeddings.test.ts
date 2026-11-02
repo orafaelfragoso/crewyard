@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { RailError } from '@agent-rail/core';
+import { CrewError } from '@crewyard/core';
 import {
   createEmbeddingProvider,
   DEFAULT_INDEX_CONFIG,
@@ -8,7 +8,7 @@ import {
   indexRepository,
   OllamaEmbeddingProvider,
   search,
-} from '@agent-rail/indexing';
+} from '@crewyard/indexing';
 import { createIndexFixture, type IndexFixture } from './fixture.ts';
 
 let fx: IndexFixture | undefined;
@@ -33,7 +33,7 @@ describe('embeddings', () => {
       embedding: { provider: 'ollama', model: 'nomic-embed-text', consent_external: false },
     });
     expect(local).toMatchObject({ id: 'ollama', model: 'nomic-embed-text', local: true });
-    expect(() => new OllamaEmbeddingProvider({ model: 'm', endpoint: 'https://embed.example.com' })).toThrow(RailError);
+    expect(() => new OllamaEmbeddingProvider({ model: 'm', endpoint: 'https://embed.example.com' })).toThrow(CrewError);
   });
 
   test('ollama provider posts to /api/embed and validates the payload', async () => {

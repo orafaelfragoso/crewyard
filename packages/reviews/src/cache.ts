@@ -1,4 +1,4 @@
-import { fingerprint } from '@agent-rail/core';
+import { fingerprint } from '@crewyard/core';
 import type { CacheDecision, EvidenceInputs } from './types.ts';
 
 export function evidenceFingerprint(inputs: EvidenceInputs): string {

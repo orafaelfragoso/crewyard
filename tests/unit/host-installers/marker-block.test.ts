@@ -5,7 +5,7 @@ import {
   removeMarkerBlock,
   unifiedDiff,
   upsertMarkerBlock,
-} from '@agent-rail/host-installers';
+} from '@crewyard/host-installers';
 
 describe('marker blocks', () => {
   test.each([
@@ -13,21 +13,21 @@ describe('marker blocks', () => {
     ['newline-terminated', 'model = "x"\n\n[mcp_servers.other]\ncommand = "o"\n'],
     ['crlf', 'a = 1\r\nb = 2\r\n'],
   ])('upsert then remove is byte-identical: %s', (_name, text) => {
-    const added = upsertMarkerBlock(text, HASH_MARKERS, '[mcp_servers.agent-rail]\ncommand = "rail"');
-    expect(added).toContain('# >>> agent-rail >>>');
+    const added = upsertMarkerBlock(text, HASH_MARKERS, '[mcp_servers.crewyard]\ncommand = "crew"');
+    expect(added).toContain('# >>> crewyard >>>');
     expect(removeMarkerBlock(added, HASH_MARKERS)).toBe(text);
   });
 
   test('upsert replaces an existing block in place', () => {
     const once = upsertMarkerBlock('a = 1\n', HASH_MARKERS, 'old = 1');
     const twice = upsertMarkerBlock(`${once}b = 2\n`, HASH_MARKERS, 'new = 1');
-    expect(twice).toBe('a = 1\n\n# >>> agent-rail >>>\nnew = 1\n# <<< agent-rail <<<\nb = 2\n');
+    expect(twice).toBe('a = 1\n\n# >>> crewyard >>>\nnew = 1\n# <<< crewyard <<<\nb = 2\n');
   });
 
   test('unbalanced markers are reported as malformed', () => {
-    expect(findMarkerBlock('# >>> agent-rail >>>\nx = 1\n', HASH_MARKERS)).toBe('malformed');
-    expect(findMarkerBlock('# <<< agent-rail <<<\n# >>> agent-rail >>>\n', HASH_MARKERS)).toBe('malformed');
-    expect(() => removeMarkerBlock('# >>> agent-rail >>>\n', HASH_MARKERS)).toThrow();
+    expect(findMarkerBlock('# >>> crewyard >>>\nx = 1\n', HASH_MARKERS)).toBe('malformed');
+    expect(findMarkerBlock('# <<< crewyard <<<\n# >>> crewyard >>>\n', HASH_MARKERS)).toBe('malformed');
+    expect(() => removeMarkerBlock('# >>> crewyard >>>\n', HASH_MARKERS)).toThrow();
   });
 });
 

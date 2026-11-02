@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { analyzeImpact, IMPACT_DISCLAIMER, interfaceFingerprint } from '@agent-rail/context';
-import { indexRepository } from '@agent-rail/indexing';
+import { analyzeImpact, IMPACT_DISCLAIMER, interfaceFingerprint } from '@crewyard/context';
+import { indexRepository } from '@crewyard/indexing';
 import { commitFiles } from '../../helpers/index.ts';
 import { createIndexFixture, type IndexFixture } from '../indexing/fixture.ts';
 

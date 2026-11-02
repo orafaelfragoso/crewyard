@@ -1,6 +1,6 @@
 # CLI reference
 
-Generated from the `rail` 1.0.0 command tree by `bun scripts/gen-cli-reference.ts`. Do not edit by hand.
+Generated from the `crew` 1.0.0 command tree by `bun scripts/gen-cli-reference.ts`. Do not edit by hand.
 
 ## Global conventions
 
@@ -12,27 +12,27 @@ Generated from the `rail` 1.0.0 command tree by `bun scripts/gen-cli-reference.t
 
 ## Commands
 
-### `rail version`
+### `crew version`
 
 print version and build information
 
-### `rail doctor`
+### `crew doctor`
 
 check runtime, tools, storage, providers, GitHub access and secret store
 
-### `rail config`
+### `crew config`
 
 show, validate and edit configuration
 
-#### `rail config show`
+#### `crew config show`
 
 show the effective configuration with sources (credentials redacted)
 
-#### `rail config validate [file]`
+#### `crew config validate [file]`
 
 validate a configuration file (default: the repository config)
 
-#### `rail config set <path> <value>`
+#### `crew config set <path> <value>`
 
 set a non-secret configuration value
 
@@ -42,11 +42,11 @@ set a non-secret configuration value
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-### `rail events`
+### `crew events`
 
 inspect the durable event log
 
-#### `rail events list`
+#### `crew events list`
 
 list events (newest page by default)
 
@@ -58,7 +58,7 @@ list events (newest page by default)
 | `--after <seq>` | page newer than this sequence |
 | `--limit <n>` | page size (max 500) (default: `50`) |
 
-#### `rail events follow`
+#### `crew events follow`
 
 stream new events (JSONL with --json); resumes from --after
 
@@ -67,15 +67,15 @@ stream new events (JSONL with --json); resumes from --after
 | `--after <seq>` | resume after this sequence |
 | `--task <id>` |  |
 
-#### `rail events export <file>`
+#### `crew events export <file>`
 
 export events as JSONL (secrets are never stored in events)
 
-### `rail metrics`
+### `crew metrics`
 
 delivery, efficiency and usage metrics
 
-#### `rail metrics show`
+#### `crew metrics show`
 
 
 
@@ -83,7 +83,7 @@ delivery, efficiency and usage metrics
 |---|---|
 | `--days <n>` | window in days (default: `30`) |
 
-#### `rail metrics export <file>`
+#### `crew metrics export <file>`
 
 
 
@@ -92,9 +92,9 @@ delivery, efficiency and usage metrics
 | `--days <n>` | window in days (default: `30`) |
 | `--format <format>` | json or csv (default: `json`) |
 
-### `rail init`
+### `crew init`
 
-register the repository, write .agent-rail/config.yaml, index and print a readiness report
+register the repository, write .crewyard/config.yaml, index and print a readiness report
 
 | Option | Description |
 |---|---|
@@ -104,11 +104,11 @@ register the repository, write .agent-rail/config.yaml, index and print a readin
 | `--autonomy <mode>` | observe | assisted | guarded | autopilot |
 | `--no-index` | skip the initial index |
 
-### `rail project`
+### `crew project`
 
 manage registered projects
 
-#### `rail project add <path>`
+#### `crew project add <path>`
 
 
 
@@ -117,25 +117,15 @@ manage registered projects
 | `--base <branch>` |  |
 | `--name <name>` |  |
 
-#### `rail project list`
+#### `crew project list`
 
 
 
-#### `rail project show`
+#### `crew project show`
 
 
 
-#### `rail project pause`
-
-
-
-| Option | Description |
-|---|---|
-| `--workers` | pause/resume workers instead of intake |
-| `--dry-run` | preview the change without applying it |
-| `-y, --yes` | confirm destructive or authorization-gated actions |
-
-#### `rail project resume`
+#### `crew project pause`
 
 
 
@@ -145,15 +135,25 @@ manage registered projects
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-#### `rail project sync`
+#### `crew project resume`
+
+
+
+| Option | Description |
+|---|---|
+| `--workers` | pause/resume workers instead of intake |
+| `--dry-run` | preview the change without applying it |
+| `-y, --yes` | confirm destructive or authorization-gated actions |
+
+#### `crew project sync`
 
 synchronize this project with GitHub
 
-### `rail index`
+### `crew index`
 
 build and inspect the versioned repository index
 
-#### `rail index build`
+#### `crew index build`
 
 
 
@@ -163,7 +163,7 @@ build and inspect the versioned repository index
 | `--worktree <path>` | index the HEAD of a worktree |
 | `--force` | rebuild even if the snapshot exists |
 
-#### `rail index update`
+#### `crew index update`
 
 
 
@@ -173,7 +173,7 @@ build and inspect the versioned repository index
 | `--worktree <path>` | index the HEAD of a worktree |
 | `--force` | rebuild even if the snapshot exists |
 
-#### `rail index status`
+#### `crew index status`
 
 
 
@@ -181,7 +181,7 @@ build and inspect the versioned repository index
 |---|---|
 | `--ref <ref>` |  |
 
-#### `rail index verify`
+#### `crew index verify`
 
 
 
@@ -190,11 +190,11 @@ build and inspect the versioned repository index
 | `--ref <ref>` |  |
 | `--sample <n>` | verify a random sample of blobs |
 
-### `rail context`
+### `crew context`
 
 version-aware retrieval with commit provenance
 
-#### `rail context search <query>`
+#### `crew context search <query>`
 
 
 
@@ -206,7 +206,7 @@ version-aware retrieval with commit provenance
 | `--path <glob>` | restrict to paths (repeatable) |
 | `--limit <n>` | max results (default: `20`) |
 
-#### `rail context symbol <name>`
+#### `crew context symbol <name>`
 
 
 
@@ -217,7 +217,7 @@ version-aware retrieval with commit provenance
 | `--path <path>` |  |
 | `--deps <direction>` | imports | importedBy | both |
 
-#### `rail context references <name>`
+#### `crew context references <name>`
 
 
 
@@ -227,7 +227,7 @@ version-aware retrieval with commit provenance
 | `--sha <sha>` |  |
 | `--path <path>` | definition path to disambiguate |
 
-#### `rail context impact`
+#### `crew context impact`
 
 
 
@@ -238,7 +238,7 @@ version-aware retrieval with commit provenance
 | `--path <path>` | changed path (repeatable) |
 | `--symbol <name>` | changed symbol (repeatable) |
 
-#### `rail context pack [query]`
+#### `crew context pack [query]`
 
 
 
@@ -251,11 +251,11 @@ version-aware retrieval with commit provenance
 | `--budget <tokens>` | token budget |
 | `--cursor <cursor>` | fetch the next page of a previous pack |
 
-### `rail goal`
+### `crew goal`
 
 goals and validated task plans
 
-#### `rail goal create`
+#### `crew goal create`
 
 
 
@@ -265,7 +265,7 @@ goals and validated task plans
 | `--description <text>` |  |
 | `--description-file <file>` |  |
 
-#### `rail goal plan <goalId>`
+#### `crew goal plan <goalId>`
 
 submit a task plan (--file plan.json|yaml) or ask a planning agent (--agent NAME)
 
@@ -274,7 +274,7 @@ submit a task plan (--file plan.json|yaml) or ask a planning agent (--agent NAME
 | `--file <file>` | plan with {summary?, tasks:[{key,title,objective,acceptanceCriteria,dependencies,scopeHints,risk,...}]} |
 | `--agent <name>` | planning agent |
 
-#### `rail goal approve <goalId>`
+#### `crew goal approve <goalId>`
 
 
 
@@ -283,11 +283,11 @@ submit a task plan (--file plan.json|yaml) or ask a planning agent (--agent NAME
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-#### `rail goal status [goalId]`
+#### `crew goal status [goalId]`
 
 
 
-#### `rail goal cancel <goalId>`
+#### `crew goal cancel <goalId>`
 
 
 
@@ -297,11 +297,11 @@ submit a task plan (--file plan.json|yaml) or ask a planning agent (--agent NAME
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-### `rail task`
+### `crew task`
 
 tasks, leases and handoffs
 
-#### `rail task add`
+#### `crew task add`
 
 
 
@@ -319,7 +319,7 @@ tasks, leases and handoffs
 | `--goal <goalId>` |  |
 | `--ready` | mark READY immediately (default: DRAFT) |
 
-#### `rail task list`
+#### `crew task list`
 
 
 
@@ -331,11 +331,11 @@ tasks, leases and handoffs
 | `--limit <n>` | page size (default: `100`) |
 | `--cursor <cursor>` |  |
 
-#### `rail task show <taskId>`
+#### `crew task show <taskId>`
 
 
 
-#### `rail task next`
+#### `crew task next`
 
 
 
@@ -343,11 +343,11 @@ tasks, leases and handoffs
 |---|---|
 | `--agent <id>` | agent id or name |
 
-#### `rail task explain <taskId>`
+#### `crew task explain <taskId>`
 
 explain exactly why a task was or was not dispatched
 
-#### `rail task claim <taskId>`
+#### `crew task claim <taskId>`
 
 
 
@@ -356,35 +356,35 @@ explain exactly why a task was or was not dispatched
 | `--agent <id>` | claiming agent id |
 | `--no-workspace` | do not allocate a worktree |
 
-#### `rail task heartbeat <taskId>`
+#### `crew task heartbeat <taskId>`
 
 
 
 | Option | Description |
 |---|---|
-| `--generation <n>` | lease generation returned by claim (or RAIL_LEASE_GENERATION) |
-| `--token <token>` | claim token returned by claim (or RAIL_CLAIM_TOKEN) |
+| `--generation <n>` | lease generation returned by claim (or CREW_LEASE_GENERATION) |
+| `--token <token>` | claim token returned by claim (or CREW_CLAIM_TOKEN) |
 
-#### `rail task start <taskId>`
+#### `crew task start <taskId>`
 
 
 
 | Option | Description |
 |---|---|
-| `--generation <n>` | lease generation returned by claim (or RAIL_LEASE_GENERATION) |
-| `--token <token>` | claim token returned by claim (or RAIL_CLAIM_TOKEN) |
+| `--generation <n>` | lease generation returned by claim (or CREW_LEASE_GENERATION) |
+| `--token <token>` | claim token returned by claim (or CREW_CLAIM_TOKEN) |
 
-#### `rail task release <taskId>`
+#### `crew task release <taskId>`
 
 
 
 | Option | Description |
 |---|---|
 | `--reason <text>` |  |
-| `--generation <n>` | lease generation returned by claim (or RAIL_LEASE_GENERATION) |
-| `--token <token>` | claim token returned by claim (or RAIL_CLAIM_TOKEN) |
+| `--generation <n>` | lease generation returned by claim (or CREW_LEASE_GENERATION) |
+| `--token <token>` | claim token returned by claim (or CREW_CLAIM_TOKEN) |
 
-#### `rail task report <taskId>`
+#### `crew task report <taskId>`
 
 store a progress checkpoint
 
@@ -393,10 +393,10 @@ store a progress checkpoint
 | `--summary <text>` |  |
 | `--percent <n>` | progress percent |
 | `--commit <sha>` | commit (repeatable) |
-| `--generation <n>` | lease generation returned by claim (or RAIL_LEASE_GENERATION) |
-| `--token <token>` | claim token returned by claim (or RAIL_CLAIM_TOKEN) |
+| `--generation <n>` | lease generation returned by claim (or CREW_LEASE_GENERATION) |
+| `--token <token>` | claim token returned by claim (or CREW_CLAIM_TOKEN) |
 
-#### `rail task complete <taskId>`
+#### `crew task complete <taskId>`
 
 hand off finished work
 
@@ -409,10 +409,10 @@ hand off finished work
 | `--context-pack <id>` | context pack id (repeatable) |
 | `--issue <text>` | remaining issue (repeatable) |
 | `--kind <kind>` | blocked | needs_review | ready_for_pr | completed (default: `completed`) |
-| `--generation <n>` | lease generation returned by claim (or RAIL_LEASE_GENERATION) |
-| `--token <token>` | claim token returned by claim (or RAIL_CLAIM_TOKEN) |
+| `--generation <n>` | lease generation returned by claim (or CREW_LEASE_GENERATION) |
+| `--token <token>` | claim token returned by claim (or CREW_CLAIM_TOKEN) |
 
-#### `rail task block <taskId>`
+#### `crew task block <taskId>`
 
 report a blocker and release resources
 
@@ -425,10 +425,10 @@ report a blocker and release resources
 | `--context-pack <id>` | context pack id (repeatable) |
 | `--issue <text>` | remaining issue (repeatable) |
 | `--kind <kind>` | blocked | needs_review | ready_for_pr | completed (default: `blocked`) |
-| `--generation <n>` | lease generation returned by claim (or RAIL_LEASE_GENERATION) |
-| `--token <token>` | claim token returned by claim (or RAIL_CLAIM_TOKEN) |
+| `--generation <n>` | lease generation returned by claim (or CREW_LEASE_GENERATION) |
+| `--token <token>` | claim token returned by claim (or CREW_CLAIM_TOKEN) |
 
-#### `rail task submit <taskId>`
+#### `crew task submit <taskId>`
 
 hand off work that is ready for a PR
 
@@ -441,10 +441,10 @@ hand off work that is ready for a PR
 | `--context-pack <id>` | context pack id (repeatable) |
 | `--issue <text>` | remaining issue (repeatable) |
 | `--kind <kind>` | blocked | needs_review | ready_for_pr | completed (default: `ready_for_pr`) |
-| `--generation <n>` | lease generation returned by claim (or RAIL_LEASE_GENERATION) |
-| `--token <token>` | claim token returned by claim (or RAIL_CLAIM_TOKEN) |
+| `--generation <n>` | lease generation returned by claim (or CREW_LEASE_GENERATION) |
+| `--token <token>` | claim token returned by claim (or CREW_CLAIM_TOKEN) |
 
-#### `rail task retry <taskId>`
+#### `crew task retry <taskId>`
 
 
 
@@ -454,7 +454,7 @@ hand off work that is ready for a PR
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-#### `rail task escalate <taskId>`
+#### `crew task escalate <taskId>`
 
 
 
@@ -462,11 +462,11 @@ hand off work that is ready for a PR
 |---|---|
 | `--reason <text>` |  |
 
-#### `rail task ready <taskId>`
+#### `crew task ready <taskId>`
 
 move a DRAFT task to READY
 
-#### `rail task cancel <taskId>`
+#### `crew task cancel <taskId>`
 
 
 
@@ -476,23 +476,23 @@ move a DRAFT task to READY
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-#### `rail task priority <taskId> <priority>`
+#### `crew task priority <taskId> <priority>`
 
 operator priority override (use "clear" to remove)
 
-#### `rail task pause <taskId>`
+#### `crew task pause <taskId>`
 
 
 
-#### `rail task resume <taskId>`
+#### `crew task resume <taskId>`
 
 
 
-#### `rail task assign <taskId> [agentId]`
+#### `crew task assign <taskId> [agentId]`
 
 assign (or with no agent, unassign) a task
 
-#### `rail task approve <taskId>`
+#### `crew task approve <taskId>`
 
 
 
@@ -502,23 +502,23 @@ assign (or with no agent, unassign) a task
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-### `rail workspace`
+### `crew workspace`
 
 isolated per-task Git worktrees
 
-#### `rail workspace create <taskId>`
+#### `crew workspace create <taskId>`
 
 allocate a worktree for a task you already hold a lease on (normally done by claim)
 
-#### `rail workspace list`
+#### `crew workspace list`
 
 
 
-#### `rail workspace inspect <workspaceId>`
+#### `crew workspace inspect <workspaceId>`
 
 
 
-#### `rail workspace clean`
+#### `crew workspace clean`
 
 preview, then remove abandoned worktrees (backups are saved first)
 
@@ -528,11 +528,11 @@ preview, then remove abandoned worktrees (backups are saved first)
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-### `rail account`
+### `crew account`
 
 provider account profiles (credentials live in the OS secret store)
 
-#### `rail account add`
+#### `crew account add`
 
 
 
@@ -551,7 +551,7 @@ provider account profiles (credentials live in the OS secret store)
 | `--command <cmd...>` | generic provider: executable and arguments |
 | `--endpoint <url>` | ollama endpoint |
 
-#### `rail account list`
+#### `crew account list`
 
 
 
@@ -559,15 +559,15 @@ provider account profiles (credentials live in the OS secret store)
 |---|---|
 | `--provider <provider>` |  |
 
-#### `rail account show <ref>`
+#### `crew account show <ref>`
 
 
 
-#### `rail account test <ref>`
+#### `crew account test <ref>`
 
 check CLI availability, authentication status and capabilities
 
-#### `rail account remove <ref>`
+#### `crew account remove <ref>`
 
 
 
@@ -577,7 +577,7 @@ check CLI availability, authentication status and capabilities
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-#### `rail account policy <name>`
+#### `crew account policy <name>`
 
 create an ordered account policy for agents
 
@@ -587,11 +587,11 @@ create an ordered account policy for agents
 | `--allow-fallback` | explicitly allow falling back to later profiles |
 | `--models <models>` | model allowlist |
 
-### `rail agent`
+### `crew agent`
 
 reusable agent definitions and managed sessions
 
-#### `rail agent create`
+#### `crew agent create`
 
 
 
@@ -608,17 +608,17 @@ reusable agent definitions and managed sessions
 | `--tools <names>` | allowed MCP tools (default: all agent tools) |
 | `--review-authority <level>` | none | advisory | required |
 | `--max-parallel <n>` | max concurrent sessions |
-| `--unmanaged` | register an external agent that Rail does not launch |
+| `--unmanaged` | register an external agent that Crewyard does not launch |
 
-#### `rail agent list`
-
-
-
-#### `rail agent show <agent>`
+#### `crew agent list`
 
 
 
-#### `rail agent run <agent>`
+#### `crew agent show <agent>`
+
+
+
+#### `crew agent run <agent>`
 
 claim a task, allocate its worktree and run a managed session (stays attached until it ends)
 
@@ -627,7 +627,7 @@ claim a task, allocate its worktree and run a managed session (stays attached un
 | `--task <taskId>` |  |
 | `--model <model>` |  |
 
-#### `rail agent stop <sessionId>`
+#### `crew agent stop <sessionId>`
 
 
 
@@ -637,7 +637,7 @@ claim a task, allocate its worktree and run a managed session (stays attached un
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-#### `rail agent sessions`
+#### `crew agent sessions`
 
 
 
@@ -646,7 +646,7 @@ claim a task, allocate its worktree and run a managed session (stays attached un
 | `--agent <agent>` |  |
 | `--task <taskId>` |  |
 
-#### `rail agent logs <sessionId>`
+#### `crew agent logs <sessionId>`
 
 
 
@@ -654,11 +654,11 @@ claim a task, allocate its worktree and run a managed session (stays attached un
 |---|---|
 | `--tail <bytes>` | only the last N bytes (default: `65536`) |
 
-### `rail team`
+### `crew team`
 
 teams of agents
 
-#### `rail team create <name>`
+#### `crew team create <name>`
 
 
 
@@ -666,11 +666,11 @@ teams of agents
 |---|---|
 | `--description <text>` |  |
 
-#### `rail team list`
+#### `crew team list`
 
 
 
-#### `rail team assign <team> <agent>`
+#### `crew team assign <team> <agent>`
 
 
 
@@ -678,21 +678,9 @@ teams of agents
 |---|---|
 | `--role <role>` |  |
 
-### `rail install`
+### `crew install`
 
-register the Rail MCP server and Skills with agent hosts
-
-| Option | Description |
-|---|---|
-| `--target <hosts>` | codex,claude,opencode (default: all) |
-| `--scope <scope>` | user | project (default: `user`) |
-| `--instructions` | add/remove the bootstrap block in AGENTS.md / CLAUDE.md of this repository |
-| `--dry-run` | preview the change without applying it |
-| `-y, --yes` | confirm destructive or authorization-gated actions |
-
-### `rail uninstall`
-
-remove only Rail-owned host configuration and restore backups
+register the Crewyard MCP server and Skills with agent hosts
 
 | Option | Description |
 |---|---|
@@ -702,15 +690,27 @@ remove only Rail-owned host configuration and restore backups
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-### `rail hosts`
+### `crew uninstall`
 
-detect supported agent hosts and their Rail registration
+remove only Crewyard-owned host configuration and restore backups
 
-### `rail service`
+| Option | Description |
+|---|---|
+| `--target <hosts>` | codex,claude,opencode (default: all) |
+| `--scope <scope>` | user | project (default: `user`) |
+| `--instructions` | add/remove the bootstrap block in AGENTS.md / CLAUDE.md of this repository |
+| `--dry-run` | preview the change without applying it |
+| `-y, --yes` | confirm destructive or authorization-gated actions |
+
+### `crew hosts`
+
+detect supported agent hosts and their Crewyard registration
+
+### `crew service`
 
 the long-running local worker for dispatch, sync, queue and recovery
 
-#### `rail service run`
+#### `crew service run`
 
 run the service in the foreground (what `service start` and the user service execute)
 
@@ -719,7 +719,7 @@ run the service in the foreground (what `service start` and the user service exe
 | `--tick <seconds>` | scheduling cycle interval |
 | `--no-dispatch` | do not launch agent sessions (sync, queue and recovery only) |
 
-#### `rail service start`
+#### `crew service start`
 
 start the service in the background
 
@@ -728,15 +728,15 @@ start the service in the background
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-#### `rail service stop`
+#### `crew service stop`
 
 
 
-#### `rail service status`
+#### `crew service status`
 
 
 
-#### `rail service install`
+#### `crew service install`
 
 install a per-user service (systemd user unit, launchd agent or scheduled task)
 
@@ -745,7 +745,7 @@ install a per-user service (systemd user unit, launchd agent or scheduled task)
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-#### `rail service uninstall`
+#### `crew service uninstall`
 
 
 
@@ -754,7 +754,7 @@ install a per-user service (systemd user unit, launchd agent or scheduled task)
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-### `rail dashboard`
+### `crew dashboard`
 
 interactive terminal dashboard (prints a static snapshot when not attached to a terminal)
 
@@ -763,19 +763,19 @@ interactive terminal dashboard (prints a static snapshot when not attached to a 
 | `--view <view>` | initial view: Overview, Projects, Tasks, Sessions, Queue, Context, Events, Metrics |
 | `--snapshot` | print a static snapshot and exit |
 
-### `rail sync`
+### `crew sync`
 
 synchronize PRs, reviews, checks, rules and merge state from GitHub
 
-### `rail pr`
+### `crew pr`
 
-pull requests tracked by Rail
+pull requests tracked by Crewyard
 
-#### `rail pr import`
+#### `crew pr import`
 
 import existing open PRs and classify merge candidates, blockers and stacks
 
-#### `rail pr list`
+#### `crew pr list`
 
 
 
@@ -783,29 +783,29 @@ import existing open PRs and classify merge candidates, blockers and stacks
 |---|---|
 | `--state <state>` | open | closed | merged (default: `open`) |
 
-#### `rail pr show <number>`
+#### `crew pr show <number>`
 
 
 
-#### `rail pr sync <number>`
+#### `crew pr sync <number>`
 
 
 
-#### `rail pr submit`
+#### `crew pr submit`
 
 push a handed-off task branch and open its PR (operator authorization for assisted mode)
 
 | Option | Description |
 |---|---|
 | `--task <taskId>` |  |
-| `--no-review` | skip Rail review |
+| `--no-review` | skip Crewyard review |
 | `--no-enqueue` | do not request integration |
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-#### `rail pr approve <number>`
+#### `crew pr approve <number>`
 
-authorize Rail to merge this PR head (assisted mode)
+authorize Crewyard to merge this PR head (assisted mode)
 
 | Option | Description |
 |---|---|
@@ -813,11 +813,11 @@ authorize Rail to merge this PR head (assisted mode)
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-### `rail review`
+### `crew review`
 
 evidence-fingerprinted reviews and findings
 
-#### `rail review request <number>`
+#### `crew review request <number>`
 
 
 
@@ -826,11 +826,11 @@ evidence-fingerprinted reviews and findings
 | `--type <types>` | code,security,integration |
 | `--force` | re-review even when cached evidence matches |
 
-#### `rail review show <numberOrReviewId>`
+#### `crew review show <numberOrReviewId>`
 
 
 
-#### `rail review invalidate <number>`
+#### `crew review invalidate <number>`
 
 
 
@@ -838,7 +838,7 @@ evidence-fingerprinted reviews and findings
 |---|---|
 | `--reason <text>` |  |
 
-#### `rail review finding <findingId> <status>`
+#### `crew review finding <findingId> <status>`
 
 set a finding to accepted | dismissed | resolved | open
 
@@ -846,15 +846,15 @@ set a finding to accepted | dismissed | resolved | open
 |---|---|
 | `--note <text>` |  |
 
-### `rail queue`
+### `crew queue`
 
 integration queue
 
-#### `rail queue list`
+#### `crew queue list`
 
 
 
-#### `rail queue status`
+#### `crew queue status`
 
 
 
@@ -862,7 +862,7 @@ integration queue
 |---|---|
 | `--base <branch>` |  |
 
-#### `rail queue explain`
+#### `crew queue explain`
 
 
 
@@ -870,7 +870,7 @@ integration queue
 |---|---|
 | `--pr <number>` |  |
 
-#### `rail queue add <number>`
+#### `crew queue add <number>`
 
 request integration for a PR (idempotent)
 
@@ -878,29 +878,19 @@ request integration for a PR (idempotent)
 |---|---|
 | `--priority <n>` | priority |
 
-#### `rail queue tick`
+#### `crew queue tick`
 
 run one bounded integration cycle (requires leadership; fails if the service holds it)
 
-#### `rail queue pause [queueId]`
+#### `crew queue pause [queueId]`
 
 
 
-#### `rail queue resume [queueId]`
+#### `crew queue resume [queueId]`
 
 
 
-#### `rail queue retry <entryId>`
-
-
-
-| Option | Description |
-|---|---|
-| `--reason <text>` |  |
-| `--dry-run` | preview the change without applying it |
-| `-y, --yes` | confirm destructive or authorization-gated actions |
-
-#### `rail queue quarantine <entryId>`
+#### `crew queue retry <entryId>`
 
 
 
@@ -910,7 +900,7 @@ run one bounded integration cycle (requires leadership; fails if the service hol
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-#### `rail queue escalate <entryId>`
+#### `crew queue quarantine <entryId>`
 
 
 
@@ -920,7 +910,7 @@ run one bounded integration cycle (requires leadership; fails if the service hol
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-#### `rail queue remove <entryId>`
+#### `crew queue escalate <entryId>`
 
 
 
@@ -930,27 +920,37 @@ run one bounded integration cycle (requires leadership; fails if the service hol
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-### `rail integration`
+#### `crew queue remove <entryId>`
+
+
+
+| Option | Description |
+|---|---|
+| `--reason <text>` |  |
+| `--dry-run` | preview the change without applying it |
+| `-y, --yes` | confirm destructive or authorization-gated actions |
+
+### `crew integration`
 
 integration candidates and validation
 
-#### `rail integration status`
+#### `crew integration status`
 
 
 
-#### `rail integration candidate [candidateId]`
+#### `crew integration candidate [candidateId]`
 
 show a candidate or list recent candidates for the base-branch queue
 
-#### `rail integration validate`
+#### `crew integration validate`
 
 build and validate the next candidate now (one leader-only queue cycle)
 
-### `rail backup`
+### `crew backup`
 
 consistent local state backups (credentials are never included)
 
-#### `rail backup create`
+#### `crew backup create`
 
 
 
@@ -958,15 +958,15 @@ consistent local state backups (credentials are never included)
 |---|---|
 | `--label <label>` | file label (default: `manual`) |
 
-#### `rail backup list`
+#### `crew backup list`
 
 
 
-#### `rail backup verify <file>`
+#### `crew backup verify <file>`
 
 
 
-#### `rail backup restore <file>`
+#### `crew backup restore <file>`
 
 replace local state with a backup (a safety backup is taken first)
 
@@ -975,7 +975,7 @@ replace local state with a backup (a safety backup is taken first)
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-### `rail gc`
+### `crew gc`
 
 preview (default) or apply retention: unreferenced index data, abandoned worktrees, old events, old backups
 
@@ -986,7 +986,7 @@ preview (default) or apply retention: unreferenced index data, abandoned worktre
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-### `rail recover`
+### `crew recover`
 
 run startup recovery now: processes, leases, workspaces, outbox and GitHub reconciliation
 
@@ -994,6 +994,6 @@ run startup recovery now: processes, leases, workspaces, outbox and GitHub recon
 |---|---|
 | `--kill-orphans` | terminate live orphaned agent process groups |
 
-### `rail mcp`
+### `crew mcp`
 
 run the MCP stdio server (stdout carries protocol messages only)

@@ -10,7 +10,7 @@ import {
   type PlanProposal,
   proposePlan,
   showTask,
-} from '@agent-rail/tasks';
+} from '@crewyard/tasks';
 import { createTestContext, type TestContext } from '../../helpers/index.ts';
 import { agent, operator, seedProject, testConfig } from './fixtures.ts';
 

@@ -1,4 +1,4 @@
-import { UNKNOWN_USAGE, type UsageReport } from '@agent-rail/core';
+import { UNKNOWN_USAGE, type UsageReport } from '@crewyard/core';
 
 export interface UsageAccumulator {
   add(delta: { input?: number | null; output?: number | null; cached?: number | null; costUsd?: number | null }): void;

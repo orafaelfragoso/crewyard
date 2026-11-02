@@ -1,15 +1,15 @@
-import { type Clock, type RailDirs, resolveDirs } from '@agent-rail/core';
+import { type Clock, type CrewDirs, resolveDirs } from '@crewyard/core';
 import { type Durability, openStore, type Store } from './db.ts';
 import { migrate } from './migrations.ts';
 
-export interface OpenRailStoreOptions {
-  dirs?: RailDirs;
+export interface OpenCrewStoreOptions {
+  dirs?: CrewDirs;
   durability?: Durability;
   clock?: Clock;
   migrate?: boolean;
 }
 
-export function openRailStore(options: OpenRailStoreOptions = {}): Store {
+export function openCrewStore(options: OpenCrewStoreOptions = {}): Store {
   const dirs = options.dirs ?? resolveDirs();
   const store = openStore({
     path: dirs.database,

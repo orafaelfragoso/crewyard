@@ -1,5 +1,5 @@
 {
-  "name": "@agent-rail/recovery",
+  "name": "@crewyard/recovery",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,12 +9,12 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@agent-rail/core": "workspace:*",
-    "@agent-rail/storage": "workspace:*",
-    "@agent-rail/config": "workspace:*",
-    "@agent-rail/tasks": "workspace:*",
-    "@agent-rail/agents": "workspace:*",
-    "@agent-rail/workspaces": "workspace:*",
-    "@agent-rail/integration": "workspace:*"
+    "@crewyard/core": "workspace:*",
+    "@crewyard/storage": "workspace:*",
+    "@crewyard/config": "workspace:*",
+    "@crewyard/tasks": "workspace:*",
+    "@crewyard/agents": "workspace:*",
+    "@crewyard/workspaces": "workspace:*",
+    "@crewyard/integration": "workspace:*"
   }
 }

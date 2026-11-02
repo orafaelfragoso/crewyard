@@ -1,17 +1,17 @@
-import { listSessions, reapOrphans } from '@agent-rail/agents';
-import { type Actor, isProcessAlive, nowIso, SYSTEM_ACTOR, toRailError } from '@agent-rail/core';
-import { appendEvent, listOutbox, migrationStatus, type RailContext } from '@agent-rail/storage';
+import { listSessions, reapOrphans } from '@crewyard/agents';
+import { type Actor, isProcessAlive, nowIso, SYSTEM_ACTOR, toCrewError } from '@crewyard/core';
+import { appendEvent, type CrewContext, listOutbox, migrationStatus } from '@crewyard/storage';
 import {
   expireLeases,
   listTasksNeedingReconciliation,
   type ReconcileResult,
   reconcileExpiredLease,
-} from '@agent-rail/tasks';
-import { inspectWorkspace, listWorkspaces, markWorkspacesForReconciliation } from '@agent-rail/workspaces';
+} from '@crewyard/tasks';
+import { inspectWorkspace, listWorkspaces, markWorkspacesForReconciliation } from '@crewyard/workspaces';
 
 export interface RemoteRecovery {
   name: string;
-  run(ctx: RailContext): Promise<Record<string, unknown>>;
+  run(ctx: CrewContext): Promise<Record<string, unknown>>;
 }
 
 export interface RecoveryStep {
@@ -43,11 +43,11 @@ async function step(
   try {
     steps.push({ step: name, ok: true, detail: await fn() });
   } catch (error) {
-    steps.push({ step: name, ok: false, detail: {}, error: toRailError(error).message });
+    steps.push({ step: name, ok: false, detail: {}, error: toCrewError(error).message });
   }
 }
 
-async function workspaceDirty(ctx: RailContext, taskId: string): Promise<boolean> {
+async function workspaceDirty(ctx: CrewContext, taskId: string): Promise<boolean> {
   for (const ws of listWorkspaces(ctx, { taskId })) {
     if (ws.state === 'cleaned') continue;
     try {
@@ -61,14 +61,14 @@ async function workspaceDirty(ctx: RailContext, taskId: string): Promise<boolean
   return false;
 }
 
-function taskProcessAlive(ctx: RailContext, taskId: string): boolean {
+function taskProcessAlive(ctx: CrewContext, taskId: string): boolean {
   return listSessions(ctx, { taskId }).some(
     (s) => ['starting', 'running', 'stopping'].includes(s.state) && s.pid !== null && isProcessAlive(s.pid),
   );
 }
 
 export async function reconcileLeases(
-  ctx: RailContext,
+  ctx: CrewContext,
   options: { projectId?: string; actor?: Actor } = {},
 ): Promise<ReconcileResult[]> {
   const actor = options.actor ?? SYSTEM_ACTOR;
@@ -89,7 +89,7 @@ export async function reconcileLeases(
   return results;
 }
 
-export async function runRecovery(ctx: RailContext, options: RecoveryOptions = {}): Promise<RecoveryReport> {
+export async function runRecovery(ctx: CrewContext, options: RecoveryOptions = {}): Promise<RecoveryReport> {
   const actor = options.actor ?? SYSTEM_ACTOR;
   const startedAt = nowIso(ctx.clock);
   const steps: RecoveryStep[] = [];

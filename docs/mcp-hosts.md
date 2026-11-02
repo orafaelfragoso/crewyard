@@ -1,30 +1,30 @@
 # MCP configuration per host
 
-Agent Rail's MCP server is `rail mcp`: a stdio server that writes protocol messages to stdout and diagnostics to stderr. Each host spawns its own instance; several instances can run at once.
+Crewyard's MCP server is `crew mcp`: a stdio server that writes protocol messages to stdout and diagnostics to stderr. Each host spawns its own instance; several instances can run at once.
 
-`rail install --target codex,claude,opencode` registers it and installs the [Skills](skills.md). This page lists what it writes, so you can review it or register Rail by hand.
+`crew install --target codex,claude,opencode` registers it and installs the [Skills](skills.md). This page lists what it writes, so you can review it or register Crewyard by hand.
 
 Formats were verified on 2026-11-02 against the official documentation linked below and these host versions: Codex CLI 0.166.0, Claude Code 2.1.316, OpenCode 2.2.5.
 
-## How `rail install` edits host files
+## How `crew install` edits host files
 
 - **Preview first.** `--dry-run` prints every pending change as a unified diff (or the exact command) and writes nothing.
-- **Backups.** Before changing anything, Rail copies every file it will touch to `<data>/backups/host-installers/<timestamp>/` and writes a `manifest.json` recording what it owns.
+- **Backups.** Before changing anything, Crewyard copies every file it will touch to `<data>/backups/host-installers/<timestamp>/` and writes a `manifest.json` recording what it owns.
 - **Atomic writes.** Files are written to a temporary file and renamed into place. Symlinked config files are written through to their target.
 - **Unrelated settings are preserved byte-for-byte.**
-  - TOML and Markdown: Rail appends one block between `# >>> agent-rail >>>` / `# <<< agent-rail <<<` (TOML) or `<!-- >>> agent-rail >>> -->` / `<!-- <<< agent-rail <<< -->` (Markdown).
-  - JSON/JSONC: Rail inserts a single `agent-rail` key into the MCP map as text, keeping comments, ordering and formatting. It then re-parses the result and checks that nothing else changed.
-- **No guessing.** Rail prints the exact snippet or command and edits nothing when:
+  - TOML and Markdown: Crewyard appends one block between `# >>> crewyard >>>` / `# <<< crewyard <<<` (TOML) or `<!-- >>> crewyard >>> -->` / `<!-- <<< crewyard <<< -->` (Markdown).
+  - JSON/JSONC: Crewyard inserts a single `crewyard` key into the MCP map as text, keeping comments, ordering and formatting. It then re-parses the result and checks that nothing else changed.
+- **No guessing.** Crewyard prints the exact snippet or command and edits nothing when:
   - the file cannot be parsed;
-  - it already contains an `agent-rail` entry that Rail did not create;
+  - it already contains an `crewyard` entry that Crewyard did not create;
   - its markers are unbalanced;
   - the installed host's major version is newer than the one verified here.
-- **Uninstall** (`rail uninstall --target ...`) removes only Rail-owned blocks, keys and files:
-  - If a file is unchanged since Rail edited it, the backed-up original is restored exactly.
-  - Files Rail created are deleted.
+- **Uninstall** (`crew uninstall --target ...`) removes only Crewyard-owned blocks, keys and files:
+  - If a file is unchanged since Crewyard edited it, the backed-up original is restored exactly.
+  - Files Crewyard created are deleted.
   - Content shared with a host that is still registered (such as `AGENTS.md` or `.agents/skills`) is kept.
 
-The MCP command is `rail mcp` when `rail` is on `PATH`. Otherwise `rail install` registers the absolute path of the running binary (compiled build) or `bun <checkout>/apps/cli/src/main.ts mcp` (source install), so the host starts exactly the Rail you installed from.
+The MCP command is `crew mcp` when `crew` is on `PATH`. Otherwise `crew install` registers the absolute path of the running binary (compiled build) or `bun <checkout>/apps/cli/src/main.ts mcp` (source install), so the host starts exactly the Crewyard you installed from.
 
 Scopes: `--scope user` (default) writes to your home directory; `--scope project` writes to the repository so the team can share it. Bootstrap instructions in `AGENTS.md`/`CLAUDE.md` are only added with explicit authorization (`--instructions`), and only as a marked block appended to the file.
 
@@ -38,18 +38,18 @@ Docs: [MCP](https://learn.chatgpt.com/docs/extend/mcp), [config basics](https://
 | Skills | `~/.agents/skills/<name>/SKILL.md` | `.agents/skills/<name>/SKILL.md` |
 | Instructions | — | `AGENTS.md` |
 
-What Rail writes:
+What Crewyard writes:
 
 ```toml
-# >>> agent-rail >>>
-# Managed by Agent Rail. Remove with `rail uninstall --target codex`.
-[mcp_servers.agent-rail]
-command = "/home/you/.local/bin/rail"
+# >>> crewyard >>>
+# Managed by Crewyard. Remove with `crew uninstall --target codex`.
+[mcp_servers.crewyard]
+command = "/home/you/.local/bin/crew"
 args = ["mcp"]
-# <<< agent-rail <<<
+# <<< crewyard <<<
 ```
 
-Manual registration: `codex mcp add agent-rail -- /home/you/.local/bin/rail mcp` (user config), or paste the block above. Optional keys such as `startup_timeout_sec` and `tool_timeout_sec` are documented in the config reference.
+Manual registration: `codex mcp add crewyard -- /home/you/.local/bin/crew mcp` (user config), or paste the block above. Optional keys such as `startup_timeout_sec` and `tool_timeout_sec` are documented in the config reference.
 
 ## Claude Code
 
@@ -61,21 +61,21 @@ Docs: [MCP](https://code.claude.com/docs/en/mcp), [skills](https://code.claude.c
 | Skills | `~/.claude/skills/<name>/SKILL.md` (or `$CLAUDE_CONFIG_DIR/skills`) | `.claude/skills/<name>/SKILL.md` |
 | Instructions | — | `CLAUDE.md` (or `.claude/CLAUDE.md`); `AGENTS.md` when the repository has no `CLAUDE.md` |
 
-For user scope, Rail runs `claude mcp add-json --scope user agent-rail '<json>'` and `claude mcp remove --scope user agent-rail`; it backs up `~/.claude.json` but never edits it directly. That file also holds Claude Code's account state and is rewritten by running sessions.
+For user scope, Crewyard runs `claude mcp add-json --scope user crewyard '<json>'` and `claude mcp remove --scope user crewyard`; it backs up `~/.claude.json` but never edits it directly. That file also holds Claude Code's account state and is rewritten by running sessions.
 
-Claude Code reads `AGENTS.md` only when there is no `CLAUDE.md`. So if the repository has an `AGENTS.md` and no `CLAUDE.md`, Rail adds its block to `AGENTS.md` rather than creating a `CLAUDE.md` that would hide it.
+Claude Code reads `AGENTS.md` only when there is no `CLAUDE.md`. So if the repository has an `AGENTS.md` and no `CLAUDE.md`, Crewyard adds its block to `AGENTS.md` rather than creating a `CLAUDE.md` that would hide it.
 
 Project `.mcp.json` entry:
 
 ```json
 {
   "mcpServers": {
-    "agent-rail": { "type": "stdio", "command": "/home/you/.local/bin/rail", "args": ["mcp"] }
+    "crewyard": { "type": "stdio", "command": "/home/you/.local/bin/crew", "args": ["mcp"] }
   }
 }
 ```
 
-Manual registration: `claude mcp add --scope user agent-rail -- /home/you/.local/bin/rail mcp` (use `--scope project` to write `.mcp.json`). Claude Code asks you to approve project `.mcp.json` servers the first time.
+Manual registration: `claude mcp add --scope user crewyard -- /home/you/.local/bin/crew mcp` (use `--scope project` to write `.mcp.json`). Claude Code asks you to approve project `.mcp.json` servers the first time.
 
 ## OpenCode
 
@@ -87,27 +87,27 @@ Docs: [config](https://opencode.ai/docs/config/), [MCP servers](https://opencode
 | Skills | `~/.agents/skills/<name>/SKILL.md` | `.agents/skills/<name>/SKILL.md` |
 | Instructions | — | `AGENTS.md` |
 
-OpenCode reads skills from `.opencode/skills`, `.claude/skills` and `.agents/skills`, so Rail shares the `.agents/skills` copy with Codex. If you install for both Claude Code and another host, OpenCode sees the same skill names in `.agents/skills` and `.claude/skills`; OpenCode asks for unique names, so set `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` if it reports duplicates.
+OpenCode reads skills from `.opencode/skills`, `.claude/skills` and `.agents/skills`, so Crewyard shares the `.agents/skills` copy with Codex. If you install for both Claude Code and another host, OpenCode sees the same skill names in `.agents/skills` and `.claude/skills`; OpenCode asks for unique names, so set `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` if it reports duplicates.
 
-Entry Rail inserts under `mcp` (comments and trailing commas in JSONC files are preserved):
+Entry Crewyard inserts under `mcp` (comments and trailing commas in JSONC files are preserved):
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "agent-rail": { "type": "local", "command": ["/home/you/.local/bin/rail", "mcp"], "enabled": true }
+    "crewyard": { "type": "local", "command": ["/home/you/.local/bin/crew", "mcp"], "enabled": true }
   }
 }
 ```
 
-Manual registration: `opencode mcp add --global agent-rail -- /home/you/.local/bin/rail mcp` (omit `--global` for the project config), or edit the file as above.
+Manual registration: `opencode mcp add --global crewyard -- /home/you/.local/bin/crew mcp` (omit `--global` for the project config), or edit the file as above.
 
 ## Other MCP hosts
 
-Any host that launches stdio MCP servers can use Rail. Register the command `rail` with argument `mcp`, or `bunx` with arguments `agent-rail mcp`. Install the Skills by copying `skills/<name>/` into the host's skills directory if it supports Agent Skills.
+Any host that launches stdio MCP servers can use Crewyard. Register the command `crew` with argument `mcp`, or `bunx` with arguments `crewyard mcp`. Install the Skills by copying `skills/<name>/` into the host's skills directory if it supports Agent Skills.
 
 ## Verify
 
 1. Restart the host.
-2. Ask it to list MCP tools. The `rail_*` tools from the [MCP reference](reference/mcp.md) should appear.
-3. Run `rail doctor` inside the repository; `hosts.*` reports registration per host.
+2. Ask it to list MCP tools. The `crew_*` tools from the [MCP reference](reference/mcp.md) should appear.
+3. Run `crew doctor` inside the repository; `hosts.*` reports registration per host.

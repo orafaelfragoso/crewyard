@@ -3,14 +3,14 @@ import { isAbsolute } from 'node:path';
 import {
   type AccountProfile,
   type AgentLaunch,
+  CrewError,
   nowIso,
   type ProfileHealth,
   type ProfileHealthStatus,
-  RailError,
   run,
   sanitizeEnv,
   which,
-} from '@agent-rail/core';
+} from '@crewyard/core';
 
 export type SecretResolver = (authRef: string) => Promise<string | null>;
 
@@ -51,8 +51,8 @@ export function resolveExecutable(command: string): string | null {
   return which(command);
 }
 
-export function unsupported(providerId: string, what: string, suggestion?: string): RailError {
-  return new RailError('UNSUPPORTED_CAPABILITY', `${providerId} does not support ${what}`, {
+export function unsupported(providerId: string, what: string, suggestion?: string): CrewError {
+  return new CrewError('UNSUPPORTED_CAPABILITY', `${providerId} does not support ${what}`, {
     details: { providerId, capability: what },
     ...(suggestion ? { suggestion } : {}),
   });
@@ -64,14 +64,14 @@ export async function resolveApiKey(
 ): Promise<string | null> {
   if (profile.authMechanism !== 'api-key') return null;
   if (!profile.authRef || !resolver) {
-    throw new RailError('UNAUTHENTICATED', `Profile ${profile.name} has no API key reference`, {
-      suggestion: `Re-add the profile with an API key: rail account add ${profile.providerId} ${profile.name} --api-key`,
+    throw new CrewError('UNAUTHENTICATED', `Profile ${profile.name} has no API key reference`, {
+      suggestion: `Re-add the profile with an API key: crew account add ${profile.providerId} ${profile.name} --api-key`,
     });
   }
   const value = await resolver(profile.authRef);
   if (!value) {
-    throw new RailError('UNAUTHENTICATED', `API key for profile ${profile.name} is missing from the OS secret store`, {
-      suggestion: `Re-add the profile credential: rail account add ${profile.providerId} ${profile.name} --api-key`,
+    throw new CrewError('UNAUTHENTICATED', `API key for profile ${profile.name} is missing from the OS secret store`, {
+      suggestion: `Re-add the profile credential: crew account add ${profile.providerId} ${profile.name} --api-key`,
     });
   }
   return value;

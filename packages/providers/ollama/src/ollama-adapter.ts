@@ -6,15 +6,15 @@ import {
   type AgentLaunch,
   type AgentSessionHandle,
   type Capabilities,
+  CrewError,
   type FailureClass,
   nowIso,
   type ProfileHealth,
   type ProviderAdapter,
-  RailError,
   type SessionOutcome,
   UNKNOWN_USAGE,
   type UsageReport,
-} from '@agent-rail/core';
+} from '@crewyard/core';
 import {
   type AdapterOptions,
   arr,
@@ -31,7 +31,7 @@ import {
   settingString,
   str,
   unsupported,
-} from '@agent-rail/provider-generic';
+} from '@crewyard/provider-generic';
 
 export const OLLAMA_DEFAULT_ENDPOINT = 'http://127.0.0.1:11434';
 
@@ -71,7 +71,7 @@ export function buildOllamaRequest(launch: AgentLaunch): OllamaChatRequest {
   }
   const model = launch.model ?? settingString(launch.profile, 'defaultModel') ?? launch.profile.permittedModels[0];
   if (!model) {
-    throw new RailError('INVALID_INPUT', `Ollama profile ${launch.profile.name} has no model`, {
+    throw new CrewError('INVALID_INPUT', `Ollama profile ${launch.profile.name} has no model`, {
       suggestion: 'Pass a model or set permitted models / settings.defaultModel on the profile.',
     });
   }
@@ -174,7 +174,7 @@ export class OllamaAdapter implements ProviderAdapter {
 
   async launch(input: AgentLaunch): Promise<AgentSessionHandle> {
     const request = buildOllamaRequest(input);
-    if (this.running.has(input.sessionId)) throw new RailError('CONFLICT', `Session ${input.sessionId} is running`);
+    if (this.running.has(input.sessionId)) throw new CrewError('CONFLICT', `Session ${input.sessionId} is running`);
     const scrub = createRedactor([]);
     mkdirSync(dirname(input.logPath), { recursive: true, mode: 0o700 });
     const fd = openSync(input.logPath, 'a', 0o600);
@@ -194,7 +194,7 @@ export class OllamaAdapter implements ProviderAdapter {
       input.timeoutMs,
     );
     emit({ type: 'started', at: nowIso(), pid: null, providerSessionId: null });
-    log(`[rail] POST ${ollamaEndpoint(input.profile)}/api/chat model=${request.model} mode=${input.mode}`);
+    log(`[crew] POST ${ollamaEndpoint(input.profile)}/api/chat model=${request.model} mode=${input.mode}`);
 
     const done = (async (): Promise<SessionResult> => {
       let text = '';
@@ -247,7 +247,7 @@ export class OllamaAdapter implements ProviderAdapter {
         if (outcome !== 'cancelled') {
           emit({ type: 'error', at: nowIso(), message: scrub(reason.message), classification: reason.classification });
         }
-        log(`[rail] ${outcome}: ${reason.message}`);
+        log(`[crew] ${outcome}: ${reason.message}`);
       } finally {
         clearTimeout(timer);
         this.running.delete(input.sessionId);
@@ -265,7 +265,7 @@ export class OllamaAdapter implements ProviderAdapter {
         exitCode: null,
         ...(result && outcome === 'succeeded' ? { result } : {}),
       });
-      log(`[rail] completed outcome=${outcome}`);
+      log(`[crew] completed outcome=${outcome}`);
       closeSync(fd);
       channel.close();
       return { outcome, exitCode: null, usage, result: outcome === 'succeeded' ? result : null };

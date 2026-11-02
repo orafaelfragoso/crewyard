@@ -1,4 +1,4 @@
-import { DEFAULT_ENV_ALLOWLIST, RailError, run, sanitizeEnv } from '@agent-rail/core';
+import { CrewError, DEFAULT_ENV_ALLOWLIST, run, sanitizeEnv } from '@crewyard/core';
 
 const MAX_LISTING_BYTES = 1024 * 1024 * 1024;
 
@@ -18,7 +18,7 @@ async function gitOutput(cwd: string, args: readonly string[]): Promise<string> 
     timeoutMs: 600_000,
   });
   if (result.exitCode !== 0 || result.truncated) {
-    throw new RailError('EXTERNAL_FAILURE', `git ${args[0]} failed: ${result.stderr.trim().slice(0, 500)}`, {
+    throw new CrewError('EXTERNAL_FAILURE', `git ${args[0]} failed: ${result.stderr.trim().slice(0, 500)}`, {
       details: { args: args.slice(0, 6), exitCode: result.exitCode, truncated: result.truncated },
       retryable: false,
     });
@@ -182,7 +182,7 @@ class StreamBuffer {
 
   async readBytes(n: number): Promise<Uint8Array> {
     while (this.available < n) {
-      if (!(await this.fill())) throw new RailError('EXTERNAL_FAILURE', 'git cat-file output ended unexpectedly');
+      if (!(await this.fill())) throw new CrewError('EXTERNAL_FAILURE', 'git cat-file output ended unexpectedly');
     }
     return this.take(n);
   }
@@ -236,10 +236,10 @@ export async function* readBlobs(cwd: string, shas: readonly string[], maxBytes:
   try {
     for (let i = 0; i < shas.length; i++) {
       const header = await buffer.readLine();
-      if (header === null) throw new RailError('EXTERNAL_FAILURE', 'git cat-file terminated early');
+      if (header === null) throw new CrewError('EXTERNAL_FAILURE', 'git cat-file terminated early');
       const [sha, type, sizeText] = header.split(' ');
       if (type === 'missing' || type === undefined) {
-        throw new RailError('EXTERNAL_FAILURE', `Git object missing: ${sha}`, { retryable: false });
+        throw new CrewError('EXTERNAL_FAILURE', `Git object missing: ${sha}`, { retryable: false });
       }
       const size = Number(sizeText);
       const bytes = await buffer.readBytes(size);

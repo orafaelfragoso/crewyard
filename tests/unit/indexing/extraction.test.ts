@@ -6,7 +6,7 @@ import {
   indexRepository,
   repositoryProfile,
   search,
-} from '@agent-rail/indexing';
+} from '@crewyard/indexing';
 import { createIndexFixture, type IndexFixture, POLYGLOT_FILES } from './fixture.ts';
 
 let fx: IndexFixture | undefined;

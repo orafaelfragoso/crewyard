@@ -6,11 +6,11 @@ import {
   type AgentLaunch,
   type AgentSessionHandle,
   type Capabilities,
+  CrewError,
   type ProfileHealth,
   type ProviderAdapter,
-  RailError,
   run,
-} from '@agent-rail/core';
+} from '@crewyard/core';
 import {
   type AdapterOptions,
   arr,
@@ -32,7 +32,7 @@ import {
   settingString,
   str,
   truncate,
-} from '@agent-rail/provider-generic';
+} from '@crewyard/provider-generic';
 
 export const CODEX_API_KEY_ENV = 'CODEX_API_KEY';
 export const CODEX_HOME_ENV = 'CODEX_HOME';
@@ -56,7 +56,7 @@ function sandboxFor(launch: AgentLaunch): Sandbox {
   const configured = settingString(launch.profile, 'sandbox');
   if (configured === null || configured === 'workspace-write') return 'workspace-write';
   if (configured === 'read-only') return 'read-only';
-  throw new RailError('POLICY_DENIED', `Codex sandbox ${configured} is not permitted for managed sessions`, {
+  throw new CrewError('POLICY_DENIED', `Codex sandbox ${configured} is not permitted for managed sessions`, {
     suggestion: 'Use read-only or workspace-write.',
   });
 }
@@ -243,7 +243,7 @@ export class CodexAdapter implements ProviderAdapter {
 
   async launch(input: AgentLaunch): Promise<AgentSessionHandle> {
     const executable = resolveExecutable(codexBinary(input.profile));
-    if (!executable) throw new RailError('UNAVAILABLE', `${codexBinary(input.profile)} not found on PATH`);
+    if (!executable) throw new CrewError('UNAVAILABLE', `${codexBinary(input.profile)} not found on PATH`);
     const apiKey = await resolveApiKey(input.profile, this.options.resolveSecret);
     if (input.profile.configRoot) mkdirSync(input.profile.configRoot, { recursive: true, mode: 0o700 });
     const invocation = buildCodexInvocation(input, { executable, apiKey, options: this.options });

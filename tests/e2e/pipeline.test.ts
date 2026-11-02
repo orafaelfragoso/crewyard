@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { addProfile, createAccountPolicy, createAgent } from '@agent-rail/agents';
-import { integrationCycles, RailService, taskHooks } from '@agent-rail/application';
-import { gitText } from '@agent-rail/core';
-import { listPullRequests } from '@agent-rail/integration';
-import { listEvents } from '@agent-rail/storage';
-import { addTask, showTask } from '@agent-rail/tasks';
+import { addProfile, createAccountPolicy, createAgent } from '@crewyard/agents';
+import { CrewService, integrationCycles, taskHooks } from '@crewyard/application';
+import { gitText } from '@crewyard/core';
+import { listPullRequests } from '@crewyard/integration';
+import { listEvents } from '@crewyard/storage';
+import { addTask, showTask } from '@crewyard/tasks';
 import { createGitHubFixture, type GitHubFixture } from '../integration/github-fixture.ts';
 
 const AGENT = join(import.meta.dir, '../../fixtures/providers/committing-agent.ts');
@@ -52,7 +52,7 @@ describe('autonomous pipeline', () => {
       actor: { kind: 'operator', id: 'op' },
     });
     const cycles = integrationCycles(envFor).map((c) => ({ ...c, intervalSeconds: () => 0 }));
-    const service = new RailService(ctx, { cycles });
+    const service = new CrewService(ctx, { cycles });
     const deadline = Date.now() + 45_000;
     while (showTask(ctx, first.id).task.state !== 'DONE' && Date.now() < deadline) {
       await service.tick();

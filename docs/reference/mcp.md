@@ -1,6 +1,6 @@
 # MCP reference
 
-`rail mcp` is an MCP server over stdio, built on the official MCP TypeScript SDK v2 (`@modelcontextprotocol/server`). Each agent host spawns its own instance, and several can run at once. Protocol messages go to stdout and diagnostics to stderr. Registration per host: [mcp-hosts.md](../mcp-hosts.md).
+`crew mcp` is an MCP server over stdio, built on the official MCP TypeScript SDK v2 (`@modelcontextprotocol/server`). Each agent host spawns its own instance, and several can run at once. Protocol messages go to stdout and diagnostics to stderr. Registration per host: [mcp-hosts.md](../mcp-hosts.md).
 
 Tool inputs and outputs are versioned JSON schemas validated with Zod v4. Tool names are stable for v1. Optional fields may be added; breaking changes need a new tool version.
 
@@ -17,7 +17,7 @@ Every tool returns one JSON object:
     "leaseGeneration": 4,
     "leaseExpiresAt": "2026-11-02T21:15:00Z",
     "workspaceId": "ws_01...",
-    "worktreePath": "/home/user/.local/share/agent-rail/worktrees/ws_01..."
+    "worktreePath": "/home/user/.local/share/crewyard/worktrees/ws_01..."
   },
   "revision": 19
 }
@@ -31,7 +31,7 @@ Every tool returns one JSON object:
     "code": "STALE_LEASE",
     "message": "Lease generation 3 is no longer current for TASK-101",
     "retryable": false,
-    "suggestion": "Stop writing and call rail_get_next_action."
+    "suggestion": "Stop writing and call crew_get_next_action."
   },
   "revision": 21
 }
@@ -47,22 +47,22 @@ Every tool returns one JSON object:
 
 | Tool | Purpose | Mutating | CLI equivalent |
 |---|---|---|---|
-| `rail_get_state` | Project, queue, task and worker status, and the policy in force | No | `rail project show --json` |
-| `rail_search_context` | Ranked evidence with commit provenance | No | `rail context search QUERY --json` |
-| `rail_get_symbol` | Definition, references and dependency context | No | `rail context symbol NAME --json` |
-| `rail_analyze_impact` | Impact, overlap with leased scopes and open PRs, test recommendations, confidence tier | No | `rail context impact --files A,B --json` |
-| `rail_list_tasks` | Query the current task DAG | No | `rail task list --json` |
-| `rail_get_next_action` | Safe suggested next action for the calling agent | No | `rail task next --agent ID --json` |
-| `rail_claim_task` | Acquire a task lease and scope reservations; returns the worktree | Yes | `rail task claim TASK --agent ID --json` |
-| `rail_heartbeat` | Renew a valid lease (current generation only) | Yes | `rail task heartbeat TASK --json` |
-| `rail_report_progress` | Store structured progress or a checkpoint | Yes | `rail task report TASK --json` |
-| `rail_report_blocker` | Report a blocker and release or replan resources | Yes | `rail task block TASK --reason R --json` |
-| `rail_submit_work` | Register commit, test and worktree evidence with a handoff kind (`blocked`, `needs_review`, `ready_for_pr`, `completed`) | Yes | `rail task complete TASK --json` |
-| `rail_submit_pr` | Attach or publish a PR through the policy-controlled path | Yes | `rail pr submit --task TASK --json` |
-| `rail_get_review` | Current review findings and evidence | No | `rail review show --pr N --json` |
-| `rail_request_review` | Queue an eligible review job | Yes | `rail review request --pr N --json` |
-| `rail_request_integration` | Request admission to the integration queue | Yes | `rail integration candidate --pr N --json` |
-| `rail_get_queue_status` | Queue position and blockers | No | `rail queue explain --pr N --json` |
+| `crew_get_state` | Project, queue, task and worker status, and the policy in force | No | `crew project show --json` |
+| `crew_search_context` | Ranked evidence with commit provenance | No | `crew context search QUERY --json` |
+| `crew_get_symbol` | Definition, references and dependency context | No | `crew context symbol NAME --json` |
+| `crew_analyze_impact` | Impact, overlap with leased scopes and open PRs, test recommendations, confidence tier | No | `crew context impact --files A,B --json` |
+| `crew_list_tasks` | Query the current task DAG | No | `crew task list --json` |
+| `crew_get_next_action` | Safe suggested next action for the calling agent | No | `crew task next --agent ID --json` |
+| `crew_claim_task` | Acquire a task lease and scope reservations; returns the worktree | Yes | `crew task claim TASK --agent ID --json` |
+| `crew_heartbeat` | Renew a valid lease (current generation only) | Yes | `crew task heartbeat TASK --json` |
+| `crew_report_progress` | Store structured progress or a checkpoint | Yes | `crew task report TASK --json` |
+| `crew_report_blocker` | Report a blocker and release or replan resources | Yes | `crew task block TASK --reason R --json` |
+| `crew_submit_work` | Register commit, test and worktree evidence with a handoff kind (`blocked`, `needs_review`, `ready_for_pr`, `completed`) | Yes | `crew task complete TASK --json` |
+| `crew_submit_pr` | Attach or publish a PR through the policy-controlled path | Yes | `crew pr submit --task TASK --json` |
+| `crew_get_review` | Current review findings and evidence | No | `crew review show --pr N --json` |
+| `crew_request_review` | Queue an eligible review job | Yes | `crew review request --pr N --json` |
+| `crew_request_integration` | Request admission to the integration queue | Yes | `crew integration candidate --pr N --json` |
+| `crew_get_queue_status` | Queue position and blockers | No | `crew queue explain --pr N --json` |
 
 Mutating tools require the caller's current lease where they act on a task. A stale generation is rejected with `STALE_LEASE`, and policy gates return `APPROVAL_REQUIRED` or `POLICY_DENIED`.
 
@@ -71,8 +71,8 @@ Mutating tools require the caller's current lease where they act on a task. A st
 ## Identity
 
 - A caller-supplied agent identifier is not authorization.
-- Managed sessions (launched by Rail) receive a short-lived token scoped to project, task and lease generation.
-- Unmanaged clients act under operator-configured permissions and explicit claim approval or limited scopes. For them, automatic cancellation, workspace enforcement and usage accounting may be unavailable, and Rail reports this.
+- Managed sessions (launched by Crewyard) receive a short-lived token scoped to project, task and lease generation.
+- Unmanaged clients act under operator-configured permissions and explicit claim approval or limited scopes. For them, automatic cancellation, workspace enforcement and usage accounting may be unavailable, and Crewyard reports this.
 
 ## Resources
 
@@ -80,10 +80,10 @@ All resources are read-only, scoped to the session's authorized project, paged a
 
 | URI | Content |
 |---|---|
-| `rail://project/{id}/overview` | Project, repositories, policy, index freshness, worker status |
-| `rail://task/{id}` | Task record: state, dependencies, lease, scope, evidence, handoff |
-| `rail://repository/{id}/snapshot/{sha}` | Indexed snapshot metadata for a commit |
-| `rail://queue/{id}` | Integration queue entries, candidates and blockers |
+| `crew://project/{id}/overview` | Project, repositories, policy, index freshness, worker status |
+| `crew://task/{id}` | Task record: state, dependencies, lease, scope, evidence, handoff |
+| `crew://repository/{id}/snapshot/{sha}` | Indexed snapshot metadata for a commit |
+| `crew://queue/{id}` | Integration queue entries, candidates and blockers |
 
 ## Prompt
 

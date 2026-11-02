@@ -90,4 +90,4 @@ jobs:
         working-directory: dist
         run: |
           sha256sum -c SHA256SUMS
-          ./rail-linux-x64 version --json
+          ./crew-linux-x64 version --json

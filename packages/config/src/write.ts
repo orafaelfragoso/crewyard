@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { ensureDir, RailError } from '@agent-rail/core';
+import { CrewError, ensureDir } from '@crewyard/core';
 import { parseDocument } from 'yaml';
 import { findSecretKeys, validateConfigText } from './load.ts';
 
@@ -18,7 +18,7 @@ export interface TemplateInput {
 }
 
 export function renderConfigTemplate(input: TemplateInput): string {
-  return `# Agent Rail repository configuration. Safe to commit: never put secrets here.
+  return `# Crewyard repository configuration. Safe to commit: never put secrets here.
 version: 1
 project:
   name: ${input.projectName}
@@ -56,7 +56,7 @@ review:
   require_review_for_high_risk: true
 
 integration:
-  mode: auto # github-managed if available, otherwise rail-managed
+  mode: auto # github-managed if available, otherwise crew-managed
   auto_merge_eligible: ${input.autonomy === 'observe' || input.autonomy === 'assisted' ? 'false' : 'true'}
   require_github_checks: true
   rebasing: only_when_required
@@ -107,8 +107,8 @@ export function setConfigValue(
 ): SetConfigResult {
   const segments = path.split('.');
   if (findSecretKeys(setPathValue(segments, coerce(rawValue))).length > 0) {
-    throw new RailError('POLICY_DENIED', `Refusing to write a secret-like key (${path}) to configuration`, {
-      suggestion: 'Use the system secret store via `rail account add`.',
+    throw new CrewError('POLICY_DENIED', `Refusing to write a secret-like key (${path}) to configuration`, {
+      suggestion: 'Use the system secret store via `crew account add`.',
     });
   }
   const text = existsSync(file) ? readFileSync(file, 'utf8') : 'version: 1\n';
@@ -119,7 +119,7 @@ export function setConfigValue(
   const output = doc.toString();
   const issues = validateConfigText(output).filter((i) => i.severity === 'error');
   if (issues.length > 0) {
-    throw new RailError('CONFIG_INVALID', `Setting ${path} would make the configuration invalid`, {
+    throw new CrewError('CONFIG_INVALID', `Setting ${path} would make the configuration invalid`, {
       details: { issues },
       retryable: false,
     });

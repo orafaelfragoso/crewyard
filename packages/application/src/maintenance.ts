@@ -1,17 +1,17 @@
 import { Database } from 'bun:sqlite';
 import { copyFileSync, existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Actor, ensureDir, nowIso, RailError } from '@agent-rail/core';
-import { collectGarbage, type GarbageCollectionResult } from '@agent-rail/indexing';
-import { listProjects, loadProjectConfig, primaryRepository } from '@agent-rail/projects';
+import { type Actor, CrewError, ensureDir, nowIso } from '@crewyard/core';
+import { collectGarbage, type GarbageCollectionResult } from '@crewyard/indexing';
+import { listProjects, loadProjectConfig, primaryRepository } from '@crewyard/projects';
 import {
   appendEvent,
   backupDatabase,
+  type CrewContext,
   LATEST_SCHEMA_VERSION,
-  type RailContext,
   recordTransition,
-} from '@agent-rail/storage';
-import { type CleanupPreview, previewCleanup } from '@agent-rail/workspaces';
+} from '@crewyard/storage';
+import { type CleanupPreview, previewCleanup } from '@crewyard/workspaces';
 import { exportEvents } from './events.ts';
 import { serviceStatus } from './service-control.ts';
 
@@ -22,17 +22,17 @@ export interface BackupResult {
   note: string;
 }
 
-export function createBackup(ctx: RailContext, label = 'manual'): BackupResult {
+export function createBackup(ctx: CrewContext, label = 'manual'): BackupResult {
   const file = backupDatabase(ctx.store, ctx.dirs.backups, label);
   return {
     file,
     bytes: statSync(file).size,
     schemaVersion: LATEST_SCHEMA_VERSION,
-    note: 'Credentials are never stored in the database; after restoring on another machine, re-run `rail account add` / provider logins.',
+    note: 'Credentials are never stored in the database; after restoring on another machine, re-run `crew account add` / provider logins.',
   };
 }
 
-export function listBackups(ctx: RailContext): { file: string; bytes: number; modifiedAt: string }[] {
+export function listBackups(ctx: CrewContext): { file: string; bytes: number; modifiedAt: string }[] {
   if (!existsSync(ctx.dirs.backups)) return [];
   return readdirSync(ctx.dirs.backups)
     .filter((f) => f.endsWith('.sqlite'))
@@ -50,7 +50,7 @@ export function verifyBackup(file: string): { schemaVersion: number; integrity: 
     const row = db.query('SELECT MAX(version) AS v FROM schema_migrations').get() as { v: number | null };
     const schemaVersion = row.v ?? 0;
     if (schemaVersion > LATEST_SCHEMA_VERSION) {
-      throw new RailError(
+      throw new CrewError(
         'SCHEMA_TOO_NEW',
         `Backup schema v${schemaVersion} is newer than this build (v${LATEST_SCHEMA_VERSION})`,
       );
@@ -61,13 +61,13 @@ export function verifyBackup(file: string): { schemaVersion: number; integrity: 
   }
 }
 
-export function restoreBackup(ctx: RailContext, file: string): { restored: string; safetyBackup: string } {
+export function restoreBackup(ctx: CrewContext, file: string): { restored: string; safetyBackup: string } {
   if (serviceStatus(ctx).running) {
-    throw new RailError('CONFLICT', 'Stop the service before restoring (`rail service stop`)', { retryable: false });
+    throw new CrewError('CONFLICT', 'Stop the service before restoring (`crew service stop`)', { retryable: false });
   }
   const check = verifyBackup(file);
   if (check.integrity !== 'ok')
-    throw new RailError('INVALID_INPUT', `Backup failed integrity check: ${check.integrity}`);
+    throw new CrewError('INVALID_INPUT', `Backup failed integrity check: ${check.integrity}`);
   const safety = createBackup(ctx, 'pre-restore').file;
   const target = ctx.store.path;
   ctx.store.close();
@@ -85,7 +85,7 @@ export interface GcPlan {
 }
 
 export async function planGarbageCollection(
-  ctx: RailContext,
+  ctx: CrewContext,
   options: { apply?: boolean; actor: Actor; keepBackups?: number },
 ): Promise<GcPlan> {
   const apply = options.apply ?? false;

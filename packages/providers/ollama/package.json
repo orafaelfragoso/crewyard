@@ -1,5 +1,5 @@
 {
-  "name": "@agent-rail/provider-ollama",
+  "name": "@crewyard/provider-ollama",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@agent-rail/core": "workspace:*",
-    "@agent-rail/provider-generic": "workspace:*"
+    "@crewyard/core": "workspace:*",
+    "@crewyard/provider-generic": "workspace:*"
   }
 }

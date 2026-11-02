@@ -1,5 +1,5 @@
 import { rmSync } from 'node:fs';
-import { registerProject } from '@agent-rail/projects';
+import { registerProject } from '@crewyard/projects';
 import { createTempGitRepo, createTestContext, type TestContext } from '../../helpers/index.ts';
 
 export interface IndexFixture {

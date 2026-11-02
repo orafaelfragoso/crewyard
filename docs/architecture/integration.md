@@ -1,9 +1,9 @@
 # Review and integration engine
 
-Packages: `@agent-rail/github`, `@agent-rail/reviews`, `@agent-rail/integration`. Operator-facing behaviour
+Packages: `@crewyard/github`, `@crewyard/reviews`, `@crewyard/integration`. Operator-facing behaviour
 (permissions, queue modes, stacks) is in [GitHub](../github.md).
 
-The integration package never imports `@agent-rail/tasks` or `@agent-rail/context`. Task effects go through injected
+The integration package never imports `@crewyard/tasks` or `@crewyard/context`. Task effects go through injected
 `TaskHooks` (`onQueued`, `onValidating`, `onMerged`, `onBlocked`, `onEscalated`, `onRevisionRequired`), called after the
 owning transaction commits; a failing hook is logged and recorded as `integration.hook_failed`. Review context comes
 from an injected `ContextFingerprintProvider`.

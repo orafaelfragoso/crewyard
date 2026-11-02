@@ -1,4 +1,4 @@
-import { type EventQuery, latestSeq, listEvents, type RailContext, type RailEvent } from '@agent-rail/storage';
+import { type CrewContext, type CrewEvent, type EventQuery, latestSeq, listEvents } from '@crewyard/storage';
 
 export interface FollowOptions extends Omit<EventQuery, 'afterSeq' | 'order' | 'beforeSeq'> {
   afterSeq?: number;
@@ -7,19 +7,19 @@ export interface FollowOptions extends Omit<EventQuery, 'afterSeq' | 'order' | '
 }
 
 export interface FollowHandlers {
-  onEvent(event: RailEvent): void | Promise<void>;
+  onEvent(event: CrewEvent): void | Promise<void>;
   onResync?(reason: string, cursor: number): void | Promise<void>;
 }
 
 export async function followEvents(
-  ctx: RailContext,
+  ctx: CrewContext,
   options: FollowOptions,
   handlers: FollowHandlers,
 ): Promise<number> {
   let cursor = options.afterSeq ?? latestSeq(ctx.store.db);
   const pollMs = options.pollMs ?? 500;
   while (!options.signal?.aborted) {
-    let batch: RailEvent[];
+    let batch: CrewEvent[];
     try {
       batch = listEvents(ctx.store, { ...options, afterSeq: cursor, limit: options.limit ?? 500, order: 'asc' });
     } catch (error) {
@@ -37,12 +37,12 @@ export async function followEvents(
 }
 
 export interface EventPage {
-  items: RailEvent[];
+  items: CrewEvent[];
   cursor: { before: number | null; after: number | null };
 }
 
 export function pageEvents(
-  ctx: RailContext,
+  ctx: CrewContext,
   query: Omit<EventQuery, 'order'> & { direction?: 'older' | 'newer' } = {},
 ): EventPage {
   const direction = query.direction ?? 'older';

@@ -1,4 +1,4 @@
-export const SECRET_SERVICE = 'agent-rail';
+export const SECRET_SERVICE = 'crewyard';
 
 export interface SecretStore {
   get(name: string): Promise<string | null>;

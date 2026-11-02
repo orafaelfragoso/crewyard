@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { claimAndPrepare, initRepository } from '@agent-rail/application';
-import { git } from '@agent-rail/core';
-import { reconcileLeases, runRecovery } from '@agent-rail/recovery';
-import { addTask, heartbeat, showTask } from '@agent-rail/tasks';
-import { collectCommits, listWorkspaces } from '@agent-rail/workspaces';
+import { claimAndPrepare, initRepository } from '@crewyard/application';
+import { git } from '@crewyard/core';
+import { reconcileLeases, runRecovery } from '@crewyard/recovery';
+import { addTask, heartbeat, showTask } from '@crewyard/tasks';
+import { collectCommits, listWorkspaces } from '@crewyard/workspaces';
 import { commitFiles, createTempGitRepo, createTestContext, ManualClock, type TestContext } from '../helpers/index.ts';
 
 let ctx: TestContext | undefined;
@@ -51,7 +51,7 @@ describe('crash recovery', () => {
     const commits = await collectCommits(c, ws[0]!.id);
     expect(commits.taskId).toBe(taskId);
     expect(commits.commits.map((x) => x.sha)).toContain(sha);
-    expect((await git(repo, ['status', '--porcelain'])).stdout.trim()).toBe('?? .agent-rail/');
+    expect((await git(repo, ['status', '--porcelain'])).stdout.trim()).toBe('?? .crewyard/');
   });
 
   test('AT-14: expired generation is fenced out after reconciliation and re-claim', async () => {

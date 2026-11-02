@@ -1,4 +1,4 @@
-import type { Clock, RailDirs } from '@agent-rail/core';
+import type { Clock, CrewDirs } from '@crewyard/core';
 
 export const HOST_IDS = ['codex', 'claude', 'opencode'] as const;
 export type HostId = (typeof HOST_IDS)[number];
@@ -6,7 +6,7 @@ export type HostId = (typeof HOST_IDS)[number];
 export type InstallScope = 'user' | 'project';
 export type ChangePurpose = 'mcp' | 'skill' | 'instructions';
 
-export const RAIL_SERVER_NAME = 'agent-rail';
+export const CREW_SERVER_NAME = 'crewyard';
 
 export interface ExecResult {
   exitCode: number;
@@ -23,7 +23,7 @@ export interface InstallerEnvironment {
   env?: NodeJS.ProcessEnv;
   which?: (binary: string) => string | null;
   exec?: CommandRunner;
-  dirs?: RailDirs;
+  dirs?: CrewDirs;
 }
 
 export type HostSupport = 'supported' | 'unknown' | 'unsupported';
@@ -90,7 +90,7 @@ export interface InstallPlan {
   scope: InstallScope;
   targets: HostId[];
   projectRoot: string | null;
-  railCommand: string[];
+  crewCommand: string[];
   changes: PlannedChange[];
   manualInstructions: ManualInstruction[];
   notes: string[];
@@ -101,7 +101,7 @@ export interface PlanOptions extends InstallerEnvironment {
   targets: readonly HostId[];
   scope: InstallScope;
   projectRoot?: string;
-  railCommand?: readonly string[];
+  crewCommand?: readonly string[];
   skillsSourceDir?: string;
   includeInstructions?: boolean;
 }

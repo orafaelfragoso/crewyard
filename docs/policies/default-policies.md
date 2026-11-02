@@ -1,6 +1,6 @@
 # Default policies
 
-These are the built-in defaults from `packages/config/src/schema.ts`. Override them in `.agent-rail/config.yaml`; see the [annotated example](../examples/config.yaml).
+These are the built-in defaults from `packages/config/src/schema.ts`. Override them in `.crewyard/config.yaml`; see the [annotated example](../examples/config.yaml).
 
 ## Sensitive path classes
 
@@ -25,7 +25,7 @@ security:
 | Setting | Default | Effect |
 |---|---|---|
 | `project.autonomy` | `guarded` | Autonomous execution and merge for eligible low/medium-risk work |
-| `integration.mode` | `auto` | GitHub merge queue when the repository has one, otherwise Rail-managed serialized integration |
+| `integration.mode` | `auto` | GitHub merge queue when the repository has one, otherwise Crewyard-managed serialized integration |
 | `integration.require_github_checks` | `true` | Required GitHub checks must pass on the exact head; AI review never substitutes |
 | `integration.rebasing` | `only_when_required` | No blanket rebases after the base advances |
 | `integration.auto_merge_eligible` | `true` | Must be `false` for `observe`/`assisted` |
@@ -40,6 +40,6 @@ security:
 | `index.embedding.consent_external` | `false` | No repository data to external embedding services |
 | `observability.local_only` | `true` | Fixed; telemetry never leaves the machine |
 
-## Contradictions rejected by `rail config validate`
+## Contradictions rejected by `crew config validate`
 
 The validator rejects unknown keys, invalid enum values, secret-like keys and settings that contradict each other, for example `auto_merge_eligible: true` with `autonomy: observe` or `assisted`, a heartbeat interval longer than half the lease, `require_review_for_high_risk` without `review.enabled`, a non-local embedding endpoint without `consent_external`, a `branch_name_format` without `{task_id}`, or an approval class with no `sensitive_paths` entry.

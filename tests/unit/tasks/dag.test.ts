@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { RailError } from '@agent-rail/core';
-import { listEvents } from '@agent-rail/storage';
-import { addTask, findCycle, listTasks, transitionTask, updateTask, validatePlan } from '@agent-rail/tasks';
+import { CrewError } from '@crewyard/core';
+import { listEvents } from '@crewyard/storage';
+import { addTask, findCycle, listTasks, transitionTask, updateTask, validatePlan } from '@crewyard/tasks';
 import { createTestContext, type TestContext } from '../../helpers/index.ts';
 import { driveToState, operator, seedProject, testConfig } from './fixtures.ts';
 
@@ -14,7 +14,7 @@ function code(fn: () => unknown): string | undefined {
   try {
     fn();
   } catch (error) {
-    return error instanceof RailError ? error.code : 'NOT_RAIL_ERROR';
+    return error instanceof CrewError ? error.code : 'NOT_CREW_ERROR';
   }
   return undefined;
 }

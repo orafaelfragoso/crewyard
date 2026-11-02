@@ -1,4 +1,4 @@
-import type { RailContext } from '@agent-rail/storage';
+import type { CrewContext } from '@crewyard/storage';
 import { Box, Text, useApp, useInput, useWindowSize } from 'ink';
 import { useState } from 'react';
 import type { ActionResult, ContextSearchResult, DashboardActions } from './actions.ts';
@@ -46,7 +46,7 @@ export const HELP_LINES = [
 ];
 
 interface DashboardProps {
-  ctx: RailContext;
+  ctx: CrewContext;
   actions: DashboardActions;
   projectId: string | null;
   initialView?: ViewName;
@@ -55,7 +55,7 @@ interface DashboardProps {
 export function Dashboard(props: DashboardProps) {
   const [view, setView] = useState<ViewName>(props.initialView ?? 'Overview');
   const data = useDashboardData(props.ctx, props.projectId, view === 'Metrics');
-  if (!data) return <Text>Loading Agent Rail state…</Text>;
+  if (!data) return <Text>Loading Crewyard state…</Text>;
   return <DashboardBody {...props} data={data} view={view} setView={setView} />;
 }
 
@@ -235,7 +235,7 @@ function DashboardBody(props: DashboardProps & { data: DashboardData; view: View
     if (view === 'Sessions' && input === 'c') {
       const session = selectedSession();
       if (!session) return;
-      if (!session.managed) return setMessage('unmanaged sessions cannot be cancelled by Rail');
+      if (!session.managed) return setMessage('unmanaged sessions cannot be cancelled by Crewyard');
       return setMode({
         kind: 'confirm',
         label: `Cancel session ${session.id} (terminates its process tree)? [y/N]`,
@@ -249,7 +249,7 @@ function DashboardBody(props: DashboardProps & { data: DashboardData; view: View
     <Box flexDirection="column" height={size.rows}>
       <Box>
         <Text bold color={theme.accent}>
-          Agent Rail{' '}
+          Crewyard{' '}
         </Text>
         {VIEWS.map((v, i) => (
           <Text key={v} {...(v === view ? { inverse: true, bold: true } : { color: theme.muted })}>

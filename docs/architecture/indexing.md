@@ -1,9 +1,9 @@
 # Indexing and context retrieval
 
-Packages: `@agent-rail/indexing` (snapshots, extraction, search, graph, embeddings, verify, GC) and
-`@agent-rail/context` (context packs, impact analysis, interface fingerprints). Every service takes a
-`RailContext` first and returns JSON-serialisable values, so the CLI (`rail index …`, `rail context …`) and MCP
-tools (`rail_search_context`, `rail_get_symbol`, `rail_analyze_impact`) call them directly.
+Packages: `@crewyard/indexing` (snapshots, extraction, search, graph, embeddings, verify, GC) and
+`@crewyard/context` (context packs, impact analysis, interface fingerprints). Every service takes a
+`CrewContext` first and returns JSON-serialisable values, so the CLI (`crew index …`, `crew context …`) and MCP
+tools (`crew_search_context`, `crew_get_symbol`, `crew_analyze_impact`) call them directly.
 
 ## Snapshots
 
@@ -49,7 +49,7 @@ skipped.
 ## Secrets
 
 Content is redacted before anything is stored or parsed: private-key blocks are replaced line by line (line
-numbers stay stable), then `redactSecrets` from `@agent-rail/core` runs over the text. Tree-sitter parses the
+numbers stay stable), then `redactSecrets` from `@crewyard/core` runs over the text. Tree-sitter parses the
 redacted text, so signatures cannot carry raw secrets. Blobs with redactions get `parse_status = 'redacted'` and
 a `redactions` count. Excerpts returned to agents come from the stored (redacted) chunks, never from Git.
 
@@ -93,7 +93,7 @@ are not resolved. Outputs carry the note that the graph is syntax-level, not a c
 
 `requireSnapshot` is the single entry point used by every query. If the requested commit has no `available`
 snapshot it either indexes on demand (`onDemand: true`) or throws `INDEX_STALE` with the exact recovery command
-(`rail index update --repo <id> --ref <sha>`, plus `--force` for a `stale` snapshot). It never falls back to
+(`crew index update --repo <id> --ref <sha>`, plus `--force` for a `stale` snapshot). It never falls back to
 another commit. Every result carries `{repositoryId, commitSha, snapshotId, retrievedAt, indexStatus}` and every
 hit/excerpt carries a full `Provenance` with path, line range and blob SHA. `indexStatus()` reports
 `fresh | stale | building | failed | missing` for a ref (default: the repository's base branch).
@@ -134,7 +134,7 @@ candidates. The ranked candidate list (not the text) is persisted in `context_ar
 - related tests: changed tests (`exact`), importing tests (`structural`), naming conventions such as
   `foo.test.ts`, `test_foo.py`, `foo_test.rs` (`heuristic`);
 - active `task_scope_reservations` whose path scope contains a changed file (`exact`) or a dependent
-  (`structural`); resource scopes (`name:value`) never match paths, mirroring `@agent-rail/tasks`;
+  (`structural`); resource scopes (`name:value`) never match paths, mirroring `@crewyard/tasks`;
 - open pull requests whose `changed_files` (array of paths or GitHub file objects) include changed files
   (`exact`), dependents (`structural`) or files in the same package (`heuristic`).
 

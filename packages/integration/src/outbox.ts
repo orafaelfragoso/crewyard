@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import { type Actor, nowIso, RailError, sleep } from '@agent-rail/core';
+import { type Actor, CrewError, nowIso, sleep } from '@crewyard/core';
 import type {
   AsyncMergeAction,
   BranchRequirements,
@@ -7,9 +7,10 @@ import type {
   GitHubPullRequest,
   MergeMethod,
   UpdatePullRequestInput,
-} from '@agent-rail/github';
+} from '@crewyard/github';
 import {
   acquireLeadership,
+  type CrewContext,
   claimDueOutbox,
   completeOutbox,
   type EnqueueInput,
@@ -18,11 +19,10 @@ import {
   isLeader,
   type OutboxOperation,
   one,
-  type RailContext,
   recordRemoteOperation,
   recordTransition,
   toJson,
-} from '@agent-rail/storage';
+} from '@crewyard/storage';
 import { clientFor, configFor, leadershipScope, type PendingHook, repositoryFor, runHooks } from './env.ts';
 import { applyEntryFailure, classifyError } from './failures.ts';
 import {
@@ -136,7 +136,7 @@ export interface OutboxReport {
 }
 
 interface HandlerContext {
-  ctx: RailContext;
+  ctx: CrewContext;
   env: IntegrationEnv;
   leaderId: string;
   hooks: PendingHook[];
@@ -152,7 +152,7 @@ function scopeFor(op: OutboxOperation): string | null {
 }
 
 function remote(
-  ctx: RailContext,
+  ctx: CrewContext,
   op: OutboxOperation,
   client: GitHubClient,
   method: string,
@@ -307,7 +307,7 @@ function failMergeInTx(
   const entry = activeEntryForPr(db, prId);
   invalidateCandidatesInTx(db, { prId }, `merge_failed:${failureClass}`, OUTBOX_ACTOR, at);
   if (!entry) return;
-  if (error instanceof RailError && error.code === 'HEAD_MISMATCH') {
+  if (error instanceof CrewError && error.code === 'HEAD_MISMATCH') {
     setEntryStatus(db, entry.id, 'waiting', at, { validatedBase: null, validatedHead: null });
     return;
   }
@@ -319,7 +319,7 @@ function failMergeInTx(
       pr,
       projectId: repository.project_id,
       failure: {
-        fingerprint: `merge:${failureClass}:${(error instanceof RailError ? error.code : 'ERROR').toLowerCase()}`,
+        fingerprint: `merge:${failureClass}:${(error instanceof CrewError ? error.code : 'ERROR').toLowerCase()}`,
         failureClass,
         evidence: { operationId: op.operationId, message },
       },
@@ -340,7 +340,7 @@ async function leaderGuard(
   if (!scope) return { scope: '', generation: 0 };
   const lease = acquireLeadership(hc.ctx.store, scope, hc.leaderId, hc.env.leaseTtlSeconds ?? 120);
   if (!lease) {
-    defer(hc, op, new RailError('LEASE_CONFLICT', `Not the integration leader for ${scope}`));
+    defer(hc, op, new CrewError('LEASE_CONFLICT', `Not the integration leader for ${scope}`));
     return null;
   }
   return { scope, generation: lease.generation };
@@ -357,7 +357,7 @@ function handleError(
   error: unknown,
   onFail: (db: Database, at: string) => void,
 ): void {
-  if (error instanceof RailError) {
+  if (error instanceof CrewError) {
     if (error.code === 'OFFLINE' || error.code === 'RATE_LIMITED') {
       const repositoryId = String((op.intent as Record<string, unknown>).repositoryId);
       const at = nowIso(hc.ctx.clock);
@@ -417,10 +417,10 @@ async function handleMerge(hc: HandlerContext, op: OutboxOperation): Promise<voi
       return;
     }
     if (observed.state === 'closed') {
-      throw new RailError('INVALID_TRANSITION', `#${intent.number} was closed without merging`, { retryable: false });
+      throw new CrewError('INVALID_TRANSITION', `#${intent.number} was closed without merging`, { retryable: false });
     }
     if (observed.headSha !== intent.headSha) {
-      throw new RailError(
+      throw new CrewError(
         'HEAD_MISMATCH',
         `#${intent.number} head is ${observed.headSha}, expected ${intent.headSha}`,
         {
@@ -429,7 +429,7 @@ async function handleMerge(hc: HandlerContext, op: OutboxOperation): Promise<voi
       );
     }
     if (intent.retargetBase && observed.baseRef !== intent.retargetBase) {
-      if (!stillLeader(hc, guard)) return defer(hc, op, new RailError('LEASE_CONFLICT', 'leadership lost'));
+      if (!stillLeader(hc, guard)) return defer(hc, op, new CrewError('LEASE_CONFLICT', 'leadership lost'));
       const updated = await client.updatePullRequest(intent.number, { base: intent.retargetBase });
       remote(
         hc.ctx,
@@ -444,7 +444,7 @@ async function handleMerge(hc: HandlerContext, op: OutboxOperation): Promise<voi
         },
       );
     }
-    if (!stillLeader(hc, guard)) return defer(hc, op, new RailError('LEASE_CONFLICT', 'leadership lost'));
+    if (!stillLeader(hc, guard)) return defer(hc, op, new CrewError('LEASE_CONFLICT', 'leadership lost'));
     try {
       const result = await client.mergePullRequest(intent.number, {
         sha: intent.headSha,
@@ -472,8 +472,8 @@ async function handleMerge(hc: HandlerContext, op: OutboxOperation): Promise<voi
         `pulls/${intent.number}/merge`,
         { sha: intent.headSha, method: intent.mergeMethod },
         {
-          status: error instanceof RailError && typeof error.details?.status === 'number' ? error.details.status : null,
-          body: { error: error instanceof RailError ? error.code : 'ERROR' },
+          status: error instanceof CrewError && typeof error.details?.status === 'number' ? error.details.status : null,
+          body: { error: error instanceof CrewError ? error.code : 'ERROR' },
         },
       );
       throw error;
@@ -525,9 +525,9 @@ async function handleEnqueue(hc: HandlerContext, op: OutboxOperation): Promise<v
       return;
     }
     if (observed.state === 'closed')
-      throw new RailError('INVALID_TRANSITION', `#${intent.number} is closed`, { retryable: false });
+      throw new CrewError('INVALID_TRANSITION', `#${intent.number} is closed`, { retryable: false });
     if (observed.headSha !== intent.headSha) {
-      throw new RailError('HEAD_MISMATCH', `#${intent.number} head changed before enqueue`, { retryable: false });
+      throw new CrewError('HEAD_MISMATCH', `#${intent.number} head changed before enqueue`, { retryable: false });
     }
     const state = await client.getPullRequestState(intent.number);
     if (state.isInMergeQueue) {
@@ -542,7 +542,7 @@ async function handleEnqueue(hc: HandlerContext, op: OutboxOperation): Promise<v
       );
       return;
     }
-    if (!stillLeader(hc, guard)) return defer(hc, op, new RailError('LEASE_CONFLICT', 'leadership lost'));
+    if (!stillLeader(hc, guard)) return defer(hc, op, new CrewError('LEASE_CONFLICT', 'leadership lost'));
     const entry = await client.enqueuePullRequest(state.nodeId, intent.headSha);
     remote(
       hc.ctx,
@@ -594,7 +594,7 @@ async function handleMergeAsync(hc: HandlerContext, op: OutboxOperation): Promis
       return;
     }
     if (top.headSha !== intent.headSha) {
-      throw new RailError('HEAD_MISMATCH', `#${intent.number} head changed`, { retryable: false });
+      throw new CrewError('HEAD_MISMATCH', `#${intent.number} head changed`, { retryable: false });
     }
     let uuid = typeof op.remoteCorrelation?.uuid === 'string' ? op.remoteCorrelation.uuid : null;
     let result = uuid ? await client.getAsyncMergeResult(intent.number, uuid).catch(() => null) : null;
@@ -603,7 +603,7 @@ async function handleMergeAsync(hc: HandlerContext, op: OutboxOperation): Promis
         settle(hc, op, { status: 'succeeded', remoteCorrelation: { enqueued: true, reconciled: true } });
         return;
       }
-      if (!stillLeader(hc, guard)) return defer(hc, op, new RailError('LEASE_CONFLICT', 'leadership lost'));
+      if (!stillLeader(hc, guard)) return defer(hc, op, new CrewError('LEASE_CONFLICT', 'leadership lost'));
       result = await client.mergePullRequestAsync(intent.number, {
         sha: intent.headSha,
         action: intent.action,
@@ -643,7 +643,7 @@ async function handleMergeAsync(hc: HandlerContext, op: OutboxOperation): Promis
       return;
     }
     if (result.status === 'failed') {
-      throw new RailError('POLICY_DENIED', `GitHub rejected the stack merge: ${result.message ?? 'unknown reason'}`, {
+      throw new CrewError('POLICY_DENIED', `GitHub rejected the stack merge: ${result.message ?? 'unknown reason'}`, {
         retryable: false,
       });
     }
@@ -694,7 +694,7 @@ async function handleCreatePullRequest(hc: HandlerContext, op: OutboxOperation):
           { head: intent.headRef, base: intent.baseRef },
           {
             status:
-              error instanceof RailError && typeof error.details?.status === 'number' ? error.details.status : null,
+              error instanceof CrewError && typeof error.details?.status === 'number' ? error.details.status : null,
           },
         );
         throw error;
@@ -785,7 +785,7 @@ export interface ProcessOutboxOptions {
   limit?: number;
 }
 
-export async function processIntegrationOutbox(ctx: RailContext, options: ProcessOutboxOptions): Promise<OutboxReport> {
+export async function processIntegrationOutbox(ctx: CrewContext, options: ProcessOutboxOptions): Promise<OutboxReport> {
   const env = options.env ?? {};
   const report: OutboxReport = { processed: 0, succeeded: [], ambiguous: [], failed: [], deferred: [] };
   const hooks: PendingHook[] = [];
@@ -806,7 +806,7 @@ export async function processIntegrationOutbox(ctx: RailContext, options: Proces
               hc,
               op,
               intent.prId,
-              new RailError(
+              new CrewError(
                 op.status === 'ambiguous' ? 'AMBIGUOUS_REMOTE_OUTCOME' : 'EXTERNAL_FAILURE',
                 op.lastError ?? 'exhausted',
                 {

@@ -5,11 +5,11 @@ import {
   type AgentLaunch,
   type AgentSessionHandle,
   type Capabilities,
+  CrewError,
   type ProfileHealth,
   type ProviderAdapter,
-  RailError,
   run,
-} from '@agent-rail/core';
+} from '@crewyard/core';
 import {
   type AdapterOptions,
   arr,
@@ -32,7 +32,7 @@ import {
   str,
   truncate,
   unsupported,
-} from '@agent-rail/provider-generic';
+} from '@crewyard/provider-generic';
 
 const XDG_DIRS = {
   XDG_CONFIG_HOME: 'config',
@@ -62,7 +62,7 @@ export function opencodeLoginCommand(profile: AccountProfile): { argv: string[];
 function apiKeyEnvName(profile: AccountProfile): string {
   const name = settingString(profile, 'apiKeyEnv');
   if (!name) {
-    throw new RailError('CONFIG_INVALID', `OpenCode api-key profile ${profile.name} must set settings.apiKeyEnv`, {
+    throw new CrewError('CONFIG_INVALID', `OpenCode api-key profile ${profile.name} must set settings.apiKeyEnv`, {
       suggestion: 'Set settings.apiKeyEnv to the provider variable OpenCode reads, e.g. ANTHROPIC_API_KEY.',
     });
   }
@@ -226,7 +226,7 @@ export class OpencodeAdapter implements ProviderAdapter {
 
   async launch(input: AgentLaunch): Promise<AgentSessionHandle> {
     const executable = resolveExecutable(opencodeBinary(input.profile));
-    if (!executable) throw new RailError('UNAVAILABLE', `${opencodeBinary(input.profile)} not found on PATH`);
+    if (!executable) throw new CrewError('UNAVAILABLE', `${opencodeBinary(input.profile)} not found on PATH`);
     const apiKey = await resolveApiKey(input.profile, this.options.resolveSecret);
     const invocation = buildOpencodeInvocation(input, { executable, apiKey, options: this.options });
     ensureIsolationDirs(input.profile);

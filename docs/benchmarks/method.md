@@ -5,7 +5,7 @@ incremental update, and indexed search latency (p50/p95). LLM, embedding and Git
 embedding provider is configured.
 
 ```sh
-bun scripts/bench-index.ts --files 50000 --queries 200 --workdir ~/.cache/rail-bench   # synthetic repository
+bun scripts/bench-index.ts --files 50000 --queries 200 --workdir ~/.cache/crew-bench   # synthetic repository
 bun scripts/bench-index.ts --repo /path/to/repo --queries 50                            # existing repository (cold + latency)
 ```
 

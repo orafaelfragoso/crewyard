@@ -1,6 +1,6 @@
-import { loadConfig, type RailConfig } from '@agent-rail/config';
-import { canonicalPath, isWithin, RailError } from '@agent-rail/core';
-import { all, one, type RailContext } from '@agent-rail/storage';
+import { type CrewConfig, loadConfig } from '@crewyard/config';
+import { CrewError, canonicalPath, isWithin } from '@crewyard/core';
+import { all, type CrewContext, one } from '@crewyard/storage';
 
 export type WorkspaceState = 'allocating' | 'ready' | 'in_use' | 'preserved' | 'needs_reconciliation' | 'cleaned';
 export type CleanupPolicy = 'after_merge' | 'manual' | 'retention';
@@ -97,7 +97,7 @@ export interface RepositoryInfo {
   trusted: boolean;
 }
 
-export function requireRepository(ctx: RailContext, repositoryId: string): RepositoryInfo {
+export function requireRepository(ctx: CrewContext, repositoryId: string): RepositoryInfo {
   const row = one<{
     id: string;
     project_id: string;
@@ -111,7 +111,7 @@ export function requireRepository(ctx: RailContext, repositoryId: string): Repos
      FROM repositories r JOIN projects p ON p.id = r.project_id WHERE r.id = ?`,
     repositoryId,
   );
-  if (!row) throw new RailError('NOT_FOUND', `Repository not found: ${repositoryId}`);
+  if (!row) throw new CrewError('NOT_FOUND', `Repository not found: ${repositoryId}`);
   return {
     id: row.id,
     projectId: row.project_id,
@@ -122,27 +122,27 @@ export function requireRepository(ctx: RailContext, repositoryId: string): Repos
   };
 }
 
-export function repositoryConfig(ctx: RailContext, repo: RepositoryInfo, config?: RailConfig): RailConfig {
+export function repositoryConfig(ctx: CrewContext, repo: RepositoryInfo, config?: CrewConfig): CrewConfig {
   return (
     config ?? loadConfig({ repoRoot: repo.canonicalPath, dirs: ctx.dirs, projectNameFallback: repo.projectName }).config
   );
 }
 
-export function requireWorkspace(ctx: RailContext, workspaceId: string): Workspace {
+export function requireWorkspace(ctx: CrewContext, workspaceId: string): Workspace {
   const row = one<WorkspaceRow>(ctx.store.db, 'SELECT * FROM workspaces WHERE id = ?', workspaceId);
   if (!row)
-    throw new RailError('NOT_FOUND', `Workspace not found: ${workspaceId}`, {
-      suggestion: 'Run `rail workspace list`.',
+    throw new CrewError('NOT_FOUND', `Workspace not found: ${workspaceId}`, {
+      suggestion: 'Run `crew workspace list`.',
     });
   return mapWorkspace(row);
 }
 
-export function getWorkspace(ctx: RailContext, workspaceId: string): Workspace {
+export function getWorkspace(ctx: CrewContext, workspaceId: string): Workspace {
   return requireWorkspace(ctx, workspaceId);
 }
 
 export function listWorkspaces(
-  ctx: RailContext,
+  ctx: CrewContext,
   filter: { repositoryId?: string; taskId?: string; states?: WorkspaceState[] } = {},
 ): Workspace[] {
   const where: string[] = [];
@@ -166,7 +166,7 @@ export function listWorkspaces(
   ).map(mapWorkspace);
 }
 
-export function listWorkspaceArtifacts(ctx: RailContext, workspaceId: string): WorkspaceArtifact[] {
+export function listWorkspaceArtifacts(ctx: CrewContext, workspaceId: string): WorkspaceArtifact[] {
   return all<WorkspaceArtifactRow>(
     ctx.store.db,
     'SELECT * FROM workspace_artifacts WHERE workspace_id = ? ORDER BY created_at, id',
@@ -174,7 +174,7 @@ export function listWorkspaceArtifacts(ctx: RailContext, workspaceId: string): W
   ).map(mapArtifact);
 }
 
-export function assertManagedWorkspacePath(ctx: RailContext, workspace: Workspace, repo: RepositoryInfo): string {
+export function assertManagedWorkspacePath(ctx: CrewContext, workspace: Workspace, repo: RepositoryInfo): string {
   const path = canonicalPath(workspace.path);
   const root = canonicalPath(ctx.dirs.worktrees);
   if (
@@ -183,9 +183,9 @@ export function assertManagedWorkspacePath(ctx: RailContext, workspace: Workspac
     isWithin(path, repo.canonicalPath) ||
     isWithin(repo.canonicalPath, path)
   ) {
-    throw new RailError('POLICY_DENIED', `Workspace path ${workspace.path} is not a managed worktree`, {
+    throw new CrewError('POLICY_DENIED', `Workspace path ${workspace.path} is not a managed worktree`, {
       details: { workspaceId: workspace.id, worktreesRoot: root },
-      suggestion: 'Agent Rail only modifies worktrees under its managed data root, never the primary checkout.',
+      suggestion: 'Crewyard only modifies worktrees under its managed data root, never the primary checkout.',
     });
   }
   return path;

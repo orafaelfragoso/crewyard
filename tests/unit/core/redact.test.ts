@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { redactObject, redactSecrets } from '@agent-rail/core';
+import { redactObject, redactSecrets } from '@crewyard/core';
 
 describe('secret redaction', () => {
   test('redacts provider tokens, private keys and secret assignments', () => {
@@ -18,9 +18,9 @@ describe('secret redaction', () => {
   });
 
   test('redacts secret-named fields but keeps references', () => {
-    expect(redactObject({ claimToken: 'abc', authRef: 'rail/codex/personal', n: 1 })).toEqual({
+    expect(redactObject({ claimToken: 'abc', authRef: 'crew/codex/personal', n: 1 })).toEqual({
       claimToken: '[REDACTED]',
-      authRef: 'rail/codex/personal',
+      authRef: 'crew/codex/personal',
       n: 1,
     });
   });

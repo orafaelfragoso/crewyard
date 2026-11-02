@@ -1,6 +1,6 @@
 import { existsSync, rmSync, statSync } from 'node:fs';
-import { type Actor, ensureDir, git, gitText, newId, nowIso, RailError, safeJoin, sha256 } from '@agent-rail/core';
-import { exec, type RailContext, recordTransition } from '@agent-rail/storage';
+import { type Actor, CrewError, ensureDir, git, gitText, newId, nowIso, safeJoin, sha256 } from '@crewyard/core';
+import { type CrewContext, exec, recordTransition } from '@crewyard/storage';
 import {
   assertManagedWorkspacePath,
   type RepositoryInfo,
@@ -48,7 +48,7 @@ async function isWorktree(path: string): Promise<boolean> {
   return result.exitCode === 0 && result.stdout.trim() === 'true';
 }
 
-export async function inspectWorkspace(ctx: RailContext, workspaceId: string): Promise<WorkspaceInspection> {
+export async function inspectWorkspace(ctx: CrewContext, workspaceId: string): Promise<WorkspaceInspection> {
   const ws = requireWorkspace(ctx, workspaceId);
   const repo = requireRepository(ctx, ws.repositoryId);
   const path = assertManagedWorkspacePath(ctx, ws, repo);
@@ -99,12 +99,12 @@ export interface CollectedCommits {
   commits: CommitInfo[];
 }
 
-export async function collectCommits(ctx: RailContext, workspaceId: string): Promise<CollectedCommits> {
+export async function collectCommits(ctx: CrewContext, workspaceId: string): Promise<CollectedCommits> {
   const ws = requireWorkspace(ctx, workspaceId);
   const repo = requireRepository(ctx, ws.repositoryId);
   const path = assertManagedWorkspacePath(ctx, ws, repo);
   if (!(await isWorktree(path))) {
-    throw new RailError('NOT_FOUND', `Workspace ${workspaceId} has no worktree on disk`, { details: { path } });
+    throw new CrewError('NOT_FOUND', `Workspace ${workspaceId} has no worktree on disk`, { details: { path } });
   }
   const headSha = await gitText(path, ['rev-parse', 'HEAD']);
   const log = await gitText(path, ['log', '--reverse', '--format=%H%x1f%s%x1f%an%x1f%aI%x1e', `${ws.baseSha}..HEAD`]);
@@ -144,7 +144,7 @@ function stamp(at: string): string {
 }
 
 export async function backupWorkspace(
-  ctx: RailContext,
+  ctx: CrewContext,
   workspaceId: string,
   input: { actor: Actor; reason: string },
 ): Promise<BackupResult> {
@@ -259,7 +259,7 @@ function assertAuthorized(
   action: string,
 ): void {
   if (!needsAuthorization || authorization) return;
-  throw new RailError('POLICY_DENIED', `Refusing to ${action}: workspace has uncommitted or unpushed work`, {
+  throw new CrewError('POLICY_DENIED', `Refusing to ${action}: workspace has uncommitted or unpushed work`, {
     details: {
       workspaceId: inspection.workspaceId,
       dirtyFiles: inspection.dirtyFiles.length,
@@ -270,13 +270,13 @@ function assertAuthorized(
   });
 }
 
-function assertNotLeased(ctx: RailContext, ws: Workspace): void {
+function assertNotLeased(ctx: CrewContext, ws: Workspace): void {
   if (!ws.taskId) return;
   const lease = ctx.store.db
     .query('SELECT generation FROM leases WHERE task_id = ? AND released_at IS NULL')
     .get(ws.taskId) as { generation: number } | null;
   if (lease) {
-    throw new RailError('CONFLICT', `Workspace ${ws.id} belongs to task ${ws.taskId}, which holds an active lease`, {
+    throw new CrewError('CONFLICT', `Workspace ${ws.id} belongs to task ${ws.taskId}, which holds an active lease`, {
       details: { taskId: ws.taskId, generation: lease.generation },
       suggestion: 'Release or reconcile the lease first.',
     });
@@ -290,7 +290,7 @@ export interface RemoveResult {
 }
 
 export async function removeWorkspace(
-  ctx: RailContext,
+  ctx: CrewContext,
   workspaceId: string,
   input: { actor: Actor; deleteBranch?: boolean; authorization?: DestructiveAuthorization },
 ): Promise<RemoveResult> {
@@ -349,7 +349,7 @@ export async function removeWorkspace(
 }
 
 export async function resetWorkspace(
-  ctx: RailContext,
+  ctx: CrewContext,
   workspaceId: string,
   input: { toRef: string; actor: Actor; authorization?: DestructiveAuthorization },
 ): Promise<{ workspace: Workspace; backup: BackupResult | null; headSha: string }> {
@@ -358,7 +358,7 @@ export async function resetWorkspace(
   const path = assertManagedWorkspacePath(ctx, ws, repo);
   assertNotLeased(ctx, ws);
   const inspection = await inspectWorkspace(ctx, workspaceId);
-  if (!inspection.exists) throw new RailError('NOT_FOUND', `Workspace ${workspaceId} has no worktree on disk`);
+  if (!inspection.exists) throw new CrewError('NOT_FOUND', `Workspace ${workspaceId} has no worktree on disk`);
   assertAuthorized(
     inspection,
     inspection.dirtyFiles.length > 0 || inspection.unpushedCommits.length > 0,

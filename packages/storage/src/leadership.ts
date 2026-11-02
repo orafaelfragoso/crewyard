@@ -1,4 +1,4 @@
-import { addSeconds, nowIso } from '@agent-rail/core';
+import { addSeconds, nowIso } from '@crewyard/core';
 import { one, type Store } from './db.ts';
 
 export interface LeadershipLease {

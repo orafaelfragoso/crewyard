@@ -1,5 +1,5 @@
 {
-  "name": "@agent-rail/tasks",
+  "name": "@crewyard/tasks",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,8 +9,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@agent-rail/core": "workspace:*",
-    "@agent-rail/storage": "workspace:*",
-    "@agent-rail/config": "workspace:*"
+    "@crewyard/core": "workspace:*",
+    "@crewyard/storage": "workspace:*",
+    "@crewyard/config": "workspace:*"
   }
 }

@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite';
-import { type Actor, type FailureClass, isRailError } from '@agent-rail/core';
-import { requestInterventionInTx } from '@agent-rail/reviews';
-import { one, recordTransition } from '@agent-rail/storage';
+import { type Actor, type FailureClass, isCrewError } from '@crewyard/core';
+import { requestInterventionInTx } from '@crewyard/reviews';
+import { one, recordTransition } from '@crewyard/storage';
 import type { PendingHook } from './env.ts';
 import { invalidateCandidatesInTx, setEntryStatus } from './records.ts';
 import type { PullRequestRecord, QueueEntry } from './types.ts';
@@ -24,7 +24,7 @@ const ESCALATE_CLASSES: readonly FailureClass[] = [
 ];
 
 export function classifyError(error: unknown): FailureClass {
-  if (!isRailError(error)) return 'unknown';
+  if (!isCrewError(error)) return 'unknown';
   switch (error.code) {
     case 'RATE_LIMITED':
       return 'rate_limited';
@@ -175,7 +175,7 @@ export function applyEntryFailure(
       {
         projectId: input.projectId,
         title: `PR #${pr.number} needs a revision`,
-        reasons: [input.reason, 'Rail does not rebase proactively; the author must update the branch'],
+        reasons: [input.reason, 'Crewyard does not rebase proactively; the author must update the branch'],
         level: 'warning',
         prId: pr.id,
         taskId: pr.taskId,

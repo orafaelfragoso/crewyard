@@ -1,12 +1,12 @@
-import { RailError } from '@agent-rail/core';
+import { CrewError } from '@crewyard/core';
 import {
   collectPatch,
   type RequestReviewResult,
   type ReviewDeps,
   type ReviewType,
   requestReview,
-} from '@agent-rail/reviews';
-import { listOutbox, type RailContext } from '@agent-rail/storage';
+} from '@crewyard/reviews';
+import { type CrewContext, listOutbox } from '@crewyard/storage';
 import { fetchIntegrationRefs } from './candidates.ts';
 import { configFor, repositoryFor } from './env.ts';
 import { GITHUB_OUTBOX_KINDS } from './outbox.ts';
@@ -28,7 +28,7 @@ export interface IntegrationStatus {
   }[];
 }
 
-export function integrationStatus(ctx: RailContext, repositoryId: string, env: IntegrationEnv = {}): IntegrationStatus {
+export function integrationStatus(ctx: CrewContext, repositoryId: string, env: IntegrationEnv = {}): IntegrationStatus {
   const repository = repositoryFor(ctx, repositoryId);
   const config = configFor(ctx, env, repository.projectId);
   const pending = GITHUB_OUTBOX_KINDS.flatMap((kind) => listOutbox(ctx.store, { kind }))
@@ -50,13 +50,13 @@ export function integrationStatus(ctx: RailContext, repositoryId: string, env: I
   };
 }
 
-export function getCandidate(ctx: RailContext, candidateId: string): IntegrationCandidate {
+export function getCandidate(ctx: CrewContext, candidateId: string): IntegrationCandidate {
   const candidate = candidateById(ctx.store.db, candidateId);
-  if (!candidate) throw new RailError('NOT_FOUND', `Candidate not found: ${candidateId}`);
+  if (!candidate) throw new CrewError('NOT_FOUND', `Candidate not found: ${candidateId}`);
   return candidate;
 }
 
-export function listCandidates(ctx: RailContext, queueId: string, limit = 20): IntegrationCandidate[] {
+export function listCandidates(ctx: CrewContext, queueId: string, limit = 20): IntegrationCandidate[] {
   return listCandidatesForQueue(ctx.store.db, queueId, limit);
 }
 
@@ -67,7 +67,7 @@ export interface PullRequestReviewInput {
 }
 
 export async function requestPullRequestReview(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: PullRequestReviewInput,
   deps: Omit<ReviewDeps, 'config'> & { env?: IntegrationEnv },
 ): Promise<RequestReviewResult> {

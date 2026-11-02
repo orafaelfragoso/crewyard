@@ -1,5 +1,5 @@
-import { type Actor, nowIso, SYSTEM_ACTOR } from '@agent-rail/core';
-import { all, type RailContext, recordTransition } from '@agent-rail/storage';
+import { type Actor, nowIso, SYSTEM_ACTOR } from '@crewyard/core';
+import { all, type CrewContext, recordTransition } from '@crewyard/storage';
 import { readChunks } from './content.ts';
 import { requireSnapshot, type SnapshotRequest } from './freshness.ts';
 import { listTree, readBlobs } from './git-source.ts';
@@ -45,7 +45,7 @@ export interface VerifyResult {
 
 const MAX_REPORTED = 200;
 
-export async function verifyIndex(ctx: RailContext, input: VerifyInput): Promise<VerifyResult> {
+export async function verifyIndex(ctx: CrewContext, input: VerifyInput): Promise<VerifyResult> {
   const { repo, snapshot } = await requireSnapshot(ctx, { ...input, onDemand: false });
   const config = input.config ?? DEFAULT_INDEX_CONFIG;
   const notes: string[] = [];

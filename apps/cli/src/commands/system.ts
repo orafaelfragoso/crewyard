@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { exportEvents, follow, listEventPage, metrics, metricsCsv, runDoctor } from '@agent-rail/application';
+import { exportEvents, follow, listEventPage, metrics, metricsCsv, runDoctor } from '@crewyard/application';
 import {
   effectiveConfigView,
   getPath,
@@ -8,9 +8,9 @@ import {
   REPO_CONFIG_RELATIVE,
   setConfigValue,
   validateConfigText,
-} from '@agent-rail/config';
-import { isGitRepository, RailError, repositoryRoot } from '@agent-rail/core';
-import { resolveProject } from '@agent-rail/projects';
+} from '@crewyard/config';
+import { CrewError, isGitRepository, repositoryRoot } from '@crewyard/core';
+import { resolveProject } from '@crewyard/projects';
 import type { Command } from 'commander';
 import { emit, keyValues, table, writeJson, writeLine } from '../output.ts';
 import { action, withMutationOptions } from '../program.ts';
@@ -28,7 +28,7 @@ export function registerSystemCommands(program: Command, version: string): void 
         emit(
           opts,
           { version, bun: Bun.version, platform: process.platform, arch: process.arch },
-          (d) => `rail ${d.version} (bun ${d.bun}, ${d.platform}-${d.arch})`,
+          (d) => `crew ${d.version} (bun ${d.bun}, ${d.platform}-${d.arch})`,
         ),
       ),
     );
@@ -75,7 +75,7 @@ export function registerSystemCommands(program: Command, version: string): void 
       action(async (_ctx, opts, file?: string) => {
         const root = await repoRootOrNull();
         const target = file ?? (root ? join(root, REPO_CONFIG_RELATIVE) : null);
-        if (!target) throw new RailError('INVALID_INPUT', 'No configuration file given and not inside a repository');
+        if (!target) throw new CrewError('INVALID_INPUT', 'No configuration file given and not inside a repository');
         const issues = validateConfigText(readFileSync(target, 'utf8'));
         const errors = issues.filter((i) => i.severity === 'error');
         emit(opts, { file: target, valid: errors.length === 0, issues }, (d) =>
@@ -96,7 +96,7 @@ export function registerSystemCommands(program: Command, version: string): void 
       const root = await repoRootOrNull();
       const file = opts.user ? join(ctx.dirs.config, 'config.yaml') : root ? join(root, REPO_CONFIG_RELATIVE) : null;
       if (!file)
-        throw new RailError('INVALID_INPUT', 'Not inside a repository; pass --user to edit the user configuration');
+        throw new CrewError('INVALID_INPUT', 'Not inside a repository; pass --user to edit the user configuration');
       const result = setConfigValue(file, path, value, { dryRun: Boolean(opts.dryRun) });
       emit(opts, result, (r) => `${r.dryRun ? '(dry run) ' : ''}${r.file}\n${r.diff}`);
     }),

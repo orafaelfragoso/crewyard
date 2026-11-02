@@ -9,25 +9,25 @@ import {
   type AgentSessionHandle,
   addSeconds,
   type Clock,
+  CrewError,
   canonicalPath,
   type FailureClass,
   hashToken,
+  isCrewError,
   isExpired,
   isProcessAlive,
-  isRailError,
   newId,
   newSecretToken,
   nowIso,
   type ProfileHealthStatus,
   type ProviderAdapter,
-  RailError,
   SYSTEM_ACTOR,
   sleep,
   terminateTree,
   UNKNOWN_USAGE,
-} from '@agent-rail/core';
-import { createRedactor, parseRetryAfterSeconds, redactEvent } from '@agent-rail/provider-generic';
-import { one, type RailContext } from '@agent-rail/storage';
+} from '@crewyard/core';
+import { createRedactor, parseRetryAfterSeconds, redactEvent } from '@crewyard/provider-generic';
+import { type CrewContext, one } from '@crewyard/storage';
 import { type AgentRuntimeConfig, defaultAgentRuntimeConfig } from './config.ts';
 import { type AgentDefinition, requireAgent } from './definitions.ts';
 import { matchesRecordedProcess, processIdentity } from './process-identity.ts';
@@ -123,21 +123,21 @@ function resolveBinding(
 ): { projectId: string | null; taskId: string | null; leaseGeneration: number | null } {
   const binding = input.leaseBinding ?? null;
   if (binding && input.taskId && input.taskId !== binding.taskId) {
-    throw new RailError('INVALID_INPUT', 'taskId does not match the lease binding');
+    throw new CrewError('INVALID_INPUT', 'taskId does not match the lease binding');
   }
   const taskId = binding?.taskId ?? input.taskId ?? null;
   let projectId = binding?.projectId ?? input.projectId ?? null;
   let leaseGeneration: number | null = null;
   if (projectId) {
     const project = one<{ id: string }>(db, 'SELECT id FROM projects WHERE id = ? OR name = ?', projectId, projectId);
-    if (!project) throw new RailError('NOT_FOUND', `Project not found: ${projectId}`);
+    if (!project) throw new CrewError('NOT_FOUND', `Project not found: ${projectId}`);
     projectId = project.id;
   }
   if (taskId) {
     const task = one<{ project_id: string }>(db, 'SELECT project_id FROM tasks WHERE id = ?', taskId);
-    if (!task) throw new RailError('NOT_FOUND', `Task not found: ${taskId}`);
+    if (!task) throw new CrewError('NOT_FOUND', `Task not found: ${taskId}`);
     if (projectId && projectId !== task.project_id) {
-      throw new RailError('INVALID_INPUT', `Task ${taskId} does not belong to project ${projectId}`);
+      throw new CrewError('INVALID_INPUT', `Task ${taskId} does not belong to project ${projectId}`);
     }
     projectId = task.project_id;
     const lease = one<{ generation: number; expires_at: string }>(
@@ -146,19 +146,19 @@ function resolveBinding(
       taskId,
     );
     if (!lease || isExpired(lease.expires_at, clock)) {
-      throw new RailError('STALE_LEASE', `Task ${taskId} has no active lease`, {
+      throw new CrewError('STALE_LEASE', `Task ${taskId} has no active lease`, {
         suggestion: 'Claim the task before starting a managed session for it.',
       });
     }
     if (binding && binding.leaseGeneration !== lease.generation) {
-      throw new RailError('STALE_LEASE', `Lease generation ${binding.leaseGeneration} is no longer current`, {
+      throw new CrewError('STALE_LEASE', `Lease generation ${binding.leaseGeneration} is no longer current`, {
         details: { current: lease.generation },
       });
     }
     leaseGeneration = lease.generation;
   }
   if (projectId && agent.projectIds.length > 0 && !agent.projectIds.includes(projectId)) {
-    throw new RailError('NOT_AUTHORIZED', `Agent ${agent.name} is not a member of project ${projectId}`);
+    throw new CrewError('NOT_AUTHORIZED', `Agent ${agent.name} is not a member of project ${projectId}`);
   }
   return { projectId, taskId, leaseGeneration };
 }
@@ -170,7 +170,7 @@ export class SessionSupervisor {
   private heartbeat: ReturnType<typeof setInterval> | null = null;
 
   constructor(
-    private readonly ctx: RailContext,
+    private readonly ctx: CrewContext,
     options: SupervisorOptions = {},
   ) {
     this.config = options.config ?? defaultAgentRuntimeConfig();
@@ -188,11 +188,11 @@ export class SessionSupervisor {
   }
 
   async start(input: StartSessionInput): Promise<StartedSession> {
-    if (!SESSION_MODES.includes(input.mode)) throw new RailError('INVALID_INPUT', `Unknown mode ${input.mode}`);
-    if (!input.prompt.trim()) throw new RailError('INVALID_INPUT', 'A prompt is required');
+    if (!SESSION_MODES.includes(input.mode)) throw new CrewError('INVALID_INPUT', `Unknown mode ${input.mode}`);
+    if (!input.prompt.trim()) throw new CrewError('INVALID_INPUT', 'A prompt is required');
     const cwd = canonicalPath(input.cwd);
     if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
-      throw new RailError('INVALID_INPUT', `Working directory does not exist: ${input.cwd}`);
+      throw new CrewError('INVALID_INPUT', `Working directory does not exist: ${input.cwd}`);
     }
     const actor = input.actor ?? SYSTEM_ACTOR;
     const sessionId = newId('ses');
@@ -204,7 +204,7 @@ export class SessionSupervisor {
     const prepared = this.ctx.store.immediate((db) => {
       const agent = requireAgent(db, input.agentId);
       if (!agent.managed) {
-        throw new RailError('POLICY_DENIED', `Agent ${agent.name} is unmanaged; Agent Rail does not launch it`);
+        throw new CrewError('POLICY_DENIED', `Agent ${agent.name} is unmanaged; Crewyard does not launch it`);
       }
       const binding = resolveBinding(db, this.ctx.clock, input, agent);
       const decision = routeAgentInDb(
@@ -302,13 +302,13 @@ export class SessionSupervisor {
       systemInstructions: agent.systemInstructions,
       cwd,
       env: {
-        RAIL_SESSION_TOKEN: token,
-        RAIL_SESSION_ID: sessionId,
-        RAIL_AGENT_ID: agent.id,
-        ...(binding.taskId ? { RAIL_TASK_ID: binding.taskId } : {}),
-        ...(binding.projectId ? { RAIL_PROJECT_ID: binding.projectId } : {}),
+        CREW_SESSION_TOKEN: token,
+        CREW_SESSION_ID: sessionId,
+        CREW_AGENT_ID: agent.id,
+        ...(binding.taskId ? { CREW_TASK_ID: binding.taskId } : {}),
+        ...(binding.projectId ? { CREW_PROJECT_ID: binding.projectId } : {}),
         ...(input.claimToken && input.leaseBinding
-          ? { RAIL_CLAIM_TOKEN: input.claimToken, RAIL_LEASE_GENERATION: String(input.leaseBinding.leaseGeneration) }
+          ? { CREW_CLAIM_TOKEN: input.claimToken, CREW_LEASE_GENERATION: String(input.leaseBinding.leaseGeneration) }
           : {}),
       },
       timeoutMs: prepared.timeoutMs,
@@ -622,7 +622,7 @@ export class SessionSupervisor {
   private recordLaunchFailure(sessionId: string, error: unknown, actor: Actor): void {
     const at = nowIso(this.ctx.clock);
     const message = error instanceof Error ? error.message : String(error);
-    const code = isRailError(error) ? error.code : 'INTERNAL';
+    const code = isCrewError(error) ? error.code : 'INTERNAL';
     this.ctx.store.immediate((db) => {
       const row = sessionRow(db, sessionId);
       db.query(
@@ -647,9 +647,9 @@ export class SessionSupervisor {
   }
 }
 
-const DEFAULT_SUPERVISORS = new WeakMap<RailContext, SessionSupervisor>();
+const DEFAULT_SUPERVISORS = new WeakMap<CrewContext, SessionSupervisor>();
 
-export function sessionSupervisor(ctx: RailContext, options: SupervisorOptions = {}): SessionSupervisor {
+export function sessionSupervisor(ctx: CrewContext, options: SupervisorOptions = {}): SessionSupervisor {
   let supervisor = DEFAULT_SUPERVISORS.get(ctx);
   if (!supervisor) {
     supervisor = new SessionSupervisor(ctx, options);
@@ -659,7 +659,7 @@ export function sessionSupervisor(ctx: RailContext, options: SupervisorOptions =
 }
 
 export function startManagedSession(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: StartSessionInput,
   options: SupervisorOptions = {},
 ): Promise<StartedSession> {
@@ -667,7 +667,7 @@ export function startManagedSession(
 }
 
 export async function awaitSession(
-  ctx: RailContext,
+  ctx: CrewContext,
   sessionId: string,
   options: { timeoutMs?: number; pollMs?: number } = {},
 ): Promise<SessionRecord> {
@@ -680,14 +680,14 @@ export async function awaitSession(
     const local = SUPERVISED.get(sessionId);
     if (local) return local.wait(sessionId);
     if (Date.now() >= deadline) {
-      throw new RailError('BUSY', `Session ${sessionId} is still ${session.state}`, { retryable: true });
+      throw new CrewError('BUSY', `Session ${sessionId} is still ${session.state}`, { retryable: true });
     }
     await sleep(options.pollMs ?? 500);
   }
 }
 
 export async function stopSession(
-  ctx: RailContext,
+  ctx: CrewContext,
   sessionId: string,
   input: { actor?: Actor; reason?: string; graceMs?: number } = {},
 ): Promise<SessionRecord> {
@@ -697,10 +697,10 @@ export async function stopSession(
   const session = getSession(ctx, sessionId);
   if (TERMINAL_SESSION_STATES.includes(session.state)) return session;
   if (!session.managed) {
-    throw new RailError('UNSUPPORTED_CAPABILITY', 'Unmanaged sessions cannot be cancelled by Agent Rail');
+    throw new CrewError('UNSUPPORTED_CAPABILITY', 'Unmanaged sessions cannot be cancelled by Crewyard');
   }
   if (session.host && session.host !== hostname()) {
-    throw new RailError('UNSUPPORTED_CAPABILITY', `Session ${sessionId} runs on host ${session.host}`);
+    throw new CrewError('UNSUPPORTED_CAPABILITY', `Session ${sessionId} runs on host ${session.host}`);
   }
   const at = nowIso(ctx.clock);
   const supervision = ctx.store.immediate((db) => {

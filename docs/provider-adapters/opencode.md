@@ -1,6 +1,6 @@
 # OpenCode adapter
 
-Package: `@agent-rail/provider-opencode`. Verified against `opencode v2.2.5`.
+Package: `@crewyard/provider-opencode`. Verified against `opencode v2.2.5`.
 
 ## Invocation
 
@@ -29,7 +29,7 @@ Docs: [CLI](https://opencode.ai/docs/cli/) (`OPENCODE_CONFIG*` variables, `run -
 
 ## Event mapping (`--format json`)
 
-| OpenCode event | Agent Rail event |
+| OpenCode event | Crewyard event |
 |---|---|
 | first `step_start` | `started` with `providerSessionId = sessionID` |
 | `text` | `message` (last one is the result) |

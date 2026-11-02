@@ -1,6 +1,6 @@
 import { Database, type SQLQueryBindings } from 'bun:sqlite';
 import { dirname } from 'node:path';
-import { type Clock, ensureDir, RailError, systemClock } from '@agent-rail/core';
+import { type Clock, CrewError, ensureDir, systemClock } from '@crewyard/core';
 
 export type Durability = 'full' | 'normal';
 
@@ -54,14 +54,14 @@ export function openStore(options: OpenOptions): Store {
           continue;
         }
         if (isBusy(error)) {
-          throw new RailError('BUSY', 'Database is busy; retry the operation', { cause: error, retryable: true });
+          throw new CrewError('BUSY', 'Database is busy; retry the operation', { cause: error, retryable: true });
         }
         throw error;
       }
       try {
         const result = fn(db);
         if (result instanceof Promise) {
-          throw new RailError('INTERNAL', 'Transactions must be synchronous; never await inside a DB transaction');
+          throw new CrewError('INTERNAL', 'Transactions must be synchronous; never await inside a DB transaction');
         }
         db.exec('COMMIT');
         return result;

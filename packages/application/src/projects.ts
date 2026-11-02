@@ -1,19 +1,19 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { REPO_CONFIG_RELATIVE, renderConfigTemplate } from '@agent-rail/config';
+import { REPO_CONFIG_RELATIVE, renderConfigTemplate } from '@crewyard/config';
 import {
   type Actor,
   type AutonomyMode,
+  CrewError,
   ensureDir,
   git,
   isGitRepository,
-  RailError,
   remoteIdentity,
   repositoryRoot,
   revParse,
   which,
-} from '@agent-rail/core';
-import { type IndexResult, indexRepository, indexStatus } from '@agent-rail/indexing';
+} from '@crewyard/core';
+import { type IndexResult, indexRepository, indexStatus } from '@crewyard/indexing';
 import {
   loadProjectConfig,
   type Project,
@@ -22,8 +22,8 @@ import {
   recordPolicyRevision,
   registerProject,
   resolveProject,
-} from '@agent-rail/projects';
-import type { RailContext } from '@agent-rail/storage';
+} from '@crewyard/projects';
+import type { CrewContext } from '@crewyard/storage';
 import { serviceStatus } from './service-control.ts';
 
 export interface ReadinessItem {
@@ -54,7 +54,7 @@ async function detectBaseBranch(root: string): Promise<string> {
   }
   const current = await git(root, ['branch', '--show-current'], { allowFailure: true });
   if (current.stdout.trim()) return current.stdout.trim();
-  throw new RailError('INVALID_INPUT', 'Cannot determine the default branch', { suggestion: 'Pass --base BRANCH.' });
+  throw new CrewError('INVALID_INPUT', 'Cannot determine the default branch', { suggestion: 'Pass --base BRANCH.' });
 }
 
 export interface InitInput {
@@ -67,17 +67,17 @@ export interface InitInput {
   hostReadiness?: () => Promise<ReadinessItem[]>;
 }
 
-export async function initRepository(ctx: RailContext, input: InitInput): Promise<InitResult> {
+export async function initRepository(ctx: CrewContext, input: InitInput): Promise<InitResult> {
   if (!(await isGitRepository(input.repoPath))) {
-    throw new RailError('INVALID_INPUT', `${input.repoPath} is not inside a Git working tree`, {
-      suggestion: 'Run `rail init` inside a Git repository or pass --repo PATH.',
+    throw new CrewError('INVALID_INPUT', `${input.repoPath} is not inside a Git working tree`, {
+      suggestion: 'Run `crew init` inside a Git repository or pass --repo PATH.',
     });
   }
   const root = await repositoryRoot(input.repoPath);
   const remote = await remoteIdentity(root);
   const baseBranch = input.baseBranch ?? (await detectBaseBranch(root));
   if (!(await revParse(root, baseBranch)) && !(await revParse(root, `origin/${baseBranch}`))) {
-    throw new RailError('INVALID_INPUT', `Base branch ${baseBranch} does not exist locally or on origin`, {
+    throw new CrewError('INVALID_INPUT', `Base branch ${baseBranch} does not exist locally or on origin`, {
       suggestion: 'Pass --base with an existing branch.',
     });
   }
@@ -85,7 +85,7 @@ export async function initRepository(ctx: RailContext, input: InitInput): Promis
   const configCreated = !existsSync(configFile);
   const name = input.name ?? (remote?.name ?? basename(root)).replace(/[^A-Za-z0-9._-]/g, '-');
   if (configCreated) {
-    ensureDir(join(root, '.agent-rail'));
+    ensureDir(join(root, '.crewyard'));
     writeFileSync(
       configFile,
       renderConfigTemplate({ projectName: name, baseBranch, ...(input.autonomy ? { autonomy: input.autonomy } : {}) }),
@@ -113,7 +113,7 @@ export async function initRepository(ctx: RailContext, input: InitInput): Promis
         actor: input.actor,
       });
     } catch (error) {
-      readiness.push({ id: 'index', ok: false, message: (error as Error).message, action: 'rail index build' });
+      readiness.push({ id: 'index', ok: false, message: (error as Error).message, action: 'crew index build' });
     }
   }
   readiness.push(...(await readinessReport(ctx, registered.project.id)));
@@ -121,7 +121,7 @@ export async function initRepository(ctx: RailContext, input: InitInput): Promis
   return { ...registered, configFile, configCreated, baseBranch, index, readiness };
 }
 
-export async function readinessReport(ctx: RailContext, projectId: string): Promise<ReadinessItem[]> {
+export async function readinessReport(ctx: CrewContext, projectId: string): Promise<ReadinessItem[]> {
   const repo = primaryRepository(ctx, projectId);
   const loaded = loadProjectConfig(ctx, projectId);
   const items: ReadinessItem[] = [
@@ -150,30 +150,30 @@ export async function readinessReport(ctx: RailContext, projectId: string): Prom
       id: 'index',
       ok: status.status === 'fresh',
       message: `index ${status.status}${status.snapshot ? ` at ${status.snapshot.commitSha.slice(0, 12)}` : ''}`,
-      ...(status.status === 'fresh' ? {} : { action: status.suggestion ?? 'rail index build' }),
+      ...(status.status === 'fresh' ? {} : { action: status.suggestion ?? 'crew index build' }),
     });
   } catch (error) {
-    items.push({ id: 'index', ok: false, message: (error as Error).message, action: 'rail index build' });
+    items.push({ id: 'index', ok: false, message: (error as Error).message, action: 'crew index build' });
   }
   items.push({
     id: 'agents',
     ok: (ctx.store.db.query('SELECT COUNT(*) AS n FROM agents').get() as { n: number }).n > 0,
     message: 'agent definitions',
     action:
-      'rail account add --provider codex --name personal && rail agent create --name engineer --provider codex --account personal',
+      'crew account add --provider codex --name personal && crew agent create --name engineer --provider codex --account personal',
   });
   const service = serviceStatus(ctx);
   items.push({
     id: 'service',
     ok: service.running,
     message: service.note,
-    ...(service.running ? {} : { action: 'rail service start (or rail service install)' }),
+    ...(service.running ? {} : { action: 'crew service start (or crew service install)' }),
   });
   return items;
 }
 
 export async function projectForRepositoryPath(
-  ctx: RailContext,
+  ctx: CrewContext,
   selector: string | undefined,
 ): Promise<{ project: Project; repository: Repository }> {
   const project = await resolveProject(ctx, selector);

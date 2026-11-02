@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import { all } from '@agent-rail/storage';
+import { all } from '@crewyard/storage';
 import { readText } from './content.ts';
 import { basenameOf, dirnameOf, PACKAGE_MANIFESTS } from './rules.ts';
 

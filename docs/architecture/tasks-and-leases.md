@@ -1,6 +1,6 @@
 # Tasks, leases, scheduling and workspaces
 
-Packages: `@agent-rail/tasks`, `@agent-rail/scheduler`, `@agent-rail/workspaces`.
+Packages: `@crewyard/tasks`, `@crewyard/scheduler`, `@crewyard/workspaces`.
 
 The deterministic core owns task state, leases, dependencies and permissions. Agents and planners only *propose*; every
 mutation is a short synchronous `BEGIN IMMEDIATE` transaction that records an event and an audit row together. No

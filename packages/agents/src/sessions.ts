@@ -3,14 +3,14 @@ import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } fro
 import {
   type Actor,
   type CostSource,
+  CrewError,
   hashToken,
   isExpired,
   nowIso,
-  RailError,
   redactObject,
   type UsageSource,
-} from '@agent-rail/core';
-import { all, one, parseJson, type RailContext, recordTransition } from '@agent-rail/storage';
+} from '@crewyard/core';
+import { all, type CrewContext, one, parseJson, recordTransition } from '@crewyard/storage';
 import type { SessionMode } from './registry.ts';
 
 export type SessionState =
@@ -105,16 +105,16 @@ export function mapSession(row: SessionRow): SessionRecord {
 
 export function sessionRow(db: Database, sessionId: string): SessionRow {
   const row = one<SessionRow>(db, 'SELECT * FROM sessions WHERE id = ?', sessionId);
-  if (!row) throw new RailError('NOT_FOUND', `Session not found: ${sessionId}`);
+  if (!row) throw new CrewError('NOT_FOUND', `Session not found: ${sessionId}`);
   return row;
 }
 
-export function getSession(ctx: RailContext, sessionId: string): SessionRecord {
+export function getSession(ctx: CrewContext, sessionId: string): SessionRecord {
   return mapSession(ctx.store.read((db) => sessionRow(db, sessionId)));
 }
 
 export function listSessions(
-  ctx: RailContext,
+  ctx: CrewContext,
   filter: { agentId?: string; taskId?: string; state?: SessionState; limit?: number } = {},
 ): SessionRecord[] {
   const where: string[] = [];
@@ -165,7 +165,7 @@ export function appendSessionEvent(
 }
 
 export function listSessionEvents(
-  ctx: RailContext,
+  ctx: CrewContext,
   sessionId: string,
   query: { afterSeq?: number; limit?: number; types?: string[] } = {},
 ): SessionEventRecord[] {
@@ -209,7 +209,7 @@ export interface SessionUsageRecord {
   at: string;
 }
 
-export function getSessionUsage(ctx: RailContext, sessionId: string): SessionUsageRecord[] {
+export function getSessionUsage(ctx: CrewContext, sessionId: string): SessionUsageRecord[] {
   return all<{
     provider_id: string;
     profile_id: string | null;
@@ -236,7 +236,7 @@ export function getSessionUsage(ctx: RailContext, sessionId: string): SessionUsa
 }
 
 export function readSessionLog(
-  ctx: RailContext,
+  ctx: CrewContext,
   sessionId: string,
   options: { tailBytes?: number } = {},
 ): { path: string | null; content: string; truncated: boolean } {
@@ -256,7 +256,7 @@ export function readSessionLog(
 }
 
 export function recordCheckpoint(
-  ctx: RailContext,
+  ctx: CrewContext,
   sessionId: string,
   checkpoint: Record<string, unknown>,
   actor: Actor,
@@ -265,7 +265,7 @@ export function recordCheckpoint(
   return ctx.store.immediate((db) => {
     const row = sessionRow(db, sessionId);
     if (!ACTIVE_SESSION_STATES.includes(row.state)) {
-      throw new RailError(
+      throw new CrewError(
         'INVALID_TRANSITION',
         `Session ${sessionId} is ${row.state}; checkpoints need an active session`,
       );
@@ -291,12 +291,12 @@ export interface SessionTokenBinding {
 }
 
 const NOT_AUTHORIZED = () =>
-  new RailError('NOT_AUTHORIZED', 'Session token is invalid, expired or no longer bound to an active lease', {
-    suggestion: 'Managed sessions must use the RAIL_SESSION_TOKEN issued at launch; agent ids are not credentials.',
+  new CrewError('NOT_AUTHORIZED', 'Session token is invalid, expired or no longer bound to an active lease', {
+    suggestion: 'Managed sessions must use the CREW_SESSION_TOKEN issued at launch; agent ids are not credentials.',
   });
 
-export function verifySessionToken(ctx: RailContext, token: string): SessionTokenBinding {
-  if (typeof token !== 'string' || !token.startsWith('rail_')) throw NOT_AUTHORIZED();
+export function verifySessionToken(ctx: CrewContext, token: string): SessionTokenBinding {
+  if (typeof token !== 'string' || !token.startsWith('crew_')) throw NOT_AUTHORIZED();
   return ctx.store.read((db) => {
     const row = one<SessionRow>(db, 'SELECT * FROM sessions WHERE session_token_hash = ?', hashToken(token));
     if (!row || !ACTIVE_SESSION_STATES.includes(row.state)) throw NOT_AUTHORIZED();

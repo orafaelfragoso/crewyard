@@ -1,6 +1,6 @@
-import type { RailConfig } from '@agent-rail/config';
-import { type AutonomyMode, nowIso, type Risk, type TaskState } from '@agent-rail/core';
-import { all, one, type RailContext } from '@agent-rail/storage';
+import type { CrewConfig } from '@crewyard/config';
+import { type AutonomyMode, nowIso, type Risk, type TaskState } from '@crewyard/core';
+import { all, type CrewContext, one } from '@crewyard/storage';
 import {
   activeLeaseRow,
   mapTask,
@@ -14,7 +14,7 @@ import {
   taskApprovalSatisfied,
   toViews,
   transitiveDependents,
-} from '@agent-rail/tasks';
+} from '@crewyard/tasks';
 
 export interface SchedulerTask {
   id: string;
@@ -76,7 +76,7 @@ export interface SchedulerSnapshot {
 }
 
 export interface SnapshotOptions {
-  config?: RailConfig;
+  config?: CrewConfig;
   providerCapacity?: number | null;
   impactScopes?: Record<string, string[]>;
 }
@@ -86,7 +86,7 @@ function periodStart(at: string, period: BudgetStatus['period']): string {
   return period === 'day' ? `${at.slice(0, 10)}T00:00:00Z` : `${at.slice(0, 7)}-01T00:00:00Z`;
 }
 
-function budgetStatuses(ctx: RailContext, projectId: string, at: string): BudgetStatus[] {
+function budgetStatuses(ctx: CrewContext, projectId: string, at: string): BudgetStatus[] {
   const db = ctx.store.db;
   const rows = all<{
     scope_kind: 'global' | 'project';
@@ -129,7 +129,7 @@ function countBy(rows: { key: string | null }[]): Record<string, number> {
 }
 
 export function buildSchedulerSnapshot(
-  ctx: RailContext,
+  ctx: CrewContext,
   projectId: string,
   options: SnapshotOptions = {},
 ): SchedulerSnapshot {

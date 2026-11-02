@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
-import { type Actor, nowIso, SYSTEM_ACTOR } from '@agent-rail/core';
-import { all, one, type RailContext, recordTransition } from '@agent-rail/storage';
+import { type Actor, nowIso, SYSTEM_ACTOR } from '@crewyard/core';
+import { all, type CrewContext, one, recordTransition } from '@crewyard/storage';
 import { deleteChunks } from './content.ts';
 import { forgetSnapshotModels } from './graph.ts';
 import { chunked } from './store.ts';
@@ -50,7 +50,7 @@ function orphanBlobs(db: Database, excluded: readonly string[], limit: number): 
   ).map((r) => r.sha);
 }
 
-export function collectGarbage(ctx: RailContext, input: GarbageCollectionInput = {}): GarbageCollectionResult {
+export function collectGarbage(ctx: CrewContext, input: GarbageCollectionInput = {}): GarbageCollectionResult {
   const db = ctx.store.db;
   const dryRun = input.dryRun ?? true;
   const retainLatest = Math.max(input.retainLatest ?? 3, 1);

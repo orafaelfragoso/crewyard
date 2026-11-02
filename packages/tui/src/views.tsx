@@ -1,5 +1,5 @@
-import type { RailEvent } from '@agent-rail/storage';
-import type { Measured, ProjectRow, QueueRow, SessionRow, TaskBoardRow } from '@agent-rail/telemetry';
+import type { CrewEvent } from '@crewyard/storage';
+import type { Measured, ProjectRow, QueueRow, SessionRow, TaskBoardRow } from '@crewyard/telemetry';
 import { Box, Text } from 'ink';
 import type { ContextHit, ContextSearchResult } from './actions.ts';
 import { type Column, KeyValue, localTime, Panel, StateText, shortSha, Table } from './components.tsx';
@@ -133,7 +133,7 @@ export function ProjectsView({ theme, data, selected, height, filter }: ViewProp
       rows={filteredProjects(data, filter)}
       selected={selected}
       height={height}
-      empty="No projects. Run `rail init`."
+      empty="No projects. Run `crew init`."
     />
   );
 }
@@ -197,7 +197,7 @@ export function SessionsView({ theme, data, selected, height, filter }: ViewProp
       />
       {current && !current.managed ? (
         <Text color={theme.warn}>
-          Unmanaged session: Rail cannot cancel it, enforce its workspace, or account its usage.
+          Unmanaged session: Crewyard cannot cancel it, enforce its workspace, or account its usage.
         </Text>
       ) : null}
       {current ? (
@@ -295,14 +295,14 @@ export function ContextView(props: {
 
 export function EventsView(props: {
   theme: Theme;
-  events: RailEvent[];
+  events: CrewEvent[];
   selected: number;
   height: number;
   follow: boolean;
   filter: string;
 }) {
   const rows = props.events.filter((e) => matches(props.filter, e.type, e.taskId, e.prId, e.actor.id, e.correlationId));
-  const columns: Column<RailEvent>[] = [
+  const columns: Column<CrewEvent>[] = [
     { header: 'Seq', width: 7, value: (e) => String(e.seq) },
     { header: 'Time', width: 20, value: (e) => localTime(e.at) },
     { header: 'Type', width: 26, value: (e) => e.type },

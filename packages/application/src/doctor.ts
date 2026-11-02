@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { accessSync, constants, statSync } from 'node:fs';
-import { ensureDir, nowIso, run, which } from '@agent-rail/core';
-import { migrationStatus, type RailContext } from '@agent-rail/storage';
+import { ensureDir, nowIso, run, which } from '@crewyard/core';
+import { type CrewContext, migrationStatus } from '@crewyard/storage';
 
 export type CheckStatus = 'ok' | 'warn' | 'error' | 'skip';
 
@@ -14,7 +14,7 @@ export interface DoctorCheck {
   repair?: string;
 }
 
-export type CheckFn = (ctx: RailContext) => Promise<DoctorCheck | DoctorCheck[]>;
+export type CheckFn = (ctx: CrewContext) => Promise<DoctorCheck | DoctorCheck[]>;
 
 export interface DoctorReport {
   generatedAt: string;
@@ -110,7 +110,7 @@ export const filesystemCheck: CheckFn = async (ctx) => {
         category: 'storage',
         status: 'error',
         summary: `${path} is not writable: ${(error as Error).message}`,
-        repair: `Fix permissions or set RAIL_DATA_DIR to a writable directory.`,
+        repair: `Fix permissions or set CREW_DATA_DIR to a writable directory.`,
       });
     }
   }
@@ -137,7 +137,7 @@ export const sqliteCheck: CheckFn = async (ctx) => {
       status: status.pending.length === 0 ? 'ok' : 'warn',
       summary: `schema v${status.currentVersion} of v${status.latestVersion}`,
       ...(status.pending.length
-        ? { repair: 'Run any rail command to apply migrations (a backup is taken first).' }
+        ? { repair: 'Run any crew command to apply migrations (a backup is taken first).' }
         : {}),
     });
   } catch (error) {
@@ -164,7 +164,7 @@ export const sqliteCheck: CheckFn = async (ctx) => {
         summary: locked
           ? 'write locks are exclusive across connections'
           : 'write locks are NOT exclusive; leases are unsafe',
-        ...(locked ? {} : { repair: 'Move the data directory off network/virtual filesystems (set RAIL_DATA_DIR).' }),
+        ...(locked ? {} : { repair: 'Move the data directory off network/virtual filesystems (set CREW_DATA_DIR).' }),
       });
     } finally {
       other.close();
@@ -196,9 +196,9 @@ export const providerCliCheck: CheckFn = async () => {
 export const secretStoreCheck: CheckFn = async () => {
   const name = `doctor-probe-${process.pid}`;
   try {
-    await Bun.secrets.set({ service: 'agent-rail', name, value: 'probe' });
-    const value = await Bun.secrets.get({ service: 'agent-rail', name });
-    await Bun.secrets.delete({ service: 'agent-rail', name });
+    await Bun.secrets.set({ service: 'crewyard', name, value: 'probe' });
+    const value = await Bun.secrets.get({ service: 'crewyard', name });
+    await Bun.secrets.delete({ service: 'crewyard', name });
     return {
       id: 'security.secret_store',
       category: 'security',
@@ -229,7 +229,7 @@ export const BASE_CHECKS: readonly CheckFn[] = [
   secretStoreCheck,
 ];
 
-export async function runDoctor(ctx: RailContext, checks: readonly CheckFn[] = BASE_CHECKS): Promise<DoctorReport> {
+export async function runDoctor(ctx: CrewContext, checks: readonly CheckFn[] = BASE_CHECKS): Promise<DoctorReport> {
   const results = await Promise.all(
     checks.map(async (check) => {
       try {

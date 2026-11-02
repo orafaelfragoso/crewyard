@@ -1,36 +1,36 @@
 import {
   type Clock,
+  type CrewDirs,
   createLogger,
   type LogLevel,
   newId,
-  type RailDirs,
   resolveDirs,
   systemClock,
   type ToolEnvelope,
-  toRailError,
-} from '@agent-rail/core';
-import { type Durability, latestSeq, openRailStore, type RailContext } from '@agent-rail/storage';
+  toCrewError,
+} from '@crewyard/core';
+import { type CrewContext, type Durability, latestSeq, openCrewStore } from '@crewyard/storage';
 
 export interface ContextOptions {
   env?: NodeJS.ProcessEnv;
-  dirs?: RailDirs;
+  dirs?: CrewDirs;
   clock?: Clock;
   durability?: Durability;
   logLevel?: LogLevel;
 }
 
-export function createRailContext(options: ContextOptions = {}): RailContext {
+export function createCrewContext(options: ContextOptions = {}): CrewContext {
   const env = options.env ?? process.env;
   const dirs = options.dirs ?? resolveDirs(env);
   const clock = options.clock ?? systemClock;
-  const durability = options.durability ?? (env.RAIL_DURABILITY === 'normal' ? 'normal' : 'full');
-  const store = openRailStore({ dirs, clock, durability });
-  const logger = createLogger({ level: options.logLevel ?? ((env.RAIL_LOG_LEVEL as LogLevel | undefined) || 'warn') });
+  const durability = options.durability ?? (env.CREW_DURABILITY === 'normal' ? 'normal' : 'full');
+  const store = openCrewStore({ dirs, clock, durability });
+  const logger = createLogger({ level: options.logLevel ?? ((env.CREW_LOG_LEVEL as LogLevel | undefined) || 'warn') });
   return { store, dirs, logger, clock };
 }
 
 export async function envelope<T>(
-  ctx: RailContext,
+  ctx: CrewContext,
   fn: (operationId: string) => Promise<T> | T,
 ): Promise<ToolEnvelope<T>> {
   const operationId = newId('op');
@@ -38,8 +38,8 @@ export async function envelope<T>(
     const data = await fn(operationId);
     return { ok: true, operationId, data, revision: latestSeq(ctx.store.db) };
   } catch (error) {
-    const rail = toRailError(error);
-    if (rail.code === 'INTERNAL') ctx.logger.error('operation failed', { operationId, error: rail.message });
-    return { ok: false, operationId, error: rail.toJSON(), revision: latestSeq(ctx.store.db) };
+    const crew = toCrewError(error);
+    if (crew.code === 'INTERNAL') ctx.logger.error('operation failed', { operationId, error: crew.message });
+    return { ok: false, operationId, error: crew.toJSON(), revision: latestSeq(ctx.store.db) };
   }
 }

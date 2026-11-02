@@ -1,27 +1,27 @@
 # Provider adapters, accounts and managed sessions
 
-Packages: `@agent-rail/provider-{codex,claude,opencode,generic,ollama}`, `@agent-rail/agents`.
+Packages: `@crewyard/provider-{codex,claude,opencode,generic,ollama}`, `@crewyard/agents`.
 
 Agent identities (agents), LLM accounts (profiles), routing rules (account policies) and running processes (sessions)
 are separate records. An agent references an **account policy**, never a credential.
 
 ## Adapter contract
 
-Every adapter implements `ProviderAdapter` from `@agent-rail/core`:
+Every adapter implements `ProviderAdapter` from `@crewyard/core`:
 
 | Operation | Behaviour |
 |---|---|
 | `capabilities(profile)` | Feature detection: binary presence/version, structured events, usage level, resume, isolation kind, coding vs planning/review. |
 | `validateProfile(profile)` | Auth status through the provider's documented status command; `unknown` with an explanation when no offline check exists (API keys). |
-| `launch(input)` | Spawns a detached process group in `input.cwd` with a sanitized environment (core `DEFAULT_ENV_ALLOWLIST`), the profile's isolation variables, `RAIL_*` session variables and, only for `api-key` profiles, the key resolved from the OS secret store. Streams stdout into normalized `AgentEvent`s, writes a redacted raw log to `input.logPath`, enforces `timeoutMs` and `maxOutputBytes`. |
+| `launch(input)` | Spawns a detached process group in `input.cwd` with a sanitized environment (core `DEFAULT_ENV_ALLOWLIST`), the profile's isolation variables, `CREW_*` session variables and, only for `api-key` profiles, the key resolved from the OS secret store. Streams stdout into normalized `AgentEvent`s, writes a redacted raw log to `input.logPath`, enforces `timeoutMs` and `maxOutputBytes`. |
 | `cancel(sessionId)` | SIGTERM to the process group, SIGKILL to the whole group after the grace period. |
 
 Unsupported operations throw `UNSUPPORTED_CAPABILITY` (for example output schemas on OpenCode, coding execution on
 Ollama unless explicitly enabled).
 
-The CLI adapters share one runtime (`ProcessSessions` in `@agent-rail/provider-generic`): line splitting, a per-provider
+The CLI adapters share one runtime (`ProcessSessions` in `@crewyard/provider-generic`): line splitting, a per-provider
 `StreamDecoder`, exact-value secret redaction plus core `redact`, output limits, timeouts and process-group kill. Codex,
-Claude, OpenCode and Ollama depend on `@agent-rail/provider-generic` for that runtime; it depends only on core.
+Claude, OpenCode and Ollama depend on `@crewyard/provider-generic` for that runtime; it depends only on core.
 
 ### Normalized events
 
@@ -54,13 +54,13 @@ minutes; authentication failures mark the profile `unauthenticated`; three conse
 
 ## Account profiles
 
-`addProfile` / `listProfiles` / `getProfile` / `testProfile` / `removeProfile` back `rail account add|list|show|test|remove`.
+`addProfile` / `listProfiles` / `getProfile` / `testProfile` / `removeProfile` back `crew account add|list|show|test|remove`.
 
 - Isolation: Codex, Claude and OpenCode profiles get a private config root at `<data>/profiles/<provider>/<name>`
   (or a user-specified directory). One profile per provider may use the provider's default configuration
   (`useProviderDefaultConfig`). Two profiles can never share a config root. Log in to an isolated profile with the
   command returned by `profileLoginCommand` (for example `CODEX_HOME=<root> codex login`).
-- Credentials: `api-key` profiles store the key with `Bun.secrets` (service `agent-rail`, name
+- Credentials: `api-key` profiles store the key with `Bun.secrets` (service `crewyard`, name
   `profile.<provider>.<name>`); SQLite only keeps that reference. Removing the profile deletes the secret. Settings are
   rejected if they contain secret-looking keys or values.
 - Health: `provider_health` keeps status, `rate_limited_until`, consecutive failures and the last error. `testProfile`
@@ -103,17 +103,17 @@ launched after commit; events stream into `session_events` (`agent.*` types, per
 
 ### Session tokens (FR-AGT-07)
 
-Each managed session gets a fresh `rail_…` token. Only `hashToken(token)` is stored (`sessions.session_token_hash`). The
+Each managed session gets a fresh `crew_…` token. Only `hashToken(token)` is stored (`sessions.session_token_hash`). The
 binding (project, task, lease generation, expiry = session timeout + grace + 60 s) is recorded as a `token.issued`
-session event. The child receives `RAIL_SESSION_TOKEN`, `RAIL_SESSION_ID`, `RAIL_AGENT_ID`, `RAIL_TASK_ID` and
-`RAIL_PROJECT_ID`. `verifySessionToken(ctx, token)` returns the binding only while the session is active, the token is
+session event. The child receives `CREW_SESSION_TOKEN`, `CREW_SESSION_ID`, `CREW_AGENT_ID`, `CREW_TASK_ID` and
+`CREW_PROJECT_ID`. `verifySessionToken(ctx, token)` returns the binding only while the session is active, the token is
 unexpired and the task's active lease still has the bound generation; otherwise `NOT_AUTHORIZED`. The hash is cleared
-when the session ends. The token value is redacted from events and logs by exact match and by the core `rail_` pattern.
+when the session ends. The token value is redacted from events and logs by exact match and by the core `crew_` pattern.
 
 ## Unmanaged agents (FR-AGT-08)
 
 `registerUnmanagedAgent` records an external identity (`managed = 0`) with operator-configured MCP tools and path
-scopes. `agent.limitations` lists what Rail cannot do for it: no automatic cancellation, no workspace enforcement, no
+scopes. `agent.limitations` lists what Crewyard cannot do for it: no automatic cancellation, no workspace enforcement, no
 usage accounting. Unmanaged agents are never routed or launched.
 
 ## Data egress (FR-SEC-03)

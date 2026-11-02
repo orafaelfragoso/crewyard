@@ -4,13 +4,13 @@ import {
   type AgentLaunch,
   type AgentSessionHandle,
   type Capabilities,
+  CrewError,
   type FailureClass,
   type ProfileHealth,
   type ProviderAdapter,
-  RailError,
   UNKNOWN_USAGE,
   type UsageReport,
-} from '@agent-rail/core';
+} from '@crewyard/core';
 import { classifyFailureText } from './classify.ts';
 import { num, parseJsonLine, str } from './json.ts';
 import { type DecoderSummary, ProcessSessions, type StreamDecoder } from './process-session.ts';
@@ -63,21 +63,21 @@ export interface GenericSettings {
 export function genericSettings(profile: AccountProfile): GenericSettings {
   const command = settingString(profile, 'command');
   if (!command) {
-    throw new RailError('CONFIG_INVALID', `Generic profile ${profile.name} has no settings.command`, {
+    throw new CrewError('CONFIG_INVALID', `Generic profile ${profile.name} has no settings.command`, {
       suggestion: 'Set settings.command to the agent executable.',
     });
   }
   const protocol = settingString(profile, 'protocol') ?? 'jsonl';
   const input = settingString(profile, 'input') ?? 'text';
   if (protocol !== 'jsonl' && protocol !== 'text') {
-    throw new RailError('CONFIG_INVALID', `settings.protocol must be jsonl or text, got ${protocol}`);
+    throw new CrewError('CONFIG_INVALID', `settings.protocol must be jsonl or text, got ${protocol}`);
   }
   if (input !== 'text' && input !== 'json' && input !== 'none') {
-    throw new RailError('CONFIG_INVALID', `settings.input must be text, json or none, got ${input}`);
+    throw new CrewError('CONFIG_INVALID', `settings.input must be text, json or none, got ${input}`);
   }
   const apiKeyEnv = settingString(profile, 'apiKeyEnv');
   if (profile.authMechanism === 'api-key' && !apiKeyEnv) {
-    throw new RailError('CONFIG_INVALID', 'Generic api-key profiles must set settings.apiKeyEnv');
+    throw new CrewError('CONFIG_INVALID', 'Generic api-key profiles must set settings.apiKeyEnv');
   }
   return {
     command,
@@ -227,14 +227,14 @@ export class GenericAdapter implements ProviderAdapter {
       throw unsupported('generic', 'execute mode', 'Set settings.codingAgent=true for coding agents.');
     }
     const executable = resolveExecutable(settings.command);
-    if (!executable) throw new RailError('UNAVAILABLE', `${settings.command} not found`);
+    if (!executable) throw new CrewError('UNAVAILABLE', `${settings.command} not found`);
     const apiKey = await resolveApiKey(input.profile, this.options.resolveSecret);
     const env = childEnv(this.options, settings.envAllowlist, {
       ...settings.env,
       ...input.env,
-      RAIL_SESSION_ID: input.sessionId,
-      RAIL_MODE: input.mode,
-      ...(input.model ? { RAIL_MODEL: input.model } : {}),
+      CREW_SESSION_ID: input.sessionId,
+      CREW_MODE: input.mode,
+      ...(input.model ? { CREW_MODEL: input.model } : {}),
       ...(apiKey && settings.apiKeyEnv ? { [settings.apiKeyEnv]: apiKey } : {}),
     });
     const stdin =

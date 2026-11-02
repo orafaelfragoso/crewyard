@@ -1,8 +1,8 @@
 import type { Database } from 'bun:sqlite';
-import type { RailConfig } from '@agent-rail/config';
-import { type Actor, type AutonomyMode, newId, nowIso, RailError, type Risk } from '@agent-rail/core';
-import { classifyPaths, type PathClassification, type ReviewSummary, reviewSummary } from '@agent-rail/reviews';
-import { one, type RailContext, recordTransition } from '@agent-rail/storage';
+import type { CrewConfig } from '@crewyard/config';
+import { type Actor, type AutonomyMode, CrewError, newId, nowIso, type Risk } from '@crewyard/core';
+import { classifyPaths, type PathClassification, type ReviewSummary, reviewSummary } from '@crewyard/reviews';
+import { type CrewContext, one, recordTransition } from '@crewyard/storage';
 import { autonomyFor, configFor, repositoryFor } from './env.ts';
 import { activeEntryForPr, dependenciesOf, pullRequestById, queueById, requirePullRequest } from './records.ts';
 import { type RemoteFreshness, readFreshness } from './sync-state.ts';
@@ -17,7 +17,7 @@ export interface ParentState {
 export interface EligibilityInput {
   pr: PullRequestRecord;
   autonomy: AutonomyMode;
-  config: Pick<RailConfig, 'integration' | 'review' | 'security'>;
+  config: Pick<CrewConfig, 'integration' | 'review' | 'security'>;
   mode: QueueMode;
   mergeApproved: boolean;
   reviews: ReviewSummary;
@@ -37,7 +37,7 @@ export interface EligibilityResult {
 export const mergeApprovalSubject = (prId: string, headSha: string) => `${prId}@${headSha}`;
 
 export function classifyPullRequest(
-  config: Pick<RailConfig, 'security'>,
+  config: Pick<CrewConfig, 'security'>,
   pr: Pick<PullRequestRecord, 'changedFiles'>,
 ): PathClassification {
   const files = pr.changedFiles ?? [];
@@ -76,7 +76,7 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityResult 
   if (input.queuePaused) add('QUEUE_PAUSED', 'queue', 'The integration queue is paused');
   if (input.entryStatus === 'quarantined') add('QUARANTINED', 'queue', 'Entry is quarantined after repeated failures');
   if (input.entryStatus === 'escalated') add('ESCALATED', 'queue', 'Entry is escalated and waits for an operator');
-  if (!pr.lastSyncedAt) add('NOT_SYNCED', 'sync', 'Remote state has never been observed; run `rail sync`');
+  if (!pr.lastSyncedAt) add('NOT_SYNCED', 'sync', 'Remote state has never been observed; run `crew sync`');
   if (input.freshness.offline) {
     add('REMOTE_STATE_STALE', 'sync', `GitHub is unreachable; last seen ${input.freshness.lastSuccessAt ?? 'never'}`, {
       lastSuccessAt: input.freshness.lastSuccessAt,
@@ -89,7 +89,7 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityResult 
     add(
       'EXTERNAL_DIVERGENCE',
       'github',
-      `Branch changed outside Rail (${pr.externalDivergence.detail}); acknowledge to continue`,
+      `Branch changed outside Crewyard (${pr.externalDivergence.detail}); acknowledge to continue`,
       {
         divergence: pr.externalDivergence,
       },
@@ -174,7 +174,7 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityResult 
         add('REVIEWS_REQUIRED', 'github', 'GitHub reports that more reviews are required');
       }
     }
-    if (input.mode === 'rail-managed' && requirements.strictChecks && pr.mergeStateStatus === 'BEHIND') {
+    if (input.mode === 'crew-managed' && requirements.strictChecks && pr.mergeStateStatus === 'BEHIND') {
       add(
         'BRANCH_BEHIND_BASE',
         'github',
@@ -182,13 +182,13 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityResult 
       );
     }
     if (
-      input.mode === 'rail-managed' &&
+      input.mode === 'crew-managed' &&
       requirements.allowedMergeMethods &&
       !requirements.allowedMergeMethods.includes(config.integration.merge_method)
     ) {
       add('MERGE_METHOD_NOT_ALLOWED', 'github', `Rules do not allow ${config.integration.merge_method} merges`);
     }
-    if (input.mode === 'rail-managed' && requirements.mergeQueue) {
+    if (input.mode === 'crew-managed' && requirements.mergeQueue) {
       add('MERGE_QUEUE_REQUIRED', 'github', 'The base branch requires the GitHub merge queue');
     }
     if (pr.mergeStateStatus === 'BLOCKED' && !blockers.some((b) => b.source === 'github')) {
@@ -196,18 +196,24 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityResult 
     }
   }
 
-  if (input.autonomy === 'observe') add('AUTONOMY_OBSERVE', 'policy', 'Project autonomy is observe; Rail never merges');
+  if (input.autonomy === 'observe')
+    add('AUTONOMY_OBSERVE', 'policy', 'Project autonomy is observe; Crewyard never merges');
   const highRisk = classification.risk === 'high';
   if (highRisk && config.review.require_review_for_high_risk) {
     const passed = (['code', 'security'] as const).some((t) => input.reviews.byType[t]?.status === 'passed');
     if (!passed) {
-      add('HIGH_RISK_REVIEW_REQUIRED', 'policy', 'High-risk change needs a passing Rail review on the current head', {
-        classes: classification.classes,
-      });
+      add(
+        'HIGH_RISK_REVIEW_REQUIRED',
+        'policy',
+        'High-risk change needs a passing Crewyard review on the current head',
+        {
+          classes: classification.classes,
+        },
+      );
     }
   }
   if (input.reviews.blockingFindings > 0) {
-    add('REVIEW_FINDINGS_OPEN', 'rail', `${input.reviews.blockingFindings} high-severity review finding(s) are open`);
+    add('REVIEW_FINDINGS_OPEN', 'crew', `${input.reviews.blockingFindings} high-severity review finding(s) are open`);
   }
   if (classification.approvalClasses.length > 0 && !input.mergeApproved) {
     add('APPROVAL_REQUIRED', 'policy', `Operator approval required for ${classification.approvalClasses.join(', ')}`, {
@@ -241,7 +247,7 @@ export function hasMergeApproval(db: Database, pr: PullRequestRecord): boolean {
 export function eligibilityInputFor(
   db: Database,
   pr: PullRequestRecord,
-  context: { autonomy: AutonomyMode; config: RailConfig; mode: QueueMode; queuePaused: boolean },
+  context: { autonomy: AutonomyMode; config: CrewConfig; mode: QueueMode; queuePaused: boolean },
 ): EligibilityInput {
   const entry = activeEntryForPr(db, pr.id);
   return {
@@ -278,7 +284,7 @@ export interface Explanation {
   evaluatedAt: string;
 }
 
-export function explainPullRequest(ctx: RailContext, prId: string, env: IntegrationEnv = {}): Explanation {
+export function explainPullRequest(ctx: CrewContext, prId: string, env: IntegrationEnv = {}): Explanation {
   const pr = requirePullRequest(ctx.store.db, prId);
   const repository = repositoryFor(ctx, pr.repositoryId);
   const config = configFor(ctx, env, repository.projectId);
@@ -289,7 +295,7 @@ export function explainPullRequest(ctx: RailContext, prId: string, env: Integrat
     (config.integration.mode === 'auto'
       ? pr.governance?.requirements?.mergeQueue
         ? 'github-managed'
-        : 'rail-managed'
+        : 'crew-managed'
       : config.integration.mode);
   const input = eligibilityInputFor(ctx.store.db, pr, {
     autonomy: autonomyFor(ctx, repository.projectId),
@@ -317,19 +323,19 @@ export function explainPullRequest(ctx: RailContext, prId: string, env: Integrat
 }
 
 export function decideMergeApproval(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: { prId: string; approved: boolean; headSha?: string },
   actor: Actor,
 ): { approvalId: string; subjectId: string; status: 'approved' | 'rejected' } {
   if (actor.kind !== 'operator') {
-    throw new RailError('NOT_AUTHORIZED', 'Only an operator can decide merge approvals', { retryable: false });
+    throw new CrewError('NOT_AUTHORIZED', 'Only an operator can decide merge approvals', { retryable: false });
   }
   const at = nowIso(ctx.clock);
   return ctx.store.immediate((db) => {
     const pr = requirePullRequest(db, input.prId);
     if (input.headSha && input.headSha !== pr.headSha) {
-      throw new RailError('HEAD_MISMATCH', `PR head is ${pr.headSha}, approval was for ${input.headSha}`, {
-        suggestion: 'Re-run `rail queue explain` and approve the current head.',
+      throw new CrewError('HEAD_MISMATCH', `PR head is ${pr.headSha}, approval was for ${input.headSha}`, {
+        suggestion: 'Re-run `crew queue explain` and approve the current head.',
       });
     }
     const repository = one<{ project_id: string }>(

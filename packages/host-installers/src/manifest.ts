@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { RailDirs } from '@agent-rail/core';
+import type { CrewDirs } from '@crewyard/core';
 import type { ChangePurpose, HostId, InstallScope, Ownership } from './types.ts';
 
 export const MANIFEST_VERSION = 1;
@@ -31,11 +31,11 @@ export interface BackupManifest {
   entries: ManifestEntry[];
 }
 
-export function installerBackupsRoot(dirs: RailDirs): string {
+export function installerBackupsRoot(dirs: CrewDirs): string {
   return join(dirs.backups, 'host-installers');
 }
 
-export function listManifests(dirs: RailDirs): BackupManifest[] {
+export function listManifests(dirs: CrewDirs): BackupManifest[] {
   const root = installerBackupsRoot(dirs);
   if (!existsSync(root)) return [];
   const manifests: BackupManifest[] = [];

@@ -4,8 +4,8 @@ import {
   type ContextPack,
   fetchContextPackPage,
   type ImpactReport,
-} from '@agent-rail/context';
-import type { Actor } from '@agent-rail/core';
+} from '@crewyard/context';
+import type { Actor } from '@crewyard/core';
 import {
   createEmbeddingProvider,
   dependencyGraph,
@@ -20,9 +20,9 @@ import {
   type SearchResult,
   search,
   verifyIndex,
-} from '@agent-rail/indexing';
-import { loadProjectConfig, primaryRepository } from '@agent-rail/projects';
-import type { RailContext } from '@agent-rail/storage';
+} from '@crewyard/indexing';
+import { loadProjectConfig, primaryRepository } from '@crewyard/projects';
+import type { CrewContext } from '@crewyard/storage';
 
 export interface RevisionSelector {
   projectId: string;
@@ -31,7 +31,7 @@ export interface RevisionSelector {
   worktreePath?: string | undefined;
 }
 
-function selector(ctx: RailContext, input: RevisionSelector) {
+function selector(ctx: CrewContext, input: RevisionSelector) {
   const repo = primaryRepository(ctx, input.projectId);
   const config = loadProjectConfig(ctx, input.projectId).config;
   return {
@@ -50,19 +50,19 @@ function selector(ctx: RailContext, input: RevisionSelector) {
 }
 
 export async function buildIndex(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: RevisionSelector & { force?: boolean; actor: Actor },
 ): Promise<IndexResult> {
   const { sel } = selector(ctx, input);
   return indexRepository(ctx, { ...sel, ...(input.force ? { force: true } : {}), actor: input.actor });
 }
 
-export function indexState(ctx: RailContext, input: RevisionSelector): Promise<IndexStatusReport> {
+export function indexState(ctx: CrewContext, input: RevisionSelector): Promise<IndexStatusReport> {
   const { sel } = selector(ctx, input);
   return indexStatus(ctx, sel);
 }
 
-export function verifyProjectIndex(ctx: RailContext, input: RevisionSelector & { sample?: number }) {
+export function verifyProjectIndex(ctx: CrewContext, input: RevisionSelector & { sample?: number }) {
   const { sel } = selector(ctx, input);
   return verifyIndex(ctx, { ...sel, ...(input.sample ? { sample: input.sample } : {}), markStale: true });
 }
@@ -75,7 +75,7 @@ export interface SearchContextInput extends RevisionSelector {
   excludePaths?: string[];
 }
 
-export function searchContext(ctx: RailContext, input: SearchContextInput): Promise<SearchResult> {
+export function searchContext(ctx: CrewContext, input: SearchContextInput): Promise<SearchResult> {
   const { sel, config } = selector(ctx, input);
   return search(ctx, {
     ...sel,
@@ -96,7 +96,7 @@ export interface SymbolInput extends RevisionSelector {
   limit?: number;
 }
 
-export async function getSymbol(ctx: RailContext, input: SymbolInput) {
+export async function getSymbol(ctx: CrewContext, input: SymbolInput) {
   const { sel } = selector(ctx, input);
   const limit = Math.min(input.limit ?? 50, 200);
   const definitions = await findSymbol(ctx, {
@@ -123,7 +123,7 @@ export async function getSymbol(ctx: RailContext, input: SymbolInput) {
 }
 
 export function impact(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: RevisionSelector & { paths?: string[]; symbols?: string[]; excludeTaskId?: string; depth?: number },
 ): Promise<ImpactReport> {
   const { sel } = selector(ctx, input);
@@ -138,7 +138,7 @@ export function impact(
 }
 
 export function contextPack(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: RevisionSelector & { query: string; paths?: string[]; symbols?: string[]; budgetTokens?: number },
 ): Promise<ContextPack> {
   const { sel, config } = selector(ctx, input);
@@ -151,6 +151,6 @@ export function contextPack(
   });
 }
 
-export function contextPackPage(ctx: RailContext, cursor: string, budgetTokens?: number) {
+export function contextPackPage(ctx: CrewContext, cursor: string, budgetTokens?: number) {
   return fetchContextPackPage(ctx, { cursor, ...(budgetTokens ? { budgetTokens } : {}) });
 }

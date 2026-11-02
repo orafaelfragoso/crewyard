@@ -1,9 +1,9 @@
 import { closeSync, openSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { railConfigSchema } from '@agent-rail/config';
-import { isRailError, resolveDirs, silentLogger, systemClock } from '@agent-rail/core';
-import { openStore, type RailContext } from '@agent-rail/storage';
-import { claimTask, heartbeat, releaseLease } from '@agent-rail/tasks';
+import { crewConfigSchema } from '@crewyard/config';
+import { isCrewError, resolveDirs, silentLogger, systemClock } from '@crewyard/core';
+import { type CrewContext, openStore } from '@crewyard/storage';
+import { claimTask, heartbeat, releaseLease } from '@crewyard/tasks';
 
 interface WorkerArgs {
   dataDir: string;
@@ -28,10 +28,10 @@ export interface WorkerReport {
 }
 
 const args = JSON.parse(process.argv[2]!) as WorkerArgs;
-const dirs = resolveDirs({ RAIL_DATA_DIR: args.dataDir } as NodeJS.ProcessEnv);
+const dirs = resolveDirs({ CREW_DATA_DIR: args.dataDir } as NodeJS.ProcessEnv);
 const store = openStore({ path: dirs.database, durability: 'normal', busyTimeoutMs: 10_000 });
-const ctx: RailContext = { store, dirs, logger: silentLogger, clock: systemClock };
-const config = railConfigSchema.parse({ version: 1, project: { name: 'stress' } });
+const ctx: CrewContext = { store, dirs, logger: silentLogger, clock: systemClock };
+const config = crewConfigSchema.parse({ version: 1, project: { name: 'stress' } });
 const report: WorkerReport = { agentId: args.agentId, claims: [], outcomes: {}, violations: [] };
 const bump = (key: string) => {
   report.outcomes[key] = (report.outcomes[key] ?? 0) + 1;
@@ -47,7 +47,7 @@ while (report.claims.length < args.targetClaims && attempts < args.targetClaims 
   try {
     claim = claimTask(ctx, { taskId, holder: { kind: 'agent', id: args.agentId }, config });
   } catch (error) {
-    bump(isRailError(error) ? error.code : 'UNEXPECTED');
+    bump(isCrewError(error) ? error.code : 'UNEXPECTED');
     if (args.mode === 'single') break;
     continue;
   }
@@ -75,7 +75,7 @@ while (report.claims.length < args.targetClaims && attempts < args.targetClaims 
       releaseLease(ctx, claim);
       break;
     } catch (error) {
-      if (!(isRailError(error) && error.code === 'BUSY')) throw error;
+      if (!(isCrewError(error) && error.code === 'BUSY')) throw error;
     }
   }
 }

@@ -5,7 +5,7 @@
 {"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/usr/bin/bash -lc 'cat a.txt'","aggregated_output":"hi\r\n","exit_code":0,"status":"completed"}}
 {"type":"item.completed","item":{"id":"item_2","type":"reasoning","text":"**Updating the file**"}}
 {"type":"item.completed","item":{"id":"item_3","type":"file_change","changes":[{"path":"src/a.ts","kind":"update"},{"path":"src/b.ts","kind":"add"}],"status":"completed"}}
-{"type":"item.started","item":{"id":"item_4","type":"mcp_tool_call","server":"agent-rail","tool":"task_get","arguments":{},"status":"in_progress"}}
-{"type":"item.completed","item":{"id":"item_4","type":"mcp_tool_call","server":"agent-rail","tool":"task_get","arguments":{},"status":"completed"}}
+{"type":"item.started","item":{"id":"item_4","type":"mcp_tool_call","server":"crewyard","tool":"task_get","arguments":{},"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_4","type":"mcp_tool_call","server":"crewyard","tool":"task_get","arguments":{},"status":"completed"}}
 {"type":"item.completed","item":{"id":"item_5","type":"agent_message","text":"The output of the shell command 'cat a.txt' is:\n\nhi"}}
 {"type":"turn.completed","usage":{"input_tokens":4105,"cached_input_tokens":56,"cache_write_input_tokens":0,"output_tokens":97,"reasoning_output_tokens":0}}

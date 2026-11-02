@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
-import type { RailContext, Store } from '@agent-rail/storage';
-import { all } from '@agent-rail/storage';
+import type { CrewContext, Store } from '@crewyard/storage';
+import { all } from '@crewyard/storage';
 import { requireSnapshot, type SnapshotRequest } from './freshness.ts';
 import { joinPath, loadPackages, type PackageInfo, type SnapshotFileRow, snapshotFiles } from './manifests.ts';
 import { basenameOf, dirnameOf } from './rules.ts';
@@ -344,7 +344,7 @@ export function traverse(
   return { depths, links, truncated };
 }
 
-export async function dependencyGraph(ctx: RailContext, input: DependencyGraphInput): Promise<DependencyGraphResult> {
+export async function dependencyGraph(ctx: CrewContext, input: DependencyGraphInput): Promise<DependencyGraphResult> {
   const { snapshot, envelope } = await requireSnapshot(ctx, input);
   const model = snapshotModel(ctx.store, snapshot);
   const direction = input.direction ?? 'both';

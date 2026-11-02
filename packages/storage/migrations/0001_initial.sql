@@ -519,7 +519,7 @@ CREATE TABLE integration_queues (
   id TEXT PRIMARY KEY,
   repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
   base_branch TEXT NOT NULL,
-  mode TEXT NOT NULL CHECK (mode IN ('github-managed', 'rail-managed')),
+  mode TEXT NOT NULL CHECK (mode IN ('github-managed', 'crew-managed')),
   paused INTEGER NOT NULL DEFAULT 0,
   capacity INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,

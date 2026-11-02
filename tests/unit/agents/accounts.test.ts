@@ -14,8 +14,8 @@ import {
   routeAgent,
   setProfileHealth,
   testProfile,
-} from '@agent-rail/agents';
-import { addSeconds, nowIso } from '@agent-rail/core';
+} from '@crewyard/agents';
+import { addSeconds, nowIso } from '@crewyard/core';
 import { createTestContext, type TestContext } from '../../helpers/index.ts';
 import { fakeAgentSettings } from './setup.ts';
 

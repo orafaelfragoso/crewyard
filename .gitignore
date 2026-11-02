@@ -3,7 +3,7 @@ dist/
 *.log
 .DS_Store
 coverage/
-.agent-rail/local/
+.crewyard/local/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm

@@ -1,6 +1,6 @@
 # Claude Code adapter
 
-Package: `@agent-rail/provider-claude`. Verified against Claude Code `2.1.316`; requires `2.1.259`+ for
+Package: `@crewyard/provider-claude`. Verified against Claude Code `2.1.316`; requires `2.1.259`+ for
 `--permission-prompts`.
 
 ## Invocation
@@ -30,7 +30,7 @@ Docs: [headless mode](https://code.claude.com/docs/en/headless),
 
 ## Event mapping (`stream-json`)
 
-| Claude message | Agent Rail event |
+| Claude message | Crewyard event |
 |---|---|
 | `system/init` | `started` with `providerSessionId = session_id`; model recorded |
 | `system/api_retry` | `log` (attempt, error category, status) |

@@ -1,9 +1,9 @@
-import { awaitSession, getAgent, startManagedSession } from '@agent-rail/agents';
-import { interfaceFingerprint } from '@agent-rail/context';
-import { type Actor, fingerprint, RailError, type TaskState, toRailError } from '@agent-rail/core';
-import { dependencyGraph, snapshotByCommit } from '@agent-rail/indexing';
-import { createClientFactory, type IntegrationEnv, type TaskHookEvent, type TaskHooks } from '@agent-rail/integration';
-import { loadProjectConfig, primaryRepository } from '@agent-rail/projects';
+import { awaitSession, getAgent, startManagedSession } from '@crewyard/agents';
+import { interfaceFingerprint } from '@crewyard/context';
+import { type Actor, CrewError, fingerprint, type TaskState, toCrewError } from '@crewyard/core';
+import { dependencyGraph, snapshotByCommit } from '@crewyard/indexing';
+import { createClientFactory, type IntegrationEnv, type TaskHookEvent, type TaskHooks } from '@crewyard/integration';
+import { loadProjectConfig, primaryRepository } from '@crewyard/projects';
 import {
   type ContextFingerprintProvider,
   type Reviewer,
@@ -11,15 +11,15 @@ import {
   type ReviewType,
   StaticAnalysisReviewer,
   type StructuredFindings,
-} from '@agent-rail/reviews';
-import { appendEvent, type RailContext } from '@agent-rail/storage';
-import { showTask, transitionTask } from '@agent-rail/tasks';
+} from '@crewyard/reviews';
+import { appendEvent, type CrewContext } from '@crewyard/storage';
+import { showTask, transitionTask } from '@crewyard/tasks';
 import { extractJson, sessionResultText } from './agents.ts';
 
-export const INTEGRATION_ACTOR: Actor = { kind: 'service', id: 'rail-integration' };
+export const INTEGRATION_ACTOR: Actor = { kind: 'service', id: 'crew-integration' };
 
 function advance(
-  ctx: RailContext,
+  ctx: CrewContext,
   taskId: string,
   path: readonly TaskState[],
   reason: string,
@@ -42,7 +42,7 @@ function advance(
           type: 'integration.task_transition_skipped',
           actor: INTEGRATION_ACTOR,
           taskId,
-          payload: { from: state, to, reason, error: toRailError(error).message },
+          payload: { from: state, to, reason, error: toCrewError(error).message },
         }),
       );
       return;
@@ -50,7 +50,7 @@ function advance(
   }
 }
 
-export function taskHooks(ctx: RailContext): TaskHooks {
+export function taskHooks(ctx: CrewContext): TaskHooks {
   const pre = (e: TaskHookEvent): TaskState[] => {
     const state = showTask(ctx, e.taskId).task.state;
     return state === 'SUBMITTED' || state === 'REVIEWING' || state === 'BLOCKED' || state === 'REVISION'
@@ -68,7 +68,7 @@ export function taskHooks(ctx: RailContext): TaskHooks {
   };
 }
 
-export function contextFingerprints(ctx: RailContext): ContextFingerprintProvider {
+export function contextFingerprints(ctx: CrewContext): ContextFingerprintProvider {
   return {
     async interfaceFingerprint(repositoryId, sha, paths) {
       return (await interfaceFingerprint(ctx, { repositoryId, sha, paths: [...paths], onDemand: true })).fingerprint;
@@ -129,10 +129,10 @@ const REVIEW_FOCUS: Record<ReviewType, string> = {
 export class AgentReviewer implements Reviewer {
   readonly identity: string;
   readonly model: string | null;
-  readonly promptVersion = 'rail-review-1';
+  readonly promptVersion = 'crew-review-1';
 
   constructor(
-    private readonly ctx: RailContext,
+    private readonly ctx: CrewContext,
     private readonly agentRef: string,
     private readonly cwd: string,
     private readonly projectId: string,
@@ -169,18 +169,18 @@ export class AgentReviewer implements Reviewer {
     });
     const record = await awaitSession(this.ctx, session.sessionId);
     if (record.state !== 'completed') {
-      throw new RailError(
+      throw new CrewError(
         'EXTERNAL_FAILURE',
         `Review session ${session.sessionId} ended ${record.state}: ${record.errorReason ?? ''}`,
       );
     }
     const text = sessionResultText(this.ctx, session.sessionId);
-    if (!text) throw new RailError('EXTERNAL_FAILURE', `Review session ${session.sessionId} produced no output`);
+    if (!text) throw new CrewError('EXTERNAL_FAILURE', `Review session ${session.sessionId} produced no output`);
     return extractJson(text) as StructuredFindings;
   }
 }
 
-export function reviewersFor(ctx: RailContext, projectId: string): Partial<Record<ReviewType, Reviewer>> {
+export function reviewersFor(ctx: CrewContext, projectId: string): Partial<Record<ReviewType, Reviewer>> {
   const config = loadProjectConfig(ctx, projectId).config;
   const baseline = new StaticAnalysisReviewer();
   const agentName = config.review.reviewer_agent;
@@ -190,8 +190,8 @@ export function reviewersFor(ctx: RailContext, projectId: string): Partial<Recor
   return { code: agent, security: baseline, integration: agent };
 }
 
-export function integrationEnv(ctx: RailContext, overrides: Partial<IntegrationEnv> = {}): IntegrationEnv {
-  const baseUrl = process.env.RAIL_GITHUB_API_URL;
+export function integrationEnv(ctx: CrewContext, overrides: Partial<IntegrationEnv> = {}): IntegrationEnv {
+  const baseUrl = process.env.CREW_GITHUB_API_URL;
   return {
     github: createClientFactory(ctx, baseUrl ? { baseUrl } : {}),
     hooks: taskHooks(ctx),

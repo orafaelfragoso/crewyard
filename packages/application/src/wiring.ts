@@ -4,23 +4,23 @@ import {
   queueTick,
   syncRepository,
   updateQueueEntry,
-} from '@agent-rail/integration';
-import { listProjects, loadProjectConfig, primaryRepository, type Repository } from '@agent-rail/projects';
-import type { RemoteRecovery } from '@agent-rail/recovery';
-import type { RailContext } from '@agent-rail/storage';
+} from '@crewyard/integration';
+import { listProjects, loadProjectConfig, primaryRepository, type Repository } from '@crewyard/projects';
+import type { RemoteRecovery } from '@crewyard/recovery';
+import type { CrewContext } from '@crewyard/storage';
 import type { QueueActions } from './dashboard-actions.ts';
 import { INTEGRATION_ACTOR, integrationEnv } from './integration.ts';
 import { publishTask, tasksAwaitingPublication } from './publish.ts';
 import type { ProjectCycle, ServiceOptions } from './service-loop.ts';
 
 export function hasGitHubRemote(repo: Repository): boolean {
-  return repo.remoteOwner !== null && (repo.remoteHost === 'github.com' || Boolean(process.env.RAIL_GITHUB_API_URL));
+  return repo.remoteOwner !== null && (repo.remoteHost === 'github.com' || Boolean(process.env.CREW_GITHUB_API_URL));
 }
 
 function githubCycle(
   name: string,
-  interval: (ctx: RailContext, projectId: string) => number,
-  body: (ctx: RailContext, repo: Repository, leaderId: string) => Promise<Record<string, unknown>>,
+  interval: (ctx: CrewContext, projectId: string) => number,
+  body: (ctx: CrewContext, repo: Repository, leaderId: string) => Promise<Record<string, unknown>>,
 ): ProjectCycle {
   return {
     name,
@@ -33,10 +33,10 @@ function githubCycle(
   };
 }
 
-export type EnvFactory = (ctx: RailContext) => IntegrationEnv;
+export type EnvFactory = (ctx: CrewContext) => IntegrationEnv;
 
 export function integrationCycles(envFor: EnvFactory = integrationEnv): ProjectCycle[] {
-  const poll = (ctx: RailContext, projectId: string) =>
+  const poll = (ctx: CrewContext, projectId: string) =>
     loadProjectConfig(ctx, projectId).config.integration.poll_interval_seconds;
   const fast = () => 5;
   return [

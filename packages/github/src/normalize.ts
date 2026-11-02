@@ -1,4 +1,4 @@
-import { fingerprint } from '@agent-rail/core';
+import { fingerprint } from '@crewyard/core';
 import { asArray, asBoolean, asNumber, asRecord, asString, field } from './json.ts';
 import type {
   AsyncMergeResult,

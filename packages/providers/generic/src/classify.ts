@@ -1,4 +1,4 @@
-import type { FailureClass } from '@agent-rail/core';
+import type { FailureClass } from '@crewyard/core';
 
 const RULES: readonly [RegExp, FailureClass][] = [
   [/rate[\s_-]?limit|\b429\b|too many requests|quota exceeded|usage limit|insufficient_quota/i, 'rate_limited'],

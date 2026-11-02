@@ -1,5 +1,5 @@
 {
-  "name": "@agent-rail/telemetry",
+  "name": "@crewyard/telemetry",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@agent-rail/core": "workspace:*",
-    "@agent-rail/storage": "workspace:*"
+    "@crewyard/core": "workspace:*",
+    "@crewyard/storage": "workspace:*"
   }
 }

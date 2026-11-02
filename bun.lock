@@ -3,34 +3,34 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "agent-rail",
+      "name": "crewyard",
       "devDependencies": {
-        "@agent-rail/agents": "workspace:*",
-        "@agent-rail/application": "workspace:*",
-        "@agent-rail/cli": "workspace:*",
-        "@agent-rail/config": "workspace:*",
-        "@agent-rail/context": "workspace:*",
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/github": "workspace:*",
-        "@agent-rail/host-installers": "workspace:*",
-        "@agent-rail/indexing": "workspace:*",
-        "@agent-rail/integration": "workspace:*",
-        "@agent-rail/mcp": "workspace:*",
-        "@agent-rail/projects": "workspace:*",
-        "@agent-rail/provider-claude": "workspace:*",
-        "@agent-rail/provider-codex": "workspace:*",
-        "@agent-rail/provider-generic": "workspace:*",
-        "@agent-rail/provider-ollama": "workspace:*",
-        "@agent-rail/provider-opencode": "workspace:*",
-        "@agent-rail/recovery": "workspace:*",
-        "@agent-rail/reviews": "workspace:*",
-        "@agent-rail/scheduler": "workspace:*",
-        "@agent-rail/storage": "workspace:*",
-        "@agent-rail/tasks": "workspace:*",
-        "@agent-rail/telemetry": "workspace:*",
-        "@agent-rail/tui": "workspace:*",
-        "@agent-rail/workspaces": "workspace:*",
         "@biomejs/biome": "2.6.4",
+        "@crewyard/agents": "workspace:*",
+        "@crewyard/application": "workspace:*",
+        "@crewyard/cli": "workspace:*",
+        "@crewyard/config": "workspace:*",
+        "@crewyard/context": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/github": "workspace:*",
+        "@crewyard/host-installers": "workspace:*",
+        "@crewyard/indexing": "workspace:*",
+        "@crewyard/integration": "workspace:*",
+        "@crewyard/mcp": "workspace:*",
+        "@crewyard/projects": "workspace:*",
+        "@crewyard/provider-claude": "workspace:*",
+        "@crewyard/provider-codex": "workspace:*",
+        "@crewyard/provider-generic": "workspace:*",
+        "@crewyard/provider-ollama": "workspace:*",
+        "@crewyard/provider-opencode": "workspace:*",
+        "@crewyard/recovery": "workspace:*",
+        "@crewyard/reviews": "workspace:*",
+        "@crewyard/scheduler": "workspace:*",
+        "@crewyard/storage": "workspace:*",
+        "@crewyard/tasks": "workspace:*",
+        "@crewyard/telemetry": "workspace:*",
+        "@crewyard/tui": "workspace:*",
+        "@crewyard/workspaces": "workspace:*",
         "@modelcontextprotocol/client": "2.4.0",
         "@types/bun": "1.4.4",
         "@types/node": "26.6.6",
@@ -39,109 +39,109 @@
       },
     },
     "apps/cli": {
-      "name": "@agent-rail/cli",
+      "name": "@crewyard/cli",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/application": "workspace:*",
-        "@agent-rail/config": "workspace:*",
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/host-installers": "workspace:*",
-        "@agent-rail/mcp": "workspace:*",
-        "@agent-rail/tui": "workspace:*",
+        "@crewyard/application": "workspace:*",
+        "@crewyard/config": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/host-installers": "workspace:*",
+        "@crewyard/mcp": "workspace:*",
+        "@crewyard/tui": "workspace:*",
         "commander": "15.0.0",
       },
     },
     "apps/mcp": {
-      "name": "@agent-rail/mcp",
+      "name": "@crewyard/mcp",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/application": "workspace:*",
-        "@agent-rail/core": "workspace:*",
+        "@crewyard/application": "workspace:*",
+        "@crewyard/core": "workspace:*",
         "@modelcontextprotocol/server": "2.4.0",
         "zod": "4.6.7",
       },
     },
     "packages/agents": {
-      "name": "@agent-rail/agents",
+      "name": "@crewyard/agents",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/config": "workspace:*",
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/provider-claude": "workspace:*",
-        "@agent-rail/provider-codex": "workspace:*",
-        "@agent-rail/provider-generic": "workspace:*",
-        "@agent-rail/provider-ollama": "workspace:*",
-        "@agent-rail/provider-opencode": "workspace:*",
-        "@agent-rail/storage": "workspace:*",
+        "@crewyard/config": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/provider-claude": "workspace:*",
+        "@crewyard/provider-codex": "workspace:*",
+        "@crewyard/provider-generic": "workspace:*",
+        "@crewyard/provider-ollama": "workspace:*",
+        "@crewyard/provider-opencode": "workspace:*",
+        "@crewyard/storage": "workspace:*",
       },
     },
     "packages/application": {
-      "name": "@agent-rail/application",
+      "name": "@crewyard/application",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/agents": "workspace:*",
-        "@agent-rail/config": "workspace:*",
-        "@agent-rail/context": "workspace:*",
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/github": "workspace:*",
-        "@agent-rail/host-installers": "workspace:*",
-        "@agent-rail/indexing": "workspace:*",
-        "@agent-rail/integration": "workspace:*",
-        "@agent-rail/projects": "workspace:*",
-        "@agent-rail/recovery": "workspace:*",
-        "@agent-rail/reviews": "workspace:*",
-        "@agent-rail/scheduler": "workspace:*",
-        "@agent-rail/storage": "workspace:*",
-        "@agent-rail/tasks": "workspace:*",
-        "@agent-rail/telemetry": "workspace:*",
-        "@agent-rail/tui": "workspace:*",
-        "@agent-rail/workspaces": "workspace:*",
+        "@crewyard/agents": "workspace:*",
+        "@crewyard/config": "workspace:*",
+        "@crewyard/context": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/github": "workspace:*",
+        "@crewyard/host-installers": "workspace:*",
+        "@crewyard/indexing": "workspace:*",
+        "@crewyard/integration": "workspace:*",
+        "@crewyard/projects": "workspace:*",
+        "@crewyard/recovery": "workspace:*",
+        "@crewyard/reviews": "workspace:*",
+        "@crewyard/scheduler": "workspace:*",
+        "@crewyard/storage": "workspace:*",
+        "@crewyard/tasks": "workspace:*",
+        "@crewyard/telemetry": "workspace:*",
+        "@crewyard/tui": "workspace:*",
+        "@crewyard/workspaces": "workspace:*",
       },
     },
     "packages/config": {
-      "name": "@agent-rail/config",
+      "name": "@crewyard/config",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/core": "workspace:*",
+        "@crewyard/core": "workspace:*",
         "yaml": "2.9.1",
         "zod": "4.6.7",
       },
     },
     "packages/context": {
-      "name": "@agent-rail/context",
+      "name": "@crewyard/context",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/config": "workspace:*",
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/indexing": "workspace:*",
-        "@agent-rail/storage": "workspace:*",
+        "@crewyard/config": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/indexing": "workspace:*",
+        "@crewyard/storage": "workspace:*",
       },
     },
     "packages/core": {
-      "name": "@agent-rail/core",
+      "name": "@crewyard/core",
       "version": "1.0.0",
     },
     "packages/github": {
-      "name": "@agent-rail/github",
+      "name": "@crewyard/github",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/core": "workspace:*",
+        "@crewyard/core": "workspace:*",
       },
     },
     "packages/host-installers": {
-      "name": "@agent-rail/host-installers",
+      "name": "@crewyard/host-installers",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/core": "workspace:*",
+        "@crewyard/core": "workspace:*",
       },
     },
     "packages/indexing": {
-      "name": "@agent-rail/indexing",
+      "name": "@crewyard/indexing",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/config": "workspace:*",
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/storage": "workspace:*",
+        "@crewyard/config": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/storage": "workspace:*",
         "tree-sitter-javascript": "0.25.0",
         "tree-sitter-python": "0.25.0",
         "tree-sitter-rust": "0.24.0",
@@ -150,193 +150,143 @@
       },
     },
     "packages/integration": {
-      "name": "@agent-rail/integration",
+      "name": "@crewyard/integration",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/config": "workspace:*",
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/github": "workspace:*",
-        "@agent-rail/projects": "workspace:*",
-        "@agent-rail/reviews": "workspace:*",
-        "@agent-rail/storage": "workspace:*",
+        "@crewyard/config": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/github": "workspace:*",
+        "@crewyard/projects": "workspace:*",
+        "@crewyard/reviews": "workspace:*",
+        "@crewyard/storage": "workspace:*",
       },
     },
     "packages/projects": {
-      "name": "@agent-rail/projects",
+      "name": "@crewyard/projects",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/config": "workspace:*",
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/storage": "workspace:*",
+        "@crewyard/config": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/storage": "workspace:*",
       },
     },
     "packages/providers/claude": {
-      "name": "@agent-rail/provider-claude",
+      "name": "@crewyard/provider-claude",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/provider-generic": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/provider-generic": "workspace:*",
       },
     },
     "packages/providers/codex": {
-      "name": "@agent-rail/provider-codex",
+      "name": "@crewyard/provider-codex",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/provider-generic": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/provider-generic": "workspace:*",
       },
     },
     "packages/providers/generic": {
-      "name": "@agent-rail/provider-generic",
+      "name": "@crewyard/provider-generic",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/core": "workspace:*",
+        "@crewyard/core": "workspace:*",
       },
     },
     "packages/providers/ollama": {
-      "name": "@agent-rail/provider-ollama",
+      "name": "@crewyard/provider-ollama",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/provider-generic": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/provider-generic": "workspace:*",
       },
     },
     "packages/providers/opencode": {
-      "name": "@agent-rail/provider-opencode",
+      "name": "@crewyard/provider-opencode",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/provider-generic": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/provider-generic": "workspace:*",
       },
     },
     "packages/recovery": {
-      "name": "@agent-rail/recovery",
+      "name": "@crewyard/recovery",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/agents": "workspace:*",
-        "@agent-rail/config": "workspace:*",
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/integration": "workspace:*",
-        "@agent-rail/storage": "workspace:*",
-        "@agent-rail/tasks": "workspace:*",
-        "@agent-rail/workspaces": "workspace:*",
+        "@crewyard/agents": "workspace:*",
+        "@crewyard/config": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/integration": "workspace:*",
+        "@crewyard/storage": "workspace:*",
+        "@crewyard/tasks": "workspace:*",
+        "@crewyard/workspaces": "workspace:*",
       },
     },
     "packages/reviews": {
-      "name": "@agent-rail/reviews",
+      "name": "@crewyard/reviews",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/config": "workspace:*",
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/storage": "workspace:*",
+        "@crewyard/config": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/storage": "workspace:*",
       },
     },
     "packages/scheduler": {
-      "name": "@agent-rail/scheduler",
+      "name": "@crewyard/scheduler",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/config": "workspace:*",
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/storage": "workspace:*",
-        "@agent-rail/tasks": "workspace:*",
+        "@crewyard/config": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/storage": "workspace:*",
+        "@crewyard/tasks": "workspace:*",
       },
     },
     "packages/storage": {
-      "name": "@agent-rail/storage",
+      "name": "@crewyard/storage",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/core": "workspace:*",
+        "@crewyard/core": "workspace:*",
       },
     },
     "packages/tasks": {
-      "name": "@agent-rail/tasks",
+      "name": "@crewyard/tasks",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/config": "workspace:*",
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/storage": "workspace:*",
+        "@crewyard/config": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/storage": "workspace:*",
       },
     },
     "packages/telemetry": {
-      "name": "@agent-rail/telemetry",
+      "name": "@crewyard/telemetry",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/storage": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/storage": "workspace:*",
       },
     },
     "packages/tui": {
-      "name": "@agent-rail/tui",
+      "name": "@crewyard/tui",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/storage": "workspace:*",
-        "@agent-rail/telemetry": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/storage": "workspace:*",
+        "@crewyard/telemetry": "workspace:*",
         "ink": "8.0.0",
         "react": "19.3.1",
       },
     },
     "packages/workspaces": {
-      "name": "@agent-rail/workspaces",
+      "name": "@crewyard/workspaces",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/config": "workspace:*",
-        "@agent-rail/core": "workspace:*",
-        "@agent-rail/storage": "workspace:*",
+        "@crewyard/config": "workspace:*",
+        "@crewyard/core": "workspace:*",
+        "@crewyard/storage": "workspace:*",
       },
     },
   },
   "packages": {
-    "@agent-rail/agents": ["@agent-rail/agents@workspace:packages/agents"],
-
-    "@agent-rail/application": ["@agent-rail/application@workspace:packages/application"],
-
-    "@agent-rail/cli": ["@agent-rail/cli@workspace:apps/cli"],
-
-    "@agent-rail/config": ["@agent-rail/config@workspace:packages/config"],
-
-    "@agent-rail/context": ["@agent-rail/context@workspace:packages/context"],
-
-    "@agent-rail/core": ["@agent-rail/core@workspace:packages/core"],
-
-    "@agent-rail/github": ["@agent-rail/github@workspace:packages/github"],
-
-    "@agent-rail/host-installers": ["@agent-rail/host-installers@workspace:packages/host-installers"],
-
-    "@agent-rail/indexing": ["@agent-rail/indexing@workspace:packages/indexing"],
-
-    "@agent-rail/integration": ["@agent-rail/integration@workspace:packages/integration"],
-
-    "@agent-rail/mcp": ["@agent-rail/mcp@workspace:apps/mcp"],
-
-    "@agent-rail/projects": ["@agent-rail/projects@workspace:packages/projects"],
-
-    "@agent-rail/provider-claude": ["@agent-rail/provider-claude@workspace:packages/providers/claude"],
-
-    "@agent-rail/provider-codex": ["@agent-rail/provider-codex@workspace:packages/providers/codex"],
-
-    "@agent-rail/provider-generic": ["@agent-rail/provider-generic@workspace:packages/providers/generic"],
-
-    "@agent-rail/provider-ollama": ["@agent-rail/provider-ollama@workspace:packages/providers/ollama"],
-
-    "@agent-rail/provider-opencode": ["@agent-rail/provider-opencode@workspace:packages/providers/opencode"],
-
-    "@agent-rail/recovery": ["@agent-rail/recovery@workspace:packages/recovery"],
-
-    "@agent-rail/reviews": ["@agent-rail/reviews@workspace:packages/reviews"],
-
-    "@agent-rail/scheduler": ["@agent-rail/scheduler@workspace:packages/scheduler"],
-
-    "@agent-rail/storage": ["@agent-rail/storage@workspace:packages/storage"],
-
-    "@agent-rail/tasks": ["@agent-rail/tasks@workspace:packages/tasks"],
-
-    "@agent-rail/telemetry": ["@agent-rail/telemetry@workspace:packages/telemetry"],
-
-    "@agent-rail/tui": ["@agent-rail/tui@workspace:packages/tui"],
-
-    "@agent-rail/workspaces": ["@agent-rail/workspaces@workspace:packages/workspaces"],
-
     "@alcalzone/ansi-tokenize": ["@alcalzone/ansi-tokenize@0.3.1", "", { "dependencies": { "ansi-styles": "^6.2.1", "is-fullwidth-code-point": "^5.0.0" } }, "sha512-cUD0PT0YX+rImRhfn7BfMRduP/tX/Zqt/N0dHlAyn2RlcJssCb5KsCJkhln61eh9vuJDkH8wKn3L8zJzzWXPFg=="],
 
     "@biomejs/biome": ["@biomejs/biome@2.6.4", "", { "optionalDependencies": { "@biomejs/cli-android-arm64": "2.6.4", "@biomejs/cli-android-x64": "2.6.4", "@biomejs/cli-darwin-arm64": "2.6.4", "@biomejs/cli-darwin-x64": "2.6.4", "@biomejs/cli-linux-arm64": "2.6.4", "@biomejs/cli-linux-arm64-musl": "2.6.4", "@biomejs/cli-linux-x64": "2.6.4", "@biomejs/cli-linux-x64-musl": "2.6.4", "@biomejs/cli-win32-arm64": "2.6.4", "@biomejs/cli-win32-x64": "2.6.4" }, "bin": { "biome": "bin/biome" } }, "sha512-8sKKwaNW4ot22awZ3lBjwWLHnUFXgXnrBPYS2gNlBAXRbDC++7kqjK2H7dR/FgCDtPvO1xfKpgEhJkGxAKYkxA=="],
@@ -360,6 +310,56 @@
     "@biomejs/cli-win32-arm64": ["@biomejs/cli-win32-arm64@2.6.4", "", { "os": "win32", "cpu": "arm64" }, "sha512-eCsqt8Ma3eVap+oyJCDnJZH60SIU464B66n3y38EUTJdM1T/HfZol1FJC9vb+sHToX0ix8XzqPcwJnOzyAJz0g=="],
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.6.4", "", { "os": "win32", "cpu": "x64" }, "sha512-pYsMy5AThiHFOZAsngg8qN4PurM6nInKBhVX7sbj3eNpRQqo1Hb0MgCwPL7VqVMrmcEEMj9Ks3qbkallR65e8g=="],
+
+    "@crewyard/agents": ["@crewyard/agents@workspace:packages/agents"],
+
+    "@crewyard/application": ["@crewyard/application@workspace:packages/application"],
+
+    "@crewyard/cli": ["@crewyard/cli@workspace:apps/cli"],
+
+    "@crewyard/config": ["@crewyard/config@workspace:packages/config"],
+
+    "@crewyard/context": ["@crewyard/context@workspace:packages/context"],
+
+    "@crewyard/core": ["@crewyard/core@workspace:packages/core"],
+
+    "@crewyard/github": ["@crewyard/github@workspace:packages/github"],
+
+    "@crewyard/host-installers": ["@crewyard/host-installers@workspace:packages/host-installers"],
+
+    "@crewyard/indexing": ["@crewyard/indexing@workspace:packages/indexing"],
+
+    "@crewyard/integration": ["@crewyard/integration@workspace:packages/integration"],
+
+    "@crewyard/mcp": ["@crewyard/mcp@workspace:apps/mcp"],
+
+    "@crewyard/projects": ["@crewyard/projects@workspace:packages/projects"],
+
+    "@crewyard/provider-claude": ["@crewyard/provider-claude@workspace:packages/providers/claude"],
+
+    "@crewyard/provider-codex": ["@crewyard/provider-codex@workspace:packages/providers/codex"],
+
+    "@crewyard/provider-generic": ["@crewyard/provider-generic@workspace:packages/providers/generic"],
+
+    "@crewyard/provider-ollama": ["@crewyard/provider-ollama@workspace:packages/providers/ollama"],
+
+    "@crewyard/provider-opencode": ["@crewyard/provider-opencode@workspace:packages/providers/opencode"],
+
+    "@crewyard/recovery": ["@crewyard/recovery@workspace:packages/recovery"],
+
+    "@crewyard/reviews": ["@crewyard/reviews@workspace:packages/reviews"],
+
+    "@crewyard/scheduler": ["@crewyard/scheduler@workspace:packages/scheduler"],
+
+    "@crewyard/storage": ["@crewyard/storage@workspace:packages/storage"],
+
+    "@crewyard/tasks": ["@crewyard/tasks@workspace:packages/tasks"],
+
+    "@crewyard/telemetry": ["@crewyard/telemetry@workspace:packages/telemetry"],
+
+    "@crewyard/tui": ["@crewyard/tui@workspace:packages/tui"],
+
+    "@crewyard/workspaces": ["@crewyard/workspaces@workspace:packages/workspaces"],
 
     "@modelcontextprotocol/client": ["@modelcontextprotocol/client@2.4.0", "", { "dependencies": { "@modelcontextprotocol/core": "2.4.0", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.8", "jose": "^6.1.3", "pkce-challenge": "^5.0.0", "zod": "^4.2.0" } }, "sha512-LgrD2OphHuG12vfKFKz6SOnq7bKHQmhGJIAYdD+MZBn2npHEyry6uD8zvktodtl5CQM85MO0anUyD9JwmUmxww=="],
 

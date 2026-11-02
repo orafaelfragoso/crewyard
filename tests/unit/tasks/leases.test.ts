@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { RailError } from '@agent-rail/core';
+import { CrewError } from '@crewyard/core';
 import {
   addTask,
   claimTask,
@@ -18,7 +18,7 @@ import {
   startTask,
   submitWork,
   transitionTask,
-} from '@agent-rail/tasks';
+} from '@crewyard/tasks';
 import { createTestContext, ManualClock, type TestContext } from '../../helpers/index.ts';
 import { agent, operator, seedProject, testConfig } from './fixtures.ts';
 
@@ -27,14 +27,14 @@ afterEach(() => ctx?.cleanup());
 
 const config = testConfig();
 
-function errorOf(fn: () => unknown): RailError {
+function errorOf(fn: () => unknown): CrewError {
   try {
     fn();
   } catch (error) {
-    if (error instanceof RailError) return error;
+    if (error instanceof CrewError) return error;
     throw error;
   }
-  throw new Error('expected a RailError');
+  throw new Error('expected a CrewError');
 }
 
 function setup(clock = new ManualClock()) {
@@ -52,7 +52,7 @@ describe('leases', () => {
     const task = add('one');
     const claim = claimTask(c, { taskId: task.id, holder: agent('a1'), config });
     expect(claim.generation).toBe(1);
-    expect(claim.token).toStartWith('rail_');
+    expect(claim.token).toStartWith('crew_');
     expect(JSON.stringify(showTask(c, task.id))).not.toContain(claim.token);
     expect(errorOf(() => claimTask(c, { taskId: task.id, holder: agent('a2'), config })).code).toBe('LEASE_CONFLICT');
 

@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
-import { type Actor, nowIso, RailError, type Risk } from '@agent-rail/core';
-import { all, one, parseJson, type RailContext, recordTransition, toJson } from '@agent-rail/storage';
+import { type Actor, CrewError, nowIso, type Risk } from '@crewyard/core';
+import { all, type CrewContext, one, parseJson, recordTransition, toJson } from '@crewyard/storage';
 import {
   ACTIVE_ENTRY_STATUSES,
   type Blocker,
@@ -106,8 +106,8 @@ export function pullRequestByNumber(db: Database, repositoryId: string, number: 
 export function requirePullRequest(db: Database, id: string): PullRequestRecord {
   const pr = pullRequestById(db, id);
   if (!pr) {
-    throw new RailError('NOT_FOUND', `Pull request not found: ${id}`, {
-      suggestion: 'Run `rail pr sync` or `rail pr import` first.',
+    throw new CrewError('NOT_FOUND', `Pull request not found: ${id}`, {
+      suggestion: 'Run `crew pr sync` or `crew pr import` first.',
     });
   }
   return pr;
@@ -339,7 +339,7 @@ export function invalidateCandidatesInTx(
 }
 
 export function listPullRequests(
-  ctx: RailContext,
+  ctx: CrewContext,
   filter: { repositoryId?: string; state?: 'open' | 'closed' | 'merged'; taskId?: string; limit?: number } = {},
 ): PullRequestRecord[] {
   const where: string[] = [];
@@ -363,7 +363,7 @@ export function listPullRequests(
 }
 
 export function showPullRequest(
-  ctx: RailContext,
+  ctx: CrewContext,
   selector: { prId: string } | { repositoryId: string; number: number },
 ): PullRequestRecord {
   const pr =
@@ -371,15 +371,15 @@ export function showPullRequest(
       ? pullRequestById(ctx.store.db, selector.prId)
       : pullRequestByNumber(ctx.store.db, selector.repositoryId, selector.number);
   if (!pr) {
-    throw new RailError('NOT_FOUND', 'Pull request not found', {
-      suggestion: 'Run `rail pr sync` or `rail pr import` first.',
+    throw new CrewError('NOT_FOUND', 'Pull request not found', {
+      suggestion: 'Run `crew pr sync` or `crew pr import` first.',
     });
   }
   return pr;
 }
 
 export function setExpectedRemoteHead(
-  ctx: RailContext,
+  ctx: CrewContext,
   prId: string,
   headSha: string,
   actor: Actor,
@@ -398,7 +398,7 @@ export function setExpectedRemoteHead(
   });
 }
 
-export function acknowledgeDivergence(ctx: RailContext, prId: string, actor: Actor): PullRequestRecord {
+export function acknowledgeDivergence(ctx: CrewContext, prId: string, actor: Actor): PullRequestRecord {
   const at = nowIso(ctx.clock);
   return ctx.store.immediate((db) => {
     const pr = requirePullRequest(db, prId);
@@ -422,11 +422,11 @@ export function acknowledgeDivergence(ctx: RailContext, prId: string, actor: Act
 }
 
 export function setPullRequestDependency(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: { prId: string; dependsOnPrId: string; kind?: 'stack_parent' | 'task_dependency' },
   actor: Actor,
 ): void {
-  if (input.prId === input.dependsOnPrId) throw new RailError('CYCLE_DETECTED', 'A PR cannot depend on itself');
+  if (input.prId === input.dependsOnPrId) throw new CrewError('CYCLE_DETECTED', 'A PR cannot depend on itself');
   const at = nowIso(ctx.clock);
   ctx.store.immediate((db) => {
     requirePullRequest(db, input.prId);
@@ -435,7 +435,7 @@ export function setPullRequestDependency(
     const stack = [input.dependsOnPrId];
     while (stack.length > 0) {
       const current = stack.pop()!;
-      if (current === input.prId) throw new RailError('CYCLE_DETECTED', 'PR dependency would create a cycle');
+      if (current === input.prId) throw new CrewError('CYCLE_DETECTED', 'PR dependency would create a cycle');
       if (seen.has(current)) continue;
       seen.add(current);
       for (const row of all<{ depends_on_pr_id: string }>(

@@ -1,5 +1,5 @@
-import type { ConfidenceTier } from '@agent-rail/core';
-import { fingerprint, newId, nowIso } from '@agent-rail/core';
+import type { ConfidenceTier } from '@crewyard/core';
+import { fingerprint, newId, nowIso } from '@crewyard/core';
 import {
   findSymbol,
   isTestPath,
@@ -10,8 +10,8 @@ import {
   SYNTAX_NOTE,
   snapshotModel,
   traverse,
-} from '@agent-rail/indexing';
-import { all, parseJson, type RailContext } from '@agent-rail/storage';
+} from '@crewyard/indexing';
+import { all, type CrewContext, parseJson } from '@crewyard/storage';
 
 export const IMPACT_DISCLAIMER =
   'Impact analysis is derived from syntax-level imports, symbol names and naming conventions at this commit. ' +
@@ -181,7 +181,7 @@ function modulesFor(model: SnapshotModel, changed: readonly ChangedFile[]): Touc
   return [...modules.values()];
 }
 
-export async function analyzeImpact(ctx: RailContext, input: ImpactInput): Promise<ImpactReport> {
+export async function analyzeImpact(ctx: CrewContext, input: ImpactInput): Promise<ImpactReport> {
   const { repo, snapshot, envelope } = await requireSnapshot(ctx, input);
   const model = snapshotModel(ctx.store, snapshot);
   const changed = new Map<string, ChangedFile>();
@@ -382,7 +382,7 @@ export interface InterfaceFingerprint extends ResultEnvelope {
 }
 
 export async function interfaceFingerprint(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: InterfaceFingerprintInput,
 ): Promise<InterfaceFingerprint> {
   const { snapshot, envelope } = await requireSnapshot(ctx, input);

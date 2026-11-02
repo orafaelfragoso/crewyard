@@ -1,5 +1,5 @@
 {
-  "name": "@agent-rail/cli",
+  "name": "@crewyard/cli",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,12 +9,12 @@
     ".": "./src/main.ts"
   },
   "dependencies": {
-    "@agent-rail/core": "workspace:*",
-    "@agent-rail/config": "workspace:*",
-    "@agent-rail/application": "workspace:*",
-    "@agent-rail/tui": "workspace:*",
-    "@agent-rail/host-installers": "workspace:*",
-    "@agent-rail/mcp": "workspace:*",
+    "@crewyard/core": "workspace:*",
+    "@crewyard/config": "workspace:*",
+    "@crewyard/application": "workspace:*",
+    "@crewyard/tui": "workspace:*",
+    "@crewyard/host-installers": "workspace:*",
+    "@crewyard/mcp": "workspace:*",
     "commander": "15.0.0"
   }
 }

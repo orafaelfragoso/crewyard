@@ -1,9 +1,9 @@
-import { resolveDirs } from '@agent-rail/core';
-import { appendEvent, openRailStore } from '@agent-rail/storage';
+import { resolveDirs } from '@crewyard/core';
+import { appendEvent, openCrewStore } from '@crewyard/storage';
 
 const [dataDir, runId] = process.argv.slice(2);
-const store = openRailStore({
-  dirs: resolveDirs({ RAIL_DATA_DIR: dataDir! } as NodeJS.ProcessEnv),
+const store = openCrewStore({
+  dirs: resolveDirs({ CREW_DATA_DIR: dataDir! } as NodeJS.ProcessEnv),
   durability: 'full',
 });
 for (let i = 0; ; i++) {

@@ -1,5 +1,5 @@
-import type { RailConfig } from '@agent-rail/config';
-import type { Risk } from '@agent-rail/core';
+import type { CrewConfig } from '@crewyard/config';
+import type { Risk } from '@crewyard/core';
 import type { ApprovalClass } from './model.ts';
 import { isResourceScope } from './scopes.ts';
 
@@ -36,7 +36,7 @@ const RESOURCE_CLASSES: readonly { pattern: RegExp; class: ApprovalClass }[] = [
   { pattern: /^(deploy|deployment|infra|ci):/i, class: 'deployment-config' },
 ];
 
-const PROBE = '__rail_probe__';
+const PROBE = '__crew_probe__';
 
 function probePath(scope: string): string {
   return scope
@@ -52,7 +52,7 @@ function isApprovalClass(name: string): name is ApprovalClass {
   return (APPROVAL_CLASS_ORDER as readonly string[]).includes(name);
 }
 
-export function classifyRisk(input: RiskClassificationInput, config: RailConfig): RiskClassification {
+export function classifyRisk(input: RiskClassificationInput, config: CrewConfig): RiskClassification {
   const matches: RiskMatch[] = [];
   const seen = new Set<string>();
   const add = (match: RiskMatch) => {

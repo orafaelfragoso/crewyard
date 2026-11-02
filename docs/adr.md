@@ -1,6 +1,6 @@
 # Architecture decision records
 
-The twelve decisions behind Agent Rail v1.0. Each is accepted; superseding one requires a new ADR.
+The twelve decisions behind Crewyard v1.0. Each is accepted; superseding one requires a new ADR.
 
 ## ADR-001: Bun and TypeScript across core and interfaces
 
@@ -18,7 +18,7 @@ The twelve decisions behind Agent Rail v1.0. Each is accepted; superseding one r
 
 ## ADR-003: MCP over stdio is the required transport
 
-- **Decision:** `rail mcp` speaks MCP over stdio, one instance per host session.
+- **Decision:** `crew mcp` speaks MCP over stdio, one instance per host session.
 - **Why:** Works with local agent hosts without exposing any network service.
 - **Consequences:** Protocol output goes only to stdout. Concurrent instances coordinate through the database. Remote MCP transports are future extensions.
 
@@ -48,7 +48,7 @@ The twelve decisions behind Agent Rail v1.0. Each is accepted; superseding one r
 
 ## ADR-008: Optional resident service
 
-- **Decision:** CLI and MCP work without a daemon. Continuous processing requires `rail service run` or an installed user service.
+- **Decision:** CLI and MCP work without a daemon. Continuous processing requires `crew service run` or an installed user service.
 - **Why:** Keep installation and CLI/MCP use simple.
 - **Consequences:** The UI and docs state clearly when no worker is running.
 

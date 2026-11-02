@@ -1,4 +1,4 @@
-import { type Actor, git, nowIso, RailError } from '@agent-rail/core';
+import { type Actor, CrewError, git, nowIso } from '@crewyard/core';
 import {
   type IntegrationEnv,
   listPullRequests,
@@ -6,11 +6,11 @@ import {
   requestIntegration,
   requestPullRequestReview,
   submitPullRequest,
-} from '@agent-rail/integration';
-import { getProject, loadProjectConfig, primaryRepository } from '@agent-rail/projects';
-import { one, type RailContext, recordRemoteOperation, recordTransition } from '@agent-rail/storage';
-import { listApprovals, requestApprovalInTx, showTask, transitionTask } from '@agent-rail/tasks';
-import { collectCommits, getWorkspace, listWorkspaces, setExpectedRemoteHead } from '@agent-rail/workspaces';
+} from '@crewyard/integration';
+import { getProject, loadProjectConfig, primaryRepository } from '@crewyard/projects';
+import { type CrewContext, one, recordRemoteOperation, recordTransition } from '@crewyard/storage';
+import { listApprovals, requestApprovalInTx, showTask, transitionTask } from '@crewyard/tasks';
+import { collectCommits, getWorkspace, listWorkspaces, setExpectedRemoteHead } from '@crewyard/workspaces';
 import { contextFingerprints, integrationEnv, reviewersFor } from './integration.ts';
 
 export interface PublishResult {
@@ -31,7 +31,7 @@ async function remoteBranchHead(cwd: string, branch: string): Promise<string | n
     timeoutMs: 60_000,
   });
   if (result.exitCode !== 0) {
-    throw new RailError('OFFLINE', `Cannot reach origin: ${result.stderr.trim().slice(0, 300)}`, { retryable: true });
+    throw new CrewError('OFFLINE', `Cannot reach origin: ${result.stderr.trim().slice(0, 300)}`, { retryable: true });
   }
   return result.stdout.trim().split(/\s+/)[0] || null;
 }
@@ -41,7 +41,7 @@ async function isAncestor(cwd: string, ancestor: string, descendant: string): Pr
 }
 
 function assertPublishAllowed(
-  ctx: RailContext,
+  ctx: CrewContext,
   projectId: string,
   taskId: string,
   headSha: string,
@@ -49,7 +49,10 @@ function assertPublishAllowed(
 ): void {
   const project = getProject(ctx, projectId);
   if (project.autonomy === 'observe') {
-    throw new RailError('POLICY_DENIED', 'Project is in observe mode: Rail does not publish branches or pull requests');
+    throw new CrewError(
+      'POLICY_DENIED',
+      'Project is in observe mode: Crewyard does not publish branches or pull requests',
+    );
   }
   if (project.autonomy !== 'assisted' || actor.kind === 'operator') return;
   const subjectId = `${taskId}@${headSha}`;
@@ -68,15 +71,15 @@ function assertPublishAllowed(
       nowIso(ctx.clock),
     ),
   );
-  throw new RailError('APPROVAL_REQUIRED', `Assisted mode: an operator must approve publishing ${taskId}`, {
-    suggestion: `rail pr submit --task ${taskId} (as operator) or approve the pending pr_publish request.`,
+  throw new CrewError('APPROVAL_REQUIRED', `Assisted mode: an operator must approve publishing ${taskId}`, {
+    suggestion: `crew pr submit --task ${taskId} (as operator) or approve the pending pr_publish request.`,
   });
 }
 
 function prBody(task: ReturnType<typeof showTask>['task']): string {
   const h = task.handoff;
   return [
-    `Rail task **${task.id}**: ${task.objective || task.title}`,
+    `Crewyard task **${task.id}**: ${task.objective || task.title}`,
     '',
     '### Acceptance criteria',
     ...task.acceptanceCriteria.map((c) => `- [ ] ${c}`),
@@ -92,23 +95,23 @@ function prBody(task: ReturnType<typeof showTask>['task']): string {
       : []),
     ...(h?.remainingIssues?.length ? ['', '### Remaining issues', ...h.remainingIssues.map((i) => `- ${i}`)] : []),
     '',
-    '_Opened by Agent Rail. GitHub branch protections and required checks remain authoritative._',
+    '_Opened by Crewyard. GitHub branch protections and required checks remain authoritative._',
   ].join('\n');
 }
 
 export async function publishTask(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: { taskId: string; actor: Actor; leaderId: string; env?: IntegrationEnv; review?: boolean; enqueue?: boolean },
 ): Promise<PublishResult> {
   const task = showTask(ctx, input.taskId).task;
   if (!['SUBMITTED', 'REVIEWING', 'REVISION', 'BLOCKED'].includes(task.state)) {
-    throw new RailError('INVALID_TRANSITION', `${task.id} is ${task.state}; only handed-off work can be published`);
+    throw new CrewError('INVALID_TRANSITION', `${task.id} is ${task.state}; only handed-off work can be published`);
   }
   const workspace = listWorkspaces(ctx, { taskId: task.id }).find((w) => w.state !== 'cleaned');
-  if (!workspace) throw new RailError('NOT_FOUND', `${task.id} has no workspace to publish`);
+  if (!workspace) throw new CrewError('NOT_FOUND', `${task.id} has no workspace to publish`);
   const commits = await collectCommits(ctx, workspace.id);
   if (commits.commits.length === 0)
-    throw new RailError('INVALID_INPUT', `${task.id} has no commits on ${workspace.branch}`);
+    throw new CrewError('INVALID_INPUT', `${task.id} has no commits on ${workspace.branch}`);
   const headSha = commits.headSha;
   assertPublishAllowed(ctx, task.projectId, task.id, headSha, input.actor);
   const repo = primaryRepository(ctx, task.projectId);
@@ -121,12 +124,12 @@ export async function publishTask(
   let pushed = false;
   if (remoteHead !== headSha) {
     if (remoteHead && remoteHead !== expected && !(await isAncestor(workspace.path, remoteHead, headSha))) {
-      throw new RailError(
+      throw new CrewError(
         'HEAD_MISMATCH',
-        `origin/${workspace.branch} moved to ${remoteHead.slice(0, 12)} outside Rail`,
+        `origin/${workspace.branch} moved to ${remoteHead.slice(0, 12)} outside Crewyard`,
         {
           details: { remoteHead, expected, local: headSha },
-          suggestion: 'Inspect the external change; Rail never force-pushes over it.',
+          suggestion: 'Inspect the external change; Crewyard never force-pushes over it.',
         },
       );
     }
@@ -152,7 +155,7 @@ export async function publishTask(
     if (push.exitCode !== 0) {
       const confirmed = await remoteBranchHead(workspace.path, workspace.branch).catch(() => null);
       if (confirmed !== headSha) {
-        throw new RailError('EXTERNAL_FAILURE', `git push failed: ${push.stderr.trim().slice(0, 500)}`, {
+        throw new CrewError('EXTERNAL_FAILURE', `git push failed: ${push.stderr.trim().slice(0, 500)}`, {
           retryable: true,
         });
       }
@@ -254,7 +257,7 @@ export async function publishTask(
   };
 }
 
-export function tasksAwaitingPublication(ctx: RailContext, projectId: string): string[] {
+export function tasksAwaitingPublication(ctx: CrewContext, projectId: string): string[] {
   return (
     ctx.store.db
       .query(
@@ -266,6 +269,6 @@ export function tasksAwaitingPublication(ctx: RailContext, projectId: string): s
   ).map((r) => r.id);
 }
 
-export function hasOpenPr(ctx: RailContext, taskId: string): boolean {
+export function hasOpenPr(ctx: CrewContext, taskId: string): boolean {
   return one(ctx.store.db, `SELECT 1 FROM pull_requests WHERE task_id = ? AND state = 'open'`, taskId) !== null;
 }

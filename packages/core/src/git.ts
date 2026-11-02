@@ -1,4 +1,4 @@
-import { RailError } from './errors.ts';
+import { CrewError } from './errors.ts';
 import { type RunResult, run } from './process.ts';
 
 const GIT_ENV_KEYS = ['PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'LANG', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM'];
@@ -33,7 +33,7 @@ export async function git(cwd: string, args: readonly string[], options: GitOpti
     ...(options.input === undefined ? {} : { input: options.input }),
   });
   if (result.exitCode !== 0 && !options.allowFailure) {
-    throw new RailError('EXTERNAL_FAILURE', `git ${args[0]} failed: ${result.stderr.trim().slice(0, 500)}`, {
+    throw new CrewError('EXTERNAL_FAILURE', `git ${args[0]} failed: ${result.stderr.trim().slice(0, 500)}`, {
       details: { args: args.slice(0, 6), exitCode: result.exitCode },
       retryable: false,
     });

@@ -1,12 +1,12 @@
 import {
+  CrewService,
   defaultServiceOptions,
   installServiceUnit,
-  RailService,
   serviceStatus,
   startService,
   stopService,
   uninstallServiceUnit,
-} from '@agent-rail/application';
+} from '@crewyard/application';
 import type { Command } from 'commander';
 import { confirm, emit, keyValues } from '../output.ts';
 import { action, withMutationOptions } from '../program.ts';
@@ -22,7 +22,7 @@ export function registerServiceCommands(program: Command): void {
     .option('--no-dispatch', 'do not launch agent sessions (sync, queue and recovery only)')
     .action(
       action(async (ctx, opts) => {
-        const svc = new RailService(ctx, {
+        const svc = new CrewService(ctx, {
           ...defaultServiceOptions(),
           ...(opts.tick ? { tickSeconds: Number(opts.tick) } : {}),
           dispatch: opts.dispatch !== false,
@@ -30,7 +30,7 @@ export function registerServiceCommands(program: Command): void {
         const shutdown = () => void svc.stop().then(() => process.exit(0));
         process.once('SIGTERM', shutdown);
         process.once('SIGINT', shutdown);
-        process.stderr.write(`agent-rail service ${svc.workerId} running (pid ${process.pid})\n`);
+        process.stderr.write(`crewyard service ${svc.workerId} running (pid ${process.pid})\n`);
         await svc.start();
       }),
     );
@@ -69,14 +69,14 @@ export function registerServiceCommands(program: Command): void {
       .description('install a per-user service (systemd user unit, launchd agent or scheduled task)'),
   ).action(
     action(async (ctx, opts) => {
-      if (!opts.dryRun) await confirm(opts, 'Install and enable the Agent Rail user service?');
+      if (!opts.dryRun) await confirm(opts, 'Install and enable the Crewyard user service?');
       const result = await installServiceUnit(ctx, { dryRun: Boolean(opts.dryRun) });
       emit(opts, result, (r) => [`${r.applied ? 'installed' : '(dry run)'} ${r.file}`, r.content]);
     }),
   );
   withMutationOptions(service.command('uninstall')).action(
     action(async (ctx, opts) => {
-      if (!opts.dryRun) await confirm(opts, 'Disable and remove the Agent Rail user service?');
+      if (!opts.dryRun) await confirm(opts, 'Disable and remove the Crewyard user service?');
       const result = await uninstallServiceUnit(ctx, { dryRun: Boolean(opts.dryRun) });
       emit(opts, result, (r) => `${r.removed ? 'removed' : 'nothing removed'} ${r.file}`);
     }),

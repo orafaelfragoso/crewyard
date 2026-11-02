@@ -1,5 +1,5 @@
 {
-  "name": "@agent-rail/application",
+  "name": "@crewyard/application",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,22 +9,22 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@agent-rail/core": "workspace:*",
-    "@agent-rail/storage": "workspace:*",
-    "@agent-rail/config": "workspace:*",
-    "@agent-rail/telemetry": "workspace:*",
-    "@agent-rail/projects": "workspace:*",
-    "@agent-rail/indexing": "workspace:*",
-    "@agent-rail/context": "workspace:*",
-    "@agent-rail/tasks": "workspace:*",
-    "@agent-rail/scheduler": "workspace:*",
-    "@agent-rail/workspaces": "workspace:*",
-    "@agent-rail/agents": "workspace:*",
-    "@agent-rail/github": "workspace:*",
-    "@agent-rail/reviews": "workspace:*",
-    "@agent-rail/integration": "workspace:*",
-    "@agent-rail/recovery": "workspace:*",
-    "@agent-rail/host-installers": "workspace:*",
-    "@agent-rail/tui": "workspace:*"
+    "@crewyard/core": "workspace:*",
+    "@crewyard/storage": "workspace:*",
+    "@crewyard/config": "workspace:*",
+    "@crewyard/telemetry": "workspace:*",
+    "@crewyard/projects": "workspace:*",
+    "@crewyard/indexing": "workspace:*",
+    "@crewyard/context": "workspace:*",
+    "@crewyard/tasks": "workspace:*",
+    "@crewyard/scheduler": "workspace:*",
+    "@crewyard/workspaces": "workspace:*",
+    "@crewyard/agents": "workspace:*",
+    "@crewyard/github": "workspace:*",
+    "@crewyard/reviews": "workspace:*",
+    "@crewyard/integration": "workspace:*",
+    "@crewyard/recovery": "workspace:*",
+    "@crewyard/host-installers": "workspace:*",
+    "@crewyard/tui": "workspace:*"
   }
 }

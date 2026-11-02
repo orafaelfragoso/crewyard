@@ -1,5 +1,5 @@
-import { newId, nowIso, RailError } from '@agent-rail/core';
-import { all, type RailContext } from '@agent-rail/storage';
+import { CrewError, newId, nowIso } from '@crewyard/core';
+import { all, type CrewContext } from '@crewyard/storage';
 import { readChunks } from './content.ts';
 import { requireSnapshot, type SnapshotRequest } from './freshness.ts';
 import type { IndexConfig } from './types.ts';
@@ -35,7 +35,7 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
     this.endpoint = (options.endpoint ?? DEFAULT_OLLAMA_ENDPOINT).replace(/\/+$/, '');
     this.local = LOCAL_HOSTS.has(new URL(this.endpoint).hostname);
     if (!this.local && !options.consentExternal) {
-      throw new RailError(
+      throw new CrewError(
         'POLICY_DENIED',
         `Embedding endpoint ${this.endpoint} is not local and consent was not given`,
         {
@@ -58,24 +58,24 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (error) {
-      throw new RailError('UNAVAILABLE', `Ollama is not reachable at ${this.endpoint}`, {
+      throw new CrewError('UNAVAILABLE', `Ollama is not reachable at ${this.endpoint}`, {
         cause: error,
         suggestion: 'Start Ollama (`ollama serve`) or set index.embedding.provider: none.',
       });
     }
     if (!response.ok) {
-      throw new RailError('EXTERNAL_FAILURE', `Ollama embed failed with HTTP ${response.status}`, {
+      throw new CrewError('EXTERNAL_FAILURE', `Ollama embed failed with HTTP ${response.status}`, {
         details: { body: (await response.text()).slice(0, 300) },
         retryable: response.status >= 500,
       });
     }
     const body = (await response.json()) as { embeddings?: unknown };
     if (!Array.isArray(body.embeddings) || body.embeddings.length !== texts.length) {
-      throw new RailError('EXTERNAL_FAILURE', 'Ollama returned an unexpected embedding payload', { retryable: false });
+      throw new CrewError('EXTERNAL_FAILURE', 'Ollama returned an unexpected embedding payload', { retryable: false });
     }
     return body.embeddings.map((vector) => {
       if (!Array.isArray(vector) || vector.some((n) => typeof n !== 'number')) {
-        throw new RailError('EXTERNAL_FAILURE', 'Ollama returned a non-numeric embedding', { retryable: false });
+        throw new CrewError('EXTERNAL_FAILURE', 'Ollama returned a non-numeric embedding', { retryable: false });
       }
       return Float32Array.from(vector as number[]);
     });
@@ -131,7 +131,7 @@ export interface EmbedSnapshotResult {
   artifactId: string;
 }
 
-export async function embedSnapshot(ctx: RailContext, input: EmbedSnapshotInput): Promise<EmbedSnapshotResult> {
+export async function embedSnapshot(ctx: CrewContext, input: EmbedSnapshotInput): Promise<EmbedSnapshotResult> {
   const { snapshot } = await requireSnapshot(ctx, input);
   const model = modelKey(input.provider);
   const blobs = all<{ blob_sha: string }>(

@@ -1,11 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import { run } from '@agent-rail/core';
+import { run } from '@crewyard/core';
 import { findMember, parseJsoncObject, readMemberValue } from './jsonc-edit.ts';
 import { findMarkerBlock, HASH_MARKERS } from './marker-block.ts';
 import {
   type CommandRunner,
+  CREW_SERVER_NAME,
   HOST_IDS,
   type HostConfigPaths,
   type HostDetection,
@@ -13,7 +14,6 @@ import {
   type HostSupport,
   type InstallerEnvironment,
   type InstallScope,
-  RAIL_SERVER_NAME,
 } from './types.ts';
 
 export type McpFormat = 'toml' | 'json' | 'claude-cli';
@@ -91,8 +91,8 @@ export function instructionFile(host: HostId, projectRoot: string): string {
   return preferExisting(claude, join(projectRoot, '.claude', 'CLAUDE.md'), agents, claude);
 }
 
-export function railServerEntry(host: HostId, railCommand: readonly string[]): unknown {
-  const [command, ...rest] = railCommand;
+export function crewServerEntry(host: HostId, crewCommand: readonly string[]): unknown {
+  const [command, ...rest] = crewCommand;
   const args = [...rest, 'mcp'];
   switch (host) {
     case 'codex':
@@ -100,7 +100,7 @@ export function railServerEntry(host: HostId, railCommand: readonly string[]): u
     case 'claude':
       return { type: 'stdio', command, args };
     case 'opencode':
-      return { type: 'local', command: [...railCommand, 'mcp'], enabled: true };
+      return { type: 'local', command: [...crewCommand, 'mcp'], enabled: true };
   }
 }
 
@@ -108,12 +108,12 @@ function tomlString(value: string): string {
   return JSON.stringify(value);
 }
 
-export function codexTomlBody(railCommand: readonly string[]): string {
-  const [command, ...rest] = railCommand;
+export function codexTomlBody(crewCommand: readonly string[]): string {
+  const [command, ...rest] = crewCommand;
   return [
-    '# Managed by Agent Rail. Remove with `rail uninstall --target codex`.',
-    `[mcp_servers.${RAIL_SERVER_NAME}]`,
-    `command = ${tomlString(command ?? 'rail')}`,
+    '# Managed by Crewyard. Remove with `crew uninstall --target codex`.',
+    `[mcp_servers.${CREW_SERVER_NAME}]`,
+    `command = ${tomlString(command ?? 'crew')}`,
     `args = [${[...rest, 'mcp'].map(tomlString).join(', ')}]`,
   ].join('\n');
 }
@@ -133,11 +133,11 @@ export function readRegisteredEntry(host: HostId, scope: InstallScope, path: str
   try {
     if (HOST_SPECS[host].format(scope) === 'toml') {
       const parsed = Bun.TOML.parse(text) as Record<string, Record<string, unknown> | undefined>;
-      return parsed.mcp_servers?.[RAIL_SERVER_NAME];
+      return parsed.mcp_servers?.[CREW_SERVER_NAME];
     }
     const root = parseJsoncObject(text);
     const container = root && findMember(root, HOST_SPECS[host].containerKey);
-    const member = container?.object && findMember(container.object, RAIL_SERVER_NAME);
+    const member = container?.object && findMember(container.object, CREW_SERVER_NAME);
     return member ? readMemberValue(text, member) : undefined;
   } catch {
     return undefined;
@@ -189,13 +189,13 @@ export function defaultWhich(env: NodeJS.ProcessEnv): (binary: string) => string
   return (binary) => Bun.which(binary, { PATH: env.PATH ?? env.Path ?? '' });
 }
 
-export function resolveRailCommand(
+export function resolveCrewCommand(
   options: { env?: NodeJS.ProcessEnv; which?: (binary: string) => string | null } = {},
 ): string[] {
   const exe = basename(process.execPath).toLowerCase();
-  if (exe === 'rail' || exe === 'rail.exe' || exe.startsWith('rail-')) return [process.execPath];
-  const found = (options.which ?? defaultWhich(options.env ?? process.env))('rail');
-  return found ? [found] : ['bunx', 'agent-rail'];
+  if (exe === 'crew' || exe === 'crew.exe' || exe.startsWith('crew-')) return [process.execPath];
+  const found = (options.which ?? defaultWhich(options.env ?? process.env))('crew');
+  return found ? [found] : ['bunx', 'crewyard'];
 }
 
 export function isRegistered(host: HostId, scope: InstallScope, env: NodeJS.ProcessEnv, projectRoot?: string): boolean {
@@ -210,7 +210,7 @@ export function readClaudeUserEntry(stateFile: string): unknown {
   if (!existsSync(stateFile)) return undefined;
   try {
     const parsed = JSON.parse(readFileSync(stateFile, 'utf8')) as { mcpServers?: Record<string, unknown> };
-    return parsed.mcpServers?.[RAIL_SERVER_NAME];
+    return parsed.mcpServers?.[CREW_SERVER_NAME];
   } catch {
     return undefined;
   }

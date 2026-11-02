@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite';
-import type { RailConfig } from '@agent-rail/config';
-import type { CostSource, UsageReport } from '@agent-rail/core';
-import { all, one } from '@agent-rail/storage';
+import type { CrewConfig } from '@crewyard/config';
+import type { CostSource, UsageReport } from '@crewyard/core';
+import { all, one } from '@crewyard/storage';
 
 export type BudgetScope = 'global' | 'project' | 'agent' | 'profile' | 'task';
 
@@ -9,7 +9,7 @@ export function resolveCost(
   usage: UsageReport,
   providerId: string,
   model: string | null,
-  rates: RailConfig['observability']['rates'],
+  rates: CrewConfig['observability']['rates'],
 ): { costUsd: number | null; costSource: CostSource } {
   if (usage.costSource === 'reported' && usage.costUsd !== null)
     return { costUsd: usage.costUsd, costSource: 'reported' };

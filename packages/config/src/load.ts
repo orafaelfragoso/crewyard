@@ -1,11 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isSecretKeyName, type RailDirs, RailError, redactObject, redactSecrets } from '@agent-rail/core';
+import { type CrewDirs, CrewError, isSecretKeyName, redactObject, redactSecrets } from '@crewyard/core';
 import { parseDocument } from 'yaml';
 import type * as z from 'zod';
-import { type RailConfig, railConfigSchema } from './schema.ts';
+import { type CrewConfig, crewConfigSchema } from './schema.ts';
 
-export const REPO_CONFIG_RELATIVE = join('.agent-rail', 'config.yaml');
+export const REPO_CONFIG_RELATIVE = join('.crewyard', 'config.yaml');
 
 export type ConfigSource = 'default' | 'user' | 'repository' | 'env' | 'flag';
 
@@ -16,7 +16,7 @@ export interface ConfigIssue {
 }
 
 export interface LoadedConfig {
-  config: RailConfig;
+  config: CrewConfig;
   sources: Record<string, ConfigSource>;
   files: { repository: string | null; user: string | null };
   warnings: ConfigIssue[];
@@ -25,17 +25,17 @@ export interface LoadedConfig {
 type Plain = Record<string, unknown>;
 
 const ENV_MAP: Record<string, { path: string; type: 'string' | 'int' | 'bool' | 'list' }> = {
-  RAIL_AUTONOMY: { path: 'project.autonomy', type: 'string' },
-  RAIL_BASE_BRANCH: { path: 'project.base_branch', type: 'string' },
-  RAIL_MAX_PARALLEL: { path: 'agents.max_parallel', type: 'int' },
-  RAIL_LEASE_SECONDS: { path: 'agents.default_task_lease_seconds', type: 'int' },
-  RAIL_HEARTBEAT_SECONDS: { path: 'agents.heartbeat_interval_seconds', type: 'int' },
-  RAIL_MAX_OPEN_PRS: { path: 'scheduler.max_open_prs', type: 'int' },
-  RAIL_INTEGRATION_MODE: { path: 'integration.mode', type: 'string' },
-  RAIL_AUTO_MERGE: { path: 'integration.auto_merge_eligible', type: 'bool' },
-  RAIL_NETWORK: { path: 'security.network', type: 'string' },
-  RAIL_MAX_CONTEXT_TOKENS: { path: 'index.max_context_tokens', type: 'int' },
-  RAIL_INDEX_LANGUAGES: { path: 'index.languages', type: 'list' },
+  CREW_AUTONOMY: { path: 'project.autonomy', type: 'string' },
+  CREW_BASE_BRANCH: { path: 'project.base_branch', type: 'string' },
+  CREW_MAX_PARALLEL: { path: 'agents.max_parallel', type: 'int' },
+  CREW_LEASE_SECONDS: { path: 'agents.default_task_lease_seconds', type: 'int' },
+  CREW_HEARTBEAT_SECONDS: { path: 'agents.heartbeat_interval_seconds', type: 'int' },
+  CREW_MAX_OPEN_PRS: { path: 'scheduler.max_open_prs', type: 'int' },
+  CREW_INTEGRATION_MODE: { path: 'integration.mode', type: 'string' },
+  CREW_AUTO_MERGE: { path: 'integration.auto_merge_eligible', type: 'bool' },
+  CREW_NETWORK: { path: 'security.network', type: 'string' },
+  CREW_MAX_CONTEXT_TOKENS: { path: 'index.max_context_tokens', type: 'int' },
+  CREW_INDEX_LANGUAGES: { path: 'index.languages', type: 'list' },
 };
 
 function isPlain(value: unknown): value is Plain {
@@ -87,14 +87,14 @@ export function readYamlFile(path: string): Plain {
   const text = readFileSync(path, 'utf8');
   const doc = parseDocument(text, { prettyErrors: true, uniqueKeys: true });
   if (doc.errors.length > 0) {
-    throw new RailError('CONFIG_INVALID', `Invalid YAML in ${path}: ${doc.errors[0]!.message}`, {
+    throw new CrewError('CONFIG_INVALID', `Invalid YAML in ${path}: ${doc.errors[0]!.message}`, {
       details: { file: path },
       retryable: false,
     });
   }
   const value = doc.toJS() as unknown;
   if (value == null) return {};
-  if (!isPlain(value)) throw new RailError('CONFIG_INVALID', `${path} must contain a YAML mapping`);
+  if (!isPlain(value)) throw new CrewError('CONFIG_INVALID', `${path} must contain a YAML mapping`);
   return value;
 }
 
@@ -124,7 +124,7 @@ export function zodIssues(error: z.ZodError): ConfigIssue[] {
   }));
 }
 
-export function contradictions(config: RailConfig): ConfigIssue[] {
+export function contradictions(config: CrewConfig): ConfigIssue[] {
   const issues: ConfigIssue[] = [];
   const add = (path: string, message: string, severity: ConfigIssue['severity'] = 'error') =>
     issues.push({ path, message, severity });
@@ -160,7 +160,7 @@ export function contradictions(config: RailConfig): ConfigIssue[] {
   if (!config.integration.require_github_checks) {
     add(
       'integration.require_github_checks',
-      'disabling makes Rail ignore required checks it can observe; GitHub rules still apply',
+      'disabling makes Crewyard ignore required checks it can observe; GitHub rules still apply',
       'warning',
     );
   }
@@ -177,7 +177,7 @@ export function contradictions(config: RailConfig): ConfigIssue[] {
 
 export interface LoadConfigOptions {
   repoRoot?: string | null;
-  dirs: RailDirs;
+  dirs: CrewDirs;
   env?: NodeJS.ProcessEnv;
   flags?: Record<string, unknown>;
   projectNameFallback?: string;
@@ -200,11 +200,11 @@ export function loadConfig(options: LoadConfigOptions): LoadedConfig {
     if (layer.source === 'env' || layer.source === 'flag') continue;
     const secrets = findSecretKeys(layer.value);
     if (secrets.length > 0) {
-      throw new RailError(
+      throw new CrewError(
         'CONFIG_INVALID',
         `Secrets are not accepted in configuration files (${layer.file}): ${secrets.join(', ')}`,
         {
-          suggestion: 'Store credentials with `rail account add` (system secret store) and reference them by name.',
+          suggestion: 'Store credentials with `crew account add` (system secret store) and reference them by name.',
           retryable: false,
         },
       );
@@ -218,18 +218,18 @@ export function loadConfig(options: LoadConfigOptions): LoadedConfig {
     for (const path of flattenPaths(layer.value)) sources[path] = layer.source;
   }
 
-  const parsed = railConfigSchema.safeParse(merged);
+  const parsed = crewConfigSchema.safeParse(merged);
   if (!parsed.success) {
-    throw new RailError('CONFIG_INVALID', 'Configuration is invalid', {
+    throw new CrewError('CONFIG_INVALID', 'Configuration is invalid', {
       details: { issues: zodIssues(parsed.error) },
-      suggestion: 'Run `rail config validate` for the full list of problems.',
+      suggestion: 'Run `crew config validate` for the full list of problems.',
       retryable: false,
     });
   }
   const issues = contradictions(parsed.data);
   const errors = issues.filter((i) => i.severity === 'error');
   if (errors.length > 0) {
-    throw new RailError(
+    throw new CrewError(
       'CONFIG_INVALID',
       `Configuration contradictions: ${errors.map((e) => `${e.path} ${e.message}`).join('; ')}`,
       {
@@ -256,13 +256,13 @@ export function validateConfigText(text: string): ConfigIssue[] {
     message: 'secrets are not accepted in YAML; use the system secret store',
     severity: 'error' as const,
   }));
-  const parsed = railConfigSchema.safeParse(value);
+  const parsed = crewConfigSchema.safeParse(value);
   if (!parsed.success) return [...secrets, ...zodIssues(parsed.error)];
   return [...secrets, ...contradictions(parsed.data)];
 }
 
 export function effectiveConfigView(loaded: LoadedConfig): {
-  config: RailConfig;
+  config: CrewConfig;
   sources: Record<string, ConfigSource>;
 } {
   return { config: redactObject(loaded.config), sources: loaded.sources };

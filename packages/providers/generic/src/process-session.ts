@@ -4,17 +4,17 @@ import {
   type AgentEvent,
   type AgentLaunch,
   type AgentSessionHandle,
+  CrewError,
   type FailureClass,
   isSecretKeyName,
   killTree,
   nowIso,
-  RailError,
   REDACTED,
   redact,
   type SessionOutcome,
   type UsageReport,
   waitForGroupExit,
-} from '@agent-rail/core';
+} from '@crewyard/core';
 import { createChannel } from './channel.ts';
 import { classifyFailureText } from './classify.ts';
 
@@ -92,7 +92,7 @@ class LogSink {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.fd = openSync(path, 'a', 0o600);
   }
-  write(stream: 'stdout' | 'stderr' | 'rail', text: string): void {
+  write(stream: 'stdout' | 'stderr' | 'crew', text: string): void {
     if (this.fd === null) return;
     const prefix = stream === 'stdout' ? '' : `[${stream}] `;
     writeSync(this.fd, `${prefix}${this.scrub(text)}\n`);
@@ -172,7 +172,7 @@ export class ProcessSessions {
 
   async launch(input: AgentLaunch, spec: ProcessLaunchSpec): Promise<AgentSessionHandle> {
     if (this.running.has(input.sessionId)) {
-      throw new RailError('CONFLICT', `Session ${input.sessionId} is already running`);
+      throw new CrewError('CONFLICT', `Session ${input.sessionId} is already running`);
     }
     const scrub = createRedactor([...(spec.secretValues ?? []), ...collectSecretValues(spec.env)]);
     const log = new LogSink(input.logPath, scrub);
@@ -188,9 +188,9 @@ export class ProcessSessions {
         detached: process.platform !== 'win32',
       });
     } catch (error) {
-      log.write('rail', `spawn failed: ${(error as Error).message}`);
+      log.write('crew', `spawn failed: ${(error as Error).message}`);
       log.close();
-      throw new RailError('UNAVAILABLE', `Cannot execute ${spec.argv[0]}: ${(error as Error).message}`, {
+      throw new CrewError('UNAVAILABLE', `Cannot execute ${spec.argv[0]}: ${(error as Error).message}`, {
         cause: error,
         suggestion: `Install ${spec.argv[0]} or set the profile's executable path.`,
       });
@@ -201,7 +201,7 @@ export class ProcessSessions {
         proc.stdin.write(spec.stdin);
         void Promise.resolve(proc.stdin.end()).catch(() => {});
       } catch (error) {
-        log.write('rail', `stdin write failed: ${(error as Error).message}`);
+        log.write('crew', `stdin write failed: ${(error as Error).message}`);
       }
     }
 
@@ -243,7 +243,7 @@ export class ProcessSessions {
     };
 
     emit({ type: 'started', at: nowIso(), pid });
-    log.write('rail', `started pid=${pid} argv0=${spec.argv[0]}`);
+    log.write('crew', `started pid=${pid} argv0=${spec.argv[0]}`);
 
     const timer = setTimeout(() => {
       timedOut = true;
@@ -315,7 +315,7 @@ export class ProcessSessions {
         exitCode,
         ...(result === null ? {} : { result: result.slice(0, MAX_EVENT_TEXT) }),
       });
-      log.write('rail', `completed outcome=${outcome} exit=${exitCode ?? 'signal'}`);
+      log.write('crew', `completed outcome=${outcome} exit=${exitCode ?? 'signal'}`);
       log.close();
       channel.close();
       return { outcome, exitCode, usage: summary.usage, result };
@@ -326,7 +326,7 @@ export class ProcessSessions {
       cancel: async () => {
         if (cancelRequested) return;
         cancelRequested = true;
-        log.write('rail', 'cancellation requested');
+        log.write('crew', 'cancellation requested');
         await graceKill(this.cancelGraceMs);
       },
     });

@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
-import { ensureDir, RailError, resolveDirs, sha256, systemClock, toIso } from '@agent-rail/core';
+import { CrewError, ensureDir, resolveDirs, sha256, systemClock, toIso } from '@crewyard/core';
 import { defaultExec } from './hosts.ts';
 import { type BackupManifest, installerBackupsRoot, MANIFEST_VERSION, type ManifestEntry } from './manifest.ts';
 import { formatCommand } from './plan.ts';
@@ -35,7 +35,7 @@ export function writeFileAtomic(path: string, content: string): void {
   const target = resolveWriteTarget(path);
   mkdirSync(dirname(target), { recursive: true });
   const mode = existsSync(target) ? statSync(target).mode & 0o777 : 0o644;
-  const temp = join(dirname(target), `.${basename(target)}.agent-rail-${crypto.randomUUID().slice(0, 8)}.tmp`);
+  const temp = join(dirname(target), `.${basename(target)}.crewyard-${crypto.randomUUID().slice(0, 8)}.tmp`);
   try {
     writeFileSync(temp, content, { mode });
     renameSync(temp, target);
@@ -84,7 +84,7 @@ function assertUnchanged(changes: readonly PlannedChange[]): void {
   for (const change of changes) {
     if (change.kind !== 'file') continue;
     if (readOrNull(change.path) !== change.before) {
-      throw new RailError('CONFLICT', `${change.path} changed after the plan was created`, {
+      throw new CrewError('CONFLICT', `${change.path} changed after the plan was created`, {
         details: { path: change.path },
         suggestion: 'Re-run the command to compute a fresh plan.',
       });
@@ -97,7 +97,7 @@ async function runCommands(change: CommandChange, options: ApplyOptions): Promis
   for (const argv of change.commands) {
     const result = await exec(argv, { env: options.env ?? process.env, timeoutMs: 60_000 });
     if (result.exitCode !== 0) {
-      throw new RailError('EXTERNAL_FAILURE', `${formatCommand(argv.slice(0, 3))} failed (exit ${result.exitCode})`, {
+      throw new CrewError('EXTERNAL_FAILURE', `${formatCommand(argv.slice(0, 3))} failed (exit ${result.exitCode})`, {
         details: { exitCode: result.exitCode, stderr: result.stderr.trim().slice(0, 500) },
         retryable: false,
         suggestion: `Run it manually: ${formatCommand(argv)}`,
@@ -193,6 +193,6 @@ export async function applyPlan(plan: InstallPlan, options: ApplyOptions = {}): 
 }
 
 export async function applyUninstall(plan: InstallPlan, options: ApplyOptions = {}): Promise<ApplyResult> {
-  if (plan.kind !== 'uninstall') throw new RailError('INVALID_INPUT', 'applyUninstall requires an uninstall plan');
+  if (plan.kind !== 'uninstall') throw new CrewError('INVALID_INPUT', 'applyUninstall requires an uninstall plan');
   return applyPlan(plan, options);
 }

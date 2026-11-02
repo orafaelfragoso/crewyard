@@ -1,6 +1,6 @@
-import type { RailConfig } from '@agent-rail/config';
-import type { TaskState } from '@agent-rail/core';
-import { compareTaskIds, findScopeConflicts, type ScopeHolding } from '@agent-rail/tasks';
+import type { CrewConfig } from '@crewyard/config';
+import type { TaskState } from '@crewyard/core';
+import { compareTaskIds, findScopeConflicts, type ScopeHolding } from '@crewyard/tasks';
 import type { BudgetStatus, SchedulerSnapshot, SchedulerTask } from './snapshot.ts';
 
 export type WorkClass = 'implementation' | 'recovery';
@@ -87,7 +87,7 @@ export interface CapacityInput {
 export interface AdmissionResult {
   projectId: string;
   at: string;
-  fairness: RailConfig['scheduler']['fairness'];
+  fairness: CrewConfig['scheduler']['fairness'];
   admitted: Admission[];
   deferred: Deferral[];
   capacity: IntakeCapacity;
@@ -103,7 +103,7 @@ function budgetExhausted(budget: BudgetStatus): boolean {
   );
 }
 
-export function computeIntakeCapacity(input: CapacityInput, config: RailConfig): IntakeCapacity {
+export function computeIntakeCapacity(input: CapacityInput, config: CrewConfig): IntakeCapacity {
   const globalLimit = config.scheduler.wip.global ?? config.agents.max_parallel;
   const projectLimit = config.scheduler.wip.project ?? null;
   const limits: CapacityLimit[] = [
@@ -186,7 +186,7 @@ export function scoreTask(
 }
 
 function comparator(
-  fairness: RailConfig['scheduler']['fairness'],
+  fairness: CrewConfig['scheduler']['fairness'],
   scores: ReadonlyMap<string, ScoreBreakdown>,
 ): (a: SchedulerTask, b: SchedulerTask) => number {
   return (a, b) => {
@@ -242,7 +242,7 @@ function policyDeferral(task: SchedulerTask, snapshot: SchedulerSnapshot): Defer
   return null;
 }
 
-export function admitTasks(snapshot: SchedulerSnapshot, config: RailConfig): AdmissionResult {
+export function admitTasks(snapshot: SchedulerSnapshot, config: CrewConfig): AdmissionResult {
   const deferred: Deferral[] = [];
   const eligible: SchedulerTask[] = [];
   for (const task of snapshot.tasks) {

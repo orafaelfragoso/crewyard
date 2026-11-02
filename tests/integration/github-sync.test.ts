@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { git } from '@agent-rail/core';
+import { git } from '@crewyard/core';
 import {
   acknowledgeDivergence,
   explainPullRequest,
@@ -12,9 +12,9 @@ import {
   showPullRequest,
   submitPullRequest,
   syncRepository,
-} from '@agent-rail/integration';
-import { listReviews, requestReview, StaticAnalysisReviewer } from '@agent-rail/reviews';
-import { all } from '@agent-rail/storage';
+} from '@crewyard/integration';
+import { listReviews, requestReview, StaticAnalysisReviewer } from '@crewyard/reviews';
+import { all } from '@crewyard/storage';
 import { createGitHubFixture, type GitHubFixture } from './github-fixture.ts';
 
 let fx: GitHubFixture | undefined;
@@ -60,7 +60,7 @@ describe('GitHub synchronization', () => {
     expect(f.mock.countCalls('PATCH', /pulls/)).toBe(0);
   }, 30_000);
 
-  test('merges outside Rail are adopted with the actual merge commit', async () => {
+  test('merges outside Crewyard are adopted with the actual merge commit', async () => {
     fx = await createGitHubFixture();
     const f = fx;
     await f.pushBranch('feature', { 'src/feature.ts': 'export const f = 1;\n' });
@@ -73,8 +73,8 @@ describe('GitHub synchronization', () => {
     );
     const sha = f.mock.mergeExternally(n);
     const result = await syncRepository(f.ctx, f.repositoryId, f.env);
-    expect(result.merged).toEqual([{ prId: entry.prId, number: n, mergeCommitSha: sha, outsideRail: true }]);
-    expect(showPullRequest(f.ctx, { prId: entry.prId }).externalDivergence?.kinds).toContain('merged_outside_rail');
+    expect(result.merged).toEqual([{ prId: entry.prId, number: n, mergeCommitSha: sha, outsideCrew: true }]);
+    expect(showPullRequest(f.ctx, { prId: entry.prId }).externalDivergence?.kinds).toContain('merged_outside_crew');
     expect(
       all(f.ctx.store.db, `SELECT 1 FROM queue_entries WHERE id = ? AND status = 'merged'`, entry.id),
     ).toHaveLength(1);

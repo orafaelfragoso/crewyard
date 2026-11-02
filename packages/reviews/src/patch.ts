@@ -1,4 +1,4 @@
-import { git, sha256, stableStringify } from '@agent-rail/core';
+import { git, sha256, stableStringify } from '@crewyard/core';
 
 export interface DiffLine {
   kind: 'add' | 'del';

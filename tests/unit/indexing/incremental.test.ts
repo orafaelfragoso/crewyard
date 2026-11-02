@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { git } from '@agent-rail/core';
-import { dependencyGraph, findSymbol, indexRepository, search } from '@agent-rail/indexing';
-import { all } from '@agent-rail/storage';
+import { git } from '@crewyard/core';
+import { dependencyGraph, findSymbol, indexRepository, search } from '@crewyard/indexing';
+import { all } from '@crewyard/storage';
 import { commitFiles } from '../../helpers/index.ts';
 import { createIndexFixture, type IndexFixture, POLYGLOT_FILES } from './fixture.ts';
 

@@ -1,28 +1,23 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AccountProfile, AgentEvent, AgentLaunch } from '@agent-rail/core';
+import type { AccountProfile, AgentEvent, AgentLaunch } from '@crewyard/core';
 import {
   buildClaudeInvocation,
   CLAUDE_API_KEY_ENV,
   CLAUDE_CONFIG_DIR_ENV,
   createClaudeDecoder,
-} from '@agent-rail/provider-claude';
-import {
-  buildCodexInvocation,
-  CODEX_API_KEY_ENV,
-  CODEX_HOME_ENV,
-  createCodexDecoder,
-} from '@agent-rail/provider-codex';
+} from '@crewyard/provider-claude';
+import { buildCodexInvocation, CODEX_API_KEY_ENV, CODEX_HOME_ENV, createCodexDecoder } from '@crewyard/provider-codex';
 import {
   classifyFailureText,
   createGenericDecoder,
   expandArgs,
   parseRetryAfterSeconds,
   type StreamDecoder,
-} from '@agent-rail/provider-generic';
-import { buildOllamaRequest, ollamaUsage } from '@agent-rail/provider-ollama';
-import { buildOpencodeInvocation, createOpencodeDecoder } from '@agent-rail/provider-opencode';
+} from '@crewyard/provider-generic';
+import { buildOllamaRequest, ollamaUsage } from '@crewyard/provider-ollama';
+import { buildOpencodeInvocation, createOpencodeDecoder } from '@crewyard/provider-opencode';
 
 const FIXTURES = join(import.meta.dir, '../../fixtures/providers');
 const AT = '2026-11-02T12:00:00Z';
@@ -58,7 +53,7 @@ function launch(p: AccountProfile, overrides: Partial<AgentLaunch> = {}): AgentL
     prompt: 'Fix the bug',
     systemInstructions: 'Be careful',
     cwd: '/work/repo',
-    env: { RAIL_SESSION_TOKEN: 'rail_token', RAIL_TASK_ID: 'tsk_1' },
+    env: { CREW_SESSION_TOKEN: 'crew_token', CREW_TASK_ID: 'tsk_1' },
     timeoutMs: 60_000,
     maxOutputBytes: 1_000_000,
     logPath: '/data/logs/ses_1/session.log',
@@ -84,8 +79,8 @@ describe('codex adapter contract', () => {
       ['command', 'started'],
       ['command', 'completed'],
       ['file_change', 'completed'],
-      ['mcp:agent-rail.task_get', 'started'],
-      ['mcp:agent-rail.task_get', 'completed'],
+      ['mcp:crewyard.task_get', 'started'],
+      ['mcp:crewyard.task_get', 'completed'],
     ]);
     const summary = decoder.summary();
     expect(summary.result).toBe("The output of the shell command 'cat a.txt' is:\n\nhi");
@@ -129,7 +124,7 @@ describe('codex adapter contract', () => {
     expect(cli.env[CODEX_HOME_ENV]).toBe('/data/profiles/codex/work');
     expect(cli.env[CODEX_API_KEY_ENV]).toBeUndefined();
     expect(cli.env.OPENAI_API_KEY).toBeUndefined();
-    expect(cli.env.RAIL_TASK_ID).toBe('tsk_1');
+    expect(cli.env.CREW_TASK_ID).toBe('tsk_1');
     expect(cli.stdin).toContain('Be careful');
 
     const review = buildCodexInvocation(

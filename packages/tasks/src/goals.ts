@@ -1,17 +1,17 @@
 import type { Database } from 'bun:sqlite';
-import type { RailConfig } from '@agent-rail/config';
+import type { CrewConfig } from '@crewyard/config';
 import {
   type Actor,
   type AutonomyMode,
+  CrewError,
   canTransition,
   nowIso,
-  RailError,
   SYSTEM_ACTOR,
   TASK_STATES,
   type TaskState,
   TERMINAL_TASK_STATES,
-} from '@agent-rail/core';
-import { all, exec, nextSequence, one, parseJson, type RailContext, recordTransition } from '@agent-rail/storage';
+} from '@crewyard/core';
+import { all, type CrewContext, exec, nextSequence, one, parseJson, recordTransition } from '@crewyard/storage';
 import { decideApprovalInTx, requestApprovalInTx } from './approvals.ts';
 import { resolveTaskConfig } from './config.ts';
 import { findCycle, topologicalOrder } from './dag.ts';
@@ -116,15 +116,15 @@ function actorRef(actor: Actor): string {
 
 function requireGoal(db: Database, goalId: string): Goal {
   const row = one<GoalRow>(db, 'SELECT * FROM goals WHERE id = ?', goalId);
-  if (!row) throw new RailError('NOT_FOUND', `Goal not found: ${goalId}`, { suggestion: 'Run `rail goal list`.' });
+  if (!row) throw new CrewError('NOT_FOUND', `Goal not found: ${goalId}`, { suggestion: 'Run `crew goal list`.' });
   return mapGoal(row);
 }
 
-export function getGoal(ctx: RailContext, goalId: string): Goal {
+export function getGoal(ctx: CrewContext, goalId: string): Goal {
   return requireGoal(ctx.store.db, goalId);
 }
 
-export function listGoals(ctx: RailContext, filter: { projectId?: string; states?: GoalState[] } = {}): Goal[] {
+export function listGoals(ctx: CrewContext, filter: { projectId?: string; states?: GoalState[] } = {}): Goal[] {
   const where: string[] = [];
   const params: string[] = [];
   if (filter.projectId) {
@@ -143,10 +143,10 @@ export function listGoals(ctx: RailContext, filter: { projectId?: string; states
 }
 
 export function createGoal(
-  ctx: RailContext,
+  ctx: CrewContext,
   input: { projectId: string; title: string; description?: string; actor: Actor },
 ): Goal {
-  if (input.title.trim() === '') throw new RailError('INVALID_INPUT', 'Goal title is required');
+  if (input.title.trim() === '') throw new CrewError('INVALID_INPUT', 'Goal title is required');
   return ctx.store.immediate((db) => {
     const at = nowIso(ctx.clock);
     projectFlags(db, input.projectId);
@@ -265,12 +265,12 @@ function setGoal(db: Database, goal: Goal, fields: Partial<Record<keyof GoalRow,
   );
 }
 
-function materializeInTx(db: Database, goal: Goal, config: RailConfig, actor: Actor, at: string): TaskView[] {
+function materializeInTx(db: Database, goal: Goal, config: CrewConfig, actor: Actor, at: string): TaskView[] {
   const plan = goal.plan;
-  if (!plan) throw new RailError('CONFLICT', `Goal ${goal.id} has no plan`);
+  if (!plan) throw new CrewError('CONFLICT', `Goal ${goal.id} has no plan`);
   const validation = validatePlan(plan, validationContext(db, goal.projectId));
   if (!validation.valid) {
-    throw new RailError('INVALID_INPUT', `Plan for ${goal.id} is no longer valid`, {
+    throw new CrewError('INVALID_INPUT', `Plan for ${goal.id} is no longer valid`, {
       details: { issues: validation.issues },
     });
   }
@@ -322,9 +322,9 @@ export interface ProposePlanResult {
 const PLANNABLE_GOAL_STATES: ReadonlySet<GoalState> = new Set(['draft', 'planning', 'awaiting_approval']);
 
 export function proposePlan(
-  ctx: RailContext,
+  ctx: CrewContext,
   goalId: string,
-  input: { plan: PlanProposal; source: PlanSource; actor: Actor; config?: RailConfig },
+  input: { plan: PlanProposal; source: PlanSource; actor: Actor; config?: CrewConfig },
 ): ProposePlanResult {
   const projectId = requireGoal(ctx.store.db, goalId).projectId;
   const config = resolveTaskConfig(ctx, projectId, input.config);
@@ -332,7 +332,7 @@ export function proposePlan(
     const at = nowIso(ctx.clock);
     const goal = requireGoal(db, goalId);
     if (!PLANNABLE_GOAL_STATES.has(goal.state)) {
-      throw new RailError('CONFLICT', `Goal ${goalId} is ${goal.state}; plans can no longer be proposed`, {
+      throw new CrewError('CONFLICT', `Goal ${goalId} is ${goal.state}; plans can no longer be proposed`, {
         details: { state: goal.state },
       });
     }
@@ -409,9 +409,9 @@ export function proposePlan(
 }
 
 export function decidePlan(
-  ctx: RailContext,
+  ctx: CrewContext,
   goalId: string,
-  input: { decision: Exclude<ApprovalStatus, 'pending'>; actor: Actor; note?: string; config?: RailConfig },
+  input: { decision: Exclude<ApprovalStatus, 'pending'>; actor: Actor; note?: string; config?: CrewConfig },
 ): { goal: Goal; approval: Approval; tasks: TaskView[] } {
   const projectId = requireGoal(ctx.store.db, goalId).projectId;
   const config = input.decision === 'approved' ? resolveTaskConfig(ctx, projectId, input.config) : null;
@@ -424,7 +424,7 @@ export function decidePlan(
       goalId,
     );
     if (goal.state !== 'awaiting_approval' || !pending) {
-      throw new RailError('CONFLICT', `Goal ${goalId} has no plan awaiting approval`, {
+      throw new CrewError('CONFLICT', `Goal ${goalId} has no plan awaiting approval`, {
         details: { state: goal.state },
       });
     }
@@ -439,21 +439,21 @@ export function decidePlan(
   });
 }
 
-export function approvePlan(ctx: RailContext, goalId: string, actor: Actor, options: { config?: RailConfig } = {}) {
+export function approvePlan(ctx: CrewContext, goalId: string, actor: Actor, options: { config?: CrewConfig } = {}) {
   return decidePlan(ctx, goalId, { decision: 'approved', actor, ...options });
 }
 
-export function rejectPlan(ctx: RailContext, goalId: string, actor: Actor, note?: string) {
+export function rejectPlan(ctx: CrewContext, goalId: string, actor: Actor, note?: string) {
   return decidePlan(ctx, goalId, { decision: 'rejected', actor, ...(note === undefined ? {} : { note }) });
 }
 
 export function decideApproval(
-  ctx: RailContext,
+  ctx: CrewContext,
   approvalId: string,
-  input: { decision: Exclude<ApprovalStatus, 'pending'>; actor: Actor; note?: string; config?: RailConfig },
+  input: { decision: Exclude<ApprovalStatus, 'pending'>; actor: Actor; note?: string; config?: CrewConfig },
 ): Approval {
   const row = one<ApprovalRow>(ctx.store.db, 'SELECT * FROM approvals WHERE id = ?', approvalId);
-  if (!row) throw new RailError('NOT_FOUND', `Approval not found: ${approvalId}`);
+  if (!row) throw new CrewError('NOT_FOUND', `Approval not found: ${approvalId}`);
   if (row.subject_kind === 'goal_plan') return decidePlan(ctx, row.subject_id, input).approval;
   return ctx.store.immediate((db) => {
     const at = nowIso(ctx.clock);
@@ -472,7 +472,7 @@ export interface GoalStatus {
   tasks: { id: string; title: string; state: TaskState; blockedByDependencies: string[] }[];
 }
 
-export function goalStatus(ctx: RailContext, goalId: string): GoalStatus {
+export function goalStatus(ctx: CrewContext, goalId: string): GoalStatus {
   const db = ctx.store.db;
   const goal = requireGoal(db, goalId);
   const tasks = toViews(
@@ -512,7 +512,7 @@ export interface CancelGoalResult {
 }
 
 export function cancelGoal(
-  ctx: RailContext,
+  ctx: CrewContext,
   goalId: string,
   input: { actor: Actor; reason: string },
 ): CancelGoalResult {
@@ -520,7 +520,7 @@ export function cancelGoal(
     const at = nowIso(ctx.clock);
     const goal = requireGoal(db, goalId);
     if (goal.state === 'cancelled' || goal.state === 'completed') {
-      throw new RailError('CONFLICT', `Goal ${goalId} is already ${goal.state}`);
+      throw new CrewError('CONFLICT', `Goal ${goalId} is already ${goal.state}`);
     }
     const pending = one<ApprovalRow>(
       db,

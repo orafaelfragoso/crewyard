@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import { REDACTED, redactSecrets } from '@agent-rail/core';
+import { REDACTED, redactSecrets } from '@crewyard/core';
 
 export interface Chunk {
   index: number;

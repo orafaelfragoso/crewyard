@@ -1,4 +1,4 @@
-import { redactSecrets } from '@agent-rail/core';
+import { redactSecrets } from '@crewyard/core';
 import type { FindingInput, Reviewer, ReviewInput, StructuredFindings } from './types.ts';
 
 interface DebugRule {
@@ -48,7 +48,7 @@ const DEBUG_RULES: readonly DebugRule[] = [
 ];
 
 export class StaticAnalysisReviewer implements Reviewer {
-  readonly identity = 'rail-static-analysis';
+  readonly identity = 'crew-static-analysis';
   readonly model = null;
   readonly promptVersion = 'static-1';
 

@@ -5,12 +5,12 @@ import {
   type AgentLaunch,
   type AgentSessionHandle,
   type Capabilities,
+  CrewError,
   type FailureClass,
   type ProfileHealth,
   type ProviderAdapter,
-  RailError,
   run,
-} from '@agent-rail/core';
+} from '@crewyard/core';
 import {
   type AdapterOptions,
   arr,
@@ -35,7 +35,7 @@ import {
   settingStrings,
   str,
   truncate,
-} from '@agent-rail/provider-generic';
+} from '@crewyard/provider-generic';
 
 export const CLAUDE_API_KEY_ENV = 'ANTHROPIC_API_KEY';
 export const CLAUDE_CONFIG_DIR_ENV = 'CLAUDE_CONFIG_DIR';
@@ -59,7 +59,7 @@ function permissionMode(launch: AgentLaunch): string {
   if (launch.mode !== 'execute') return 'plan';
   const configured = settingString(launch.profile, 'permissionMode') ?? 'acceptEdits';
   if (!EXECUTE_PERMISSION_MODES.has(configured)) {
-    throw new RailError('POLICY_DENIED', `Claude permission mode ${configured} is not permitted for managed sessions`, {
+    throw new CrewError('POLICY_DENIED', `Claude permission mode ${configured} is not permitted for managed sessions`, {
       suggestion: 'Use acceptEdits, auto or dontAsk.',
     });
   }
@@ -285,7 +285,7 @@ export class ClaudeAdapter implements ProviderAdapter {
 
   async launch(input: AgentLaunch): Promise<AgentSessionHandle> {
     const executable = resolveExecutable(claudeBinary(input.profile));
-    if (!executable) throw new RailError('UNAVAILABLE', `${claudeBinary(input.profile)} not found on PATH`);
+    if (!executable) throw new CrewError('UNAVAILABLE', `${claudeBinary(input.profile)} not found on PATH`);
     const apiKey = await resolveApiKey(input.profile, this.options.resolveSecret);
     if (input.profile.configRoot) mkdirSync(input.profile.configRoot, { recursive: true, mode: 0o700 });
     const invocation = buildClaudeInvocation(input, { executable, apiKey, options: this.options });

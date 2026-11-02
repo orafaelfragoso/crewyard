@@ -1,5 +1,5 @@
 {
-  "name": "@agent-rail/tui",
+  "name": "@crewyard/tui",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,9 +9,9 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@agent-rail/core": "workspace:*",
-    "@agent-rail/storage": "workspace:*",
-    "@agent-rail/telemetry": "workspace:*",
+    "@crewyard/core": "workspace:*",
+    "@crewyard/storage": "workspace:*",
+    "@crewyard/telemetry": "workspace:*",
     "ink": "8.0.0",
     "react": "19.3.1"
   }

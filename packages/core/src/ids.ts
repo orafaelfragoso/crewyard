@@ -35,5 +35,5 @@ export function newId(prefix: IdPrefix): string {
 
 export function newSecretToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return `rail_${Buffer.from(bytes).toString('base64url')}`;
+  return `crew_${Buffer.from(bytes).toString('base64url')}`;
 }

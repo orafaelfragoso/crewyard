@@ -12,11 +12,11 @@ import {
   readinessReport,
   searchContext,
   verifyProjectIndex,
-} from '@agent-rail/application';
-import { type AutonomyMode, type HandoffKind, RailError, type Risk, type TaskState } from '@agent-rail/core';
-import { listProjects, listRepositories, setProjectFlags } from '@agent-rail/projects';
-import { explainDispatch } from '@agent-rail/scheduler';
-import type { RailContext } from '@agent-rail/storage';
+} from '@crewyard/application';
+import { type AutonomyMode, CrewError, type HandoffKind, type Risk, type TaskState } from '@crewyard/core';
+import { listProjects, listRepositories, setProjectFlags } from '@crewyard/projects';
+import { explainDispatch } from '@crewyard/scheduler';
+import type { CrewContext } from '@crewyard/storage';
 import {
   addTask,
   approvePlan,
@@ -42,8 +42,8 @@ import {
   showTask,
   startTask,
   transitionTask,
-} from '@agent-rail/tasks';
-import { applyCleanup, getWorkspace, inspectWorkspace, listWorkspaces, previewCleanup } from '@agent-rail/workspaces';
+} from '@crewyard/tasks';
+import { applyCleanup, getWorkspace, inspectWorkspace, listWorkspaces, previewCleanup } from '@crewyard/workspaces';
 import type { Command } from 'commander';
 import { confirm, emit, keyValues, table } from '../output.ts';
 import { action, operatorActor, withMutationOptions } from '../program.ts';
@@ -56,16 +56,16 @@ const list = (value: string, previous: string[] = []) => [
     .filter(Boolean),
 ];
 
-async function project(ctx: RailContext, opts: { project?: string }) {
+async function project(ctx: CrewContext, opts: { project?: string }) {
   return projectForRepositoryPath(ctx, opts.project);
 }
 
 function credentials(taskId: string, opts: Record<string, unknown>) {
-  const token = (opts.token as string | undefined) ?? process.env.RAIL_CLAIM_TOKEN;
-  const generation = Number(opts.generation ?? process.env.RAIL_LEASE_GENERATION);
+  const token = (opts.token as string | undefined) ?? process.env.CREW_CLAIM_TOKEN;
+  const generation = Number(opts.generation ?? process.env.CREW_LEASE_GENERATION);
   if (!token || !Number.isInteger(generation)) {
-    throw new RailError('NOT_AUTHORIZED', 'This command requires the current lease token and generation', {
-      suggestion: 'Pass --generation N --token TOKEN (or set RAIL_LEASE_GENERATION and RAIL_CLAIM_TOKEN).',
+    throw new CrewError('NOT_AUTHORIZED', 'This command requires the current lease token and generation', {
+      suggestion: 'Pass --generation N --token TOKEN (or set CREW_LEASE_GENERATION and CREW_CLAIM_TOKEN).',
     });
   }
   return { taskId, generation, token };
@@ -73,8 +73,8 @@ function credentials(taskId: string, opts: Record<string, unknown>) {
 
 function leaseOptions(command: Command): Command {
   return command
-    .option('--generation <n>', 'lease generation returned by claim (or RAIL_LEASE_GENERATION)')
-    .option('--token <token>', 'claim token returned by claim (or RAIL_CLAIM_TOKEN)');
+    .option('--generation <n>', 'lease generation returned by claim (or CREW_LEASE_GENERATION)')
+    .option('--token <token>', 'claim token returned by claim (or CREW_CLAIM_TOKEN)');
 }
 
 function handoffFrom(opts: Record<string, unknown>) {
@@ -105,7 +105,7 @@ function handoffOptions(command: Command): Command {
 export function registerWorkCommands(program: Command): void {
   program
     .command('init')
-    .description('register the repository, write .agent-rail/config.yaml, index and print a readiness report')
+    .description('register the repository, write .crewyard/config.yaml, index and print a readiness report')
     .option('--repo <path>', 'repository path', '.')
     .option('--base <branch>', 'default base branch (detected from origin/HEAD otherwise)')
     .option('--name <name>', 'project name')
@@ -134,7 +134,7 @@ export function registerWorkCommands(program: Command): void {
               `  ${i.ok ? '✓' : '✗'} ${i.id.padEnd(8)} ${i.message}${!i.ok && i.action ? `\n             → ${i.action}` : ''}`,
           ),
           '',
-          'Next: `rail install --target codex,claude,opencode` to register MCP and Skills with your agent hosts.',
+          'Next: `crew install --target codex,claude,opencode` to register MCP and Skills with your agent hosts.',
         ]);
       }),
     );
@@ -358,7 +358,7 @@ export function registerWorkCommands(program: Command): void {
           const page = await contextPackPage(ctx, String(opts.cursor), opts.budget ? Number(opts.budget) : undefined);
           return emit(opts, page, (r) => JSON.stringify(r, null, 2));
         }
-        if (!query) throw new RailError('INVALID_INPUT', 'A query is required unless --cursor is given');
+        if (!query) throw new CrewError('INVALID_INPUT', 'A query is required unless --cursor is given');
         const { project: p } = await project(ctx, opts);
         const pack = await contextPack(ctx, {
           projectId: p.id,
@@ -409,11 +409,11 @@ export function registerWorkCommands(program: Command): void {
     .action(
       action(async (ctx, opts, goalId: string) => {
         if (opts.agent) {
-          const { planGoalWithAgent } = await import('@agent-rail/application');
+          const { planGoalWithAgent } = await import('@crewyard/application');
           const result = await planGoalWithAgent(ctx, { goalId, agent: String(opts.agent), actor: operatorActor() });
           return emit(opts, result, (r) => planSummary(r));
         }
-        if (!opts.file) throw new RailError('INVALID_INPUT', 'Pass --file PLAN or --agent NAME');
+        if (!opts.file) throw new CrewError('INVALID_INPUT', 'Pass --file PLAN or --agent NAME');
         const text = readFileSync(String(opts.file), 'utf8');
         const plan = (String(opts.file).match(/\.ya?ml$/) ? Bun.YAML.parse(text) : JSON.parse(text)) as PlanProposal;
         const result = proposePlan(ctx, goalId, { plan, source: 'human', actor: operatorActor() });
@@ -561,7 +561,7 @@ export function registerWorkCommands(program: Command): void {
         }
         process.stdout.write(
           `${keyValues({ ...claim, reservations: claim.reservations.map((r) => `${r.mode}:${r.scope}`).join(', ') })}\n` +
-            `export RAIL_LEASE_GENERATION=${claim.leaseGeneration} RAIL_CLAIM_TOKEN=${claim.claimToken}\n`,
+            `export CREW_LEASE_GENERATION=${claim.leaseGeneration} CREW_CLAIM_TOKEN=${claim.claimToken}\n`,
         );
       }),
     );
@@ -739,7 +739,7 @@ export function registerWorkCommands(program: Command): void {
     .description('allocate a worktree for a task you already hold a lease on (normally done by claim)')
     .action(
       action(async (ctx, opts, taskId: string) => {
-        const { allocateWorkspace } = await import('@agent-rail/workspaces');
+        const { allocateWorkspace } = await import('@crewyard/workspaces');
         const result = await allocateWorkspace(ctx, { taskId, actor: operatorActor() });
         emit(
           opts,
@@ -796,6 +796,6 @@ function planSummary(r: ProposePlanResult) {
     `${r.goal.id}: ${r.goal.state}${r.validation.valid ? '' : ' (plan rejected by validation)'}`,
     ...r.validation.issues.map((i) => `  ${i.code}${i.taskKey ? ` [${i.taskKey}]` : ''}: ${i.message}`),
     ...(r.tasks.length ? [`created ${r.tasks.map((t) => t.id).join(', ')}`] : []),
-    ...(r.validation.valid && r.approval?.status === 'pending' ? [`approve with: rail goal approve ${r.goal.id}`] : []),
+    ...(r.validation.valid && r.approval?.status === 'pending' ? [`approve with: crew goal approve ${r.goal.id}`] : []),
   ];
 }
