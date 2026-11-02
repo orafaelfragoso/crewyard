@@ -89,6 +89,11 @@ export function isRailError(error: unknown): error is RailError {
 
 export function toRailError(error: unknown): RailError {
   if (error instanceof RailError) return error;
+  const errno = (error as NodeJS.ErrnoException | null)?.code;
+  if (errno === 'ENOENT') return new RailError('NOT_FOUND', (error as Error).message, { cause: error });
+  if (errno === 'EACCES' || errno === 'EPERM') {
+    return new RailError('NOT_AUTHORIZED', (error as Error).message, { cause: error, retryable: false });
+  }
   const message = error instanceof Error ? error.message : String(error);
   return new RailError('INTERNAL', message, { cause: error, retryable: false });
 }
