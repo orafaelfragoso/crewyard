@@ -3,6 +3,8 @@ import pkg from '../../../package.json' with { type: 'json' };
 import { registerAgentCommands } from './commands/agents.ts';
 import { registerDashboardCommand } from './commands/dashboard.ts';
 import { registerInstallCommands } from './commands/install.ts';
+import { registerIntegrationCommands } from './commands/integration.ts';
+import { registerMaintenanceCommands } from './commands/maintenance.ts';
 import { registerServiceCommands } from './commands/service.ts';
 import { registerSystemCommands } from './commands/system.ts';
 import { registerWorkCommands } from './commands/work.ts';
@@ -15,6 +17,8 @@ registerAgentCommands(program);
 registerInstallCommands(program);
 registerServiceCommands(program);
 registerDashboardCommand(program);
+registerIntegrationCommands(program);
+registerMaintenanceCommands(program);
 
 program
   .command('mcp')

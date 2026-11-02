@@ -1,4 +1,10 @@
-import { processIntegrationOutbox, queueTick, syncRepository, updateQueueEntry } from '@agent-rail/integration';
+import {
+  type IntegrationEnv,
+  processIntegrationOutbox,
+  queueTick,
+  syncRepository,
+  updateQueueEntry,
+} from '@agent-rail/integration';
 import { listProjects, loadProjectConfig, primaryRepository, type Repository } from '@agent-rail/projects';
 import type { RemoteRecovery } from '@agent-rail/recovery';
 import type { RailContext } from '@agent-rail/storage';
@@ -27,20 +33,22 @@ function githubCycle(
   };
 }
 
-export function integrationCycles(): ProjectCycle[] {
+export type EnvFactory = (ctx: RailContext) => IntegrationEnv;
+
+export function integrationCycles(envFor: EnvFactory = integrationEnv): ProjectCycle[] {
   const poll = (ctx: RailContext, projectId: string) =>
     loadProjectConfig(ctx, projectId).config.integration.poll_interval_seconds;
   const fast = () => 5;
   return [
     githubCycle('sync', poll, async (ctx, repo) => {
-      const result = await syncRepository(ctx, repo.id, integrationEnv(ctx));
+      const result = await syncRepository(ctx, repo.id, envFor(ctx));
       return { synced: result as unknown as Record<string, unknown> };
     }),
     githubCycle('publish', fast, async (ctx, repo, leaderId) => {
       const published: Record<string, unknown>[] = [];
       for (const taskId of tasksAwaitingPublication(ctx, repo.projectId)) {
         try {
-          const r = await publishTask(ctx, { taskId, actor: INTEGRATION_ACTOR, leaderId });
+          const r = await publishTask(ctx, { taskId, actor: INTEGRATION_ACTOR, leaderId, env: envFor(ctx) });
           published.push({ taskId, pr: r.pullRequest?.number ?? null, queued: r.queued });
         } catch (error) {
           published.push({ taskId, error: (error as Error).message });
@@ -49,17 +57,17 @@ export function integrationCycles(): ProjectCycle[] {
       return published.length ? { published } : {};
     }),
     githubCycle('outbox', fast, async (ctx, _repo, leaderId) => {
-      const report = await processIntegrationOutbox(ctx, { leaderId, env: integrationEnv(ctx) });
+      const report = await processIntegrationOutbox(ctx, { leaderId, env: envFor(ctx) });
       return report.processed > 0 ? { outbox: report as unknown as Record<string, unknown> } : {};
     }),
     githubCycle('queue', fast, async (ctx, repo, leaderId) => {
-      const result = await queueTick(ctx, repo.id, { leaderId, env: integrationEnv(ctx), sync: false });
+      const result = await queueTick(ctx, repo.id, { leaderId, env: envFor(ctx), sync: false });
       return { queue: result as unknown as Record<string, unknown> };
     }),
   ];
 }
 
-export function githubRecovery(): RemoteRecovery {
+export function githubRecovery(envFor: EnvFactory = integrationEnv): RemoteRecovery {
   return {
     name: 'reconcile-github',
     async run(ctx) {
@@ -68,7 +76,7 @@ export function githubRecovery(): RemoteRecovery {
         const repo = primaryRepository(ctx, project.id);
         if (!hasGitHubRemote(repo)) continue;
         try {
-          await syncRepository(ctx, repo.id, integrationEnv(ctx));
+          await syncRepository(ctx, repo.id, envFor(ctx));
           results[project.name] = 'synced';
         } catch (error) {
           results[project.name] = `sync failed: ${(error as Error).message}`;
@@ -79,8 +87,8 @@ export function githubRecovery(): RemoteRecovery {
   };
 }
 
-export function defaultServiceOptions(): ServiceOptions {
-  return { cycles: integrationCycles(), remoteRecovery: [githubRecovery()] };
+export function defaultServiceOptions(envFor: EnvFactory = integrationEnv): ServiceOptions {
+  return { cycles: integrationCycles(envFor), remoteRecovery: [githubRecovery(envFor)] };
 }
 
 export function defaultQueueActions(): QueueActions {
