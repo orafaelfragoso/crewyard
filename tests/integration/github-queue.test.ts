@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { join } from 'node:path';
 import { git, gitText } from '@agent-rail/core';
 import {
   decideMergeApproval,
@@ -17,6 +18,9 @@ let fx: GitHubFixture | undefined;
 afterEach(() => fx?.cleanup());
 
 const operator = { kind: 'operator' as const, id: 'tester' };
+const CHECK = join(import.meta.dir, '../../fixtures/scripts/check-file.ts');
+const check = (mode: 'present' | 'absent', path: string) => `"${process.execPath}" "${CHECK}" ${mode} ${path}`;
+
 const agent = { kind: 'agent' as const, id: 'agent-1' };
 
 async function openPull(f: GitHubFixture, branch: string, files: Record<string, string>, base = 'main') {
@@ -47,7 +51,7 @@ function mergeCalls(f: GitHubFixture) {
 describe('rail-managed integration queue', () => {
   test('AT-03: ten independent PRs integrate without author rebases', async () => {
     fx = await createGitHubFixture({
-      config: { validation: { broad: [{ name: 'smoke', command: 'test -f README.md' }] } },
+      config: { validation: { broad: [{ name: 'smoke', command: check('present', 'README.md') }] } },
     });
     const f = fx;
     f.mock.requireChecks('main', ['ci']);
@@ -194,7 +198,7 @@ describe('rail-managed integration queue', () => {
     fx = await createGitHubFixture({
       config: {
         agents: { max_retries_per_failure: 2 },
-        validation: { broad: [{ name: 'unit', command: 'test ! -f fail.marker' }] },
+        validation: { broad: [{ name: 'unit', command: check('absent', 'fail.marker') }] },
       },
     });
     const f = fx;
@@ -277,7 +281,7 @@ describe('rail-managed integration queue', () => {
     fx = await createGitHubFixture({
       config: {
         scheduler: { integration_capacity_per_branch: 2 },
-        validation: { broad: [{ name: 'smoke', command: 'true' }] },
+        validation: { broad: [{ name: 'smoke', command: check('present', '.') }] },
       },
     });
     const f = fx;
