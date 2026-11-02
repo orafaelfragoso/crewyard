@@ -265,8 +265,8 @@
       "name": "@agent-rail/tui",
       "version": "1.0.0",
       "dependencies": {
-        "@agent-rail/application": "workspace:*",
         "@agent-rail/core": "workspace:*",
+        "@agent-rail/storage": "workspace:*",
         "@agent-rail/telemetry": "workspace:*",
         "ink": "8.0.0",
         "react": "19.3.1",
