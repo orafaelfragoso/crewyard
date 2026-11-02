@@ -45,6 +45,7 @@ export interface RunOptions {
   timeoutMs?: number;
   maxOutputBytes?: number;
   allowFailure?: boolean;
+  verbatimArguments?: boolean;
 }
 
 export interface RunResult {
@@ -89,6 +90,7 @@ export async function run(cmd: readonly string[], options: RunOptions = {}): Pro
       stdout: 'pipe',
       stderr: 'pipe',
       detached: process.platform !== 'win32',
+      ...(options.verbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
   } catch (error) {
     throw new RailError('UNAVAILABLE', `Cannot execute ${cmd[0]}: ${(error as Error).message}`, {
@@ -130,6 +132,17 @@ export async function run(cmd: readonly string[], options: RunOptions = {}): Pro
     );
   }
   return result;
+}
+
+export interface ShellInvocation {
+  argv: string[];
+  verbatimArguments: boolean;
+}
+
+export function shellCommand(command: string, platform: NodeJS.Platform = process.platform): ShellInvocation {
+  return platform === 'win32'
+    ? { argv: ['cmd.exe', '/d', '/s', '/c', `"${command}"`], verbatimArguments: true }
+    : { argv: ['/bin/sh', '-c', command], verbatimArguments: false };
 }
 
 export function killTree(pid: number, signal: NodeJS.Signals = 'SIGTERM'): boolean {

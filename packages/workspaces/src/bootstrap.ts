@@ -11,6 +11,7 @@ import {
   redact,
   safeJoin,
   sha256,
+  shellCommand,
 } from '@agent-rail/core';
 import { exec, one, type RailContext, recordTransition } from '@agent-rail/storage';
 import { runBounded } from './bounded.ts';
@@ -35,10 +36,6 @@ export interface BootstrapResult {
 
 export function secretEnvName(ref: string): string {
   return ref.toUpperCase().replace(/[^A-Z0-9]/g, '_');
-}
-
-function shellCommand(command: string): string[] {
-  return process.platform === 'win32' ? ['cmd.exe', '/d', '/s', '/c', command] : ['/bin/sh', '-c', command];
 }
 
 function scrub(text: string, secrets: readonly string[]): string {
@@ -145,7 +142,9 @@ export async function bootstrapWorkspace(
   const results: BootstrapCommandResult[] = [];
   let failed = false;
   for (const [index, command] of commands.entries()) {
-    const run = await runBounded(shellCommand(command), {
+    const shell = shellCommand(command);
+    const run = await runBounded(shell.argv, {
+      verbatimArguments: shell.verbatimArguments,
       cwd: path,
       permittedRoots: [path],
       envAllowlist: [...DEFAULT_ENV_ALLOWLIST, ...config.workspace.env_allowlist],

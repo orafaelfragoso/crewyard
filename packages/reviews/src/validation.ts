@@ -14,6 +14,7 @@ import {
   SYSTEM_ACTOR,
   sanitizeEnv,
   sha256,
+  shellCommand,
 } from '@agent-rail/core';
 import { one, type RailContext, recordTransition, toJson } from '@agent-rail/storage';
 import { matchesAny } from './classify.ts';
@@ -137,10 +138,6 @@ export interface RunValidationInput {
   actor?: Actor;
 }
 
-function shellCommand(command: string): string[] {
-  return process.platform === 'win32' ? ['cmd.exe', '/d', '/s', '/c', command] : ['sh', '-c', command];
-}
-
 export async function runValidation(ctx: RailContext, input: RunValidationInput): Promise<ValidationRun> {
   const actor = input.actor ?? SYSTEM_ACTOR;
   const env = sanitizeEnv(process.env, undefined, {});
@@ -181,7 +178,9 @@ export async function runValidation(ctx: RailContext, input: RunValidationInput)
   for (const spec of input.commands) {
     appendFileSync(outputRef, `$ ${spec.name}: ${spec.command}\n`);
     try {
-      const result = await run(shellCommand(spec.command), {
+      const shell = shellCommand(spec.command);
+      const result = await run(shell.argv, {
+        verbatimArguments: shell.verbatimArguments,
         cwd: input.cwd,
         env,
         timeoutMs: spec.timeout_seconds * 1000,
