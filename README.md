@@ -39,23 +39,18 @@ flowchart TB
 - Git 2.38 or newer
 - GitHub CLI (`gh`) authenticated, for GitHub integration
 - At least one agent host or provider CLI (Codex CLI, Claude Code, OpenCode, or a generic process)
-- Bun 1.4.4 or newer only when installing from npm or source; release binaries embed the runtime
+- Node.js 20 or newer when installing from npm; Bun 1.4.4 or newer for a source checkout; release binaries need neither
 
 Linux (x64, arm64), macOS (arm64, x64) and Windows (x64) are supported.
 
 ## Install
 
-Download the binary for your platform from the GitHub release, verify it, and put it on `PATH`:
-
 ```bash
-curl -LO https://github.com/orafaelfragoso/crewyard/releases/download/v1.0.0/crew-linux-x64
-curl -LO https://github.com/orafaelfragoso/crewyard/releases/download/v1.0.0/SHA256SUMS
-sha256sum --ignore-missing -c SHA256SUMS
-gh attestation verify crew-linux-x64 --repo orafaelfragoso/crewyard
-install -m 755 crew-linux-x64 ~/.local/bin/crew
+npm install --global crewyard
+crew version
 ```
 
-Alternatives (Bun runtime, from source), upgrades and uninstalling are covered in [docs/installation.md](docs/installation.md).
+npm installs the prebuilt binary for your platform. Release binaries without Node.js, source checkouts, upgrades and uninstalling are covered in [docs/installation.md](docs/installation.md).
 
 ## Quick start
 
@@ -100,7 +95,7 @@ Skills are guidance. Leases, scopes, state transitions, policy and GitHub permis
 
 ## Documentation
 
-- [Installation, upgrades, backups](docs/installation.md)
+- [Installation, upgrades, backups](docs/installation.md) and [releasing](docs/releasing.md)
 - [`crew doctor` and troubleshooting](docs/doctor.md)
 - [MCP configuration per host](docs/mcp-hosts.md) and [Agent Skills](docs/skills.md)
 - [Security model](docs/policies/security-model.md) and [default policies](docs/policies/default-policies.md)
@@ -117,6 +112,7 @@ bun run lint
 bun test
 bun run build:binaries   # dist/crew-<os>-<arch>, manifest.json, SHA256SUMS
 bun run sbom             # dist/sbom.cdx.json (CycloneDX 1.6)
+bun run build:npm        # dist-npm/*.tgz from dist/, the packages a release publishes
 ```
 
-Contributor conventions are in [AGENTS.md](AGENTS.md).
+Contributor conventions are in [AGENTS.md](AGENTS.md). Releasing to npm is described in [docs/releasing.md](docs/releasing.md).
