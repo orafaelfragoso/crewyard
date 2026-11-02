@@ -13,6 +13,7 @@
     "@agent-rail/storage": "workspace:*",
     "@agent-rail/config": "workspace:*",
     "@agent-rail/github": "workspace:*",
-    "@agent-rail/reviews": "workspace:*"
+    "@agent-rail/reviews": "workspace:*",
+    "@agent-rail/projects": "workspace:*"
   }
 }

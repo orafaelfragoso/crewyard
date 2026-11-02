@@ -1,0 +1,359 @@
+import { afterEach, describe, expect, test } from 'bun:test';
+import { git, gitText } from '@agent-rail/core';
+import {
+  decideMergeApproval,
+  explainPullRequest,
+  getQueueStatus,
+  listPullRequests,
+  queueTick,
+  requestIntegration,
+  showPullRequest,
+  syncRepository,
+} from '@agent-rail/integration';
+import { all } from '@agent-rail/storage';
+import { createGitHubFixture, type GitHubFixture } from './github-fixture.ts';
+
+let fx: GitHubFixture | undefined;
+afterEach(() => fx?.cleanup());
+
+const operator = { kind: 'operator' as const, id: 'tester' };
+const agent = { kind: 'agent' as const, id: 'agent-1' };
+
+async function openPull(f: GitHubFixture, branch: string, files: Record<string, string>, base = 'main') {
+  await f.pushBranch(branch, files, base);
+  const pr = f.mock.addPull({ headRef: branch, baseRef: base });
+  f.mock.passChecks(pr.number);
+  return pr.number;
+}
+
+async function queueAll(f: GitHubFixture, numbers: number[]) {
+  await syncRepository(f.ctx, f.repositoryId, f.env);
+  for (const number of numbers) {
+    await requestIntegration(f.ctx, { repositoryId: f.repositoryId, number, requestedBy: agent }, f.env);
+  }
+}
+
+async function tickUntilIdle(f: GitHubFixture, max = 12) {
+  for (let i = 0; i < max; i++) {
+    const result = await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    if (result.queues.every((q) => q.merged.length === 0 && q.candidates.length === 0)) return;
+  }
+}
+
+function mergeCalls(f: GitHubFixture) {
+  return f.mock.countCalls('PUT', /\/pulls\/\d+\/merge$/);
+}
+
+describe('rail-managed integration queue', () => {
+  test('AT-03: ten independent PRs integrate without author rebases', async () => {
+    fx = await createGitHubFixture({
+      config: { validation: { broad: [{ name: 'smoke', command: 'test -f README.md' }] } },
+    });
+    const f = fx;
+    f.mock.requireChecks('main', ['ci']);
+    const numbers: number[] = [];
+    for (let i = 0; i < 10; i++)
+      numbers.push(await openPull(f, `feature-${i}`, { [`src/module-${i}.ts`]: `export const v${i} = ${i};\n` }));
+    await queueAll(f, numbers);
+    await tickUntilIdle(f);
+    const prs = listPullRequests(f.ctx, { repositoryId: f.repositoryId });
+    expect(prs.filter((p) => p.state === 'merged')).toHaveLength(10);
+    expect(prs.every((p) => p.mergeCommitSha !== null)).toBe(true);
+    expect(mergeCalls(f)).toBe(10);
+    expect(f.mock.countCalls('PATCH', /\/pulls\/\d+$/)).toBe(0);
+    const head = await gitText(f.bare, ['rev-parse', 'refs/heads/main']);
+    const files = await gitText(f.bare, ['ls-tree', '--name-only', '-r', head]);
+    for (let i = 0; i < 10; i++) expect(files).toContain(`src/module-${i}.ts`);
+    const runs = all<{ commit_sha: string; tree_sha: string; status: string }>(
+      f.ctx.store.db,
+      `SELECT commit_sha, tree_sha, status FROM validation_runs WHERE scope = 'broad'`,
+    );
+    expect(runs.length).toBe(10);
+    expect(runs.every((r) => r.status === 'passed' && r.tree_sha.length === 40)).toBe(true);
+    const candidates = all<{ integration_validated: number; ci_evidence: string }>(
+      f.ctx.store.db,
+      `SELECT integration_validated, ci_evidence FROM integration_candidates WHERE status = 'merged'`,
+    );
+    expect(
+      candidates.some((c) => c.integration_validated === 0 && c.ci_evidence.includes('not-yet-integration-validated')),
+    ).toBe(true);
+  }, 60_000);
+
+  test('AT-04: two PRs changing the same interface are not assumed compatible', async () => {
+    fx = await createGitHubFixture({
+      files: { 'src/api.ts': 'export function greet(name: string): string {\n  return name;\n}\n' },
+    });
+    const f = fx;
+    const a = await openPull(f, 'polite', {
+      'src/api.ts':
+        'export function greet(name: string, polite: boolean): string {\n  return polite ? "Dear " + name : name;\n}\n',
+    });
+    const b = await openPull(f, 'rename', {
+      'src/api.ts': 'export function greet(person: string): string {\n  return person.trim();\n}\n',
+    });
+    await queueAll(f, [a, b]);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    const prB = showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: b });
+    expect(showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: a }).state).toBe('merged');
+    expect(prB.state).toBe('open');
+    const explanation = explainPullRequest(f.ctx, prB.id, f.env);
+    expect(explanation.blockers.map((x) => x.code)).toContain('REVISION_REQUIRED');
+    expect(explanation.eligible).toBe(false);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    expect(mergeCalls(f)).toBe(1);
+    expect(f.mock.countCalls('PATCH', /\/pulls\/\d+$/)).toBe(0);
+    const notes = all<{ title: string }>(f.ctx.store.db, 'SELECT title FROM notifications');
+    expect(notes.some((n) => n.title.includes(`#${b} needs a revision`))).toBe(true);
+
+    await f.pushBranch(
+      'rename',
+      {
+        'src/api.ts':
+          'export function greet(name: string, polite: boolean): string {\n  return polite ? "Dear " + name.trim() : name.trim();\n}\n',
+      },
+      'main',
+    );
+    f.mock.passChecks(b);
+    await tickUntilIdle(f);
+    expect(showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: b }).state).toBe('merged');
+  }, 60_000);
+
+  test('AT-05: stacked PRs integrate bottom-up and inherit requirements', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    f.mock.requireChecks('main', ['ci']);
+    f.mock.requireReviews('main', 1);
+    const one = await openPull(f, 's1', { 'stack/a.ts': 'export const a = 1;\n' });
+    const two = await openPull(f, 's2', { 'stack/b.ts': 'export const b = 2;\n' }, 's1');
+    const three = await openPull(f, 's3', { 'stack/c.ts': 'export const c = 3;\n' }, 's2');
+    f.mock.approve(one);
+    f.mock.approve(three);
+    await queueAll(f, [three, two, one]);
+    const prs = listPullRequests(f.ctx, { repositoryId: f.repositoryId, state: 'open' });
+    expect(prs.map((p) => [p.number, p.stackOrder])).toEqual([
+      [one, 1],
+      [two, 2],
+      [three, 3],
+    ]);
+    expect(new Set(prs.map((p) => p.stackId)).size).toBe(1);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    const get = (n: number) => showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: n });
+    expect(get(one).state).toBe('merged');
+    expect(get(two).state).toBe('open');
+    expect(get(three).state).toBe('open');
+    const upper = explainPullRequest(f.ctx, get(three).id, f.env).blockers.map((x) => x.code);
+    expect(upper).toContain('STACK_PARENT_BLOCKED');
+    expect(explainPullRequest(f.ctx, get(two).id, f.env).blockers.map((x) => x.code)).toContain('REVIEWS_REQUIRED');
+
+    f.mock.approve(two);
+    await tickUntilIdle(f);
+    expect(get(two).state).toBe('merged');
+    expect(get(three).state).toBe('merged');
+    const order = all<{ pr_id: string }>(
+      f.ctx.store.db,
+      `SELECT pr_id FROM events WHERE type = 'pr.merged' ORDER BY seq`,
+    ).map((r) => r.pr_id);
+    expect(order).toEqual([get(one).id, get(two).id, get(three).id]);
+    expect(mergeCalls(f)).toBe(3);
+    const tree = await gitText(f.bare, ['ls-tree', '--name-only', '-r', 'refs/heads/main']);
+    expect(tree).toContain('stack/c.ts');
+  }, 60_000);
+
+  test('AT-06: base advancing during validation invalidates the candidate before merge', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    const advance = await f.pushBranch('upstream-change', { 'docs/notes.md': 'upstream\n' });
+    const marker = `${f.ctx.root}/advanced`;
+    f.config.validation.broad = [
+      {
+        name: 'advance-base-once',
+        command: `test -f ${marker} || (git --git-dir=${f.bare} update-ref refs/heads/main ${advance} && touch ${marker})`,
+        paths: [],
+        timeout_seconds: 60,
+      },
+    ];
+    const n = await openPull(f, 'feature', { 'src/feature.ts': 'export const f = 1;\n' });
+    await queueAll(f, [n]);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    const candidates = all<{ base_sha: string; status: string; invalid_reason: string | null }>(
+      f.ctx.store.db,
+      'SELECT base_sha, status, invalid_reason FROM integration_candidates ORDER BY created_at, rowid',
+    );
+    expect(candidates).toHaveLength(2);
+    expect(candidates[0]!.status).toBe('invalid');
+    expect(candidates[0]!.invalid_reason).toStartWith('base_changed');
+    expect(candidates[1]!.base_sha).toBe(advance);
+    expect(candidates[1]!.status).toBe('merged');
+    expect(mergeCalls(f)).toBe(1);
+    const tree = await gitText(f.bare, ['ls-tree', '--name-only', '-r', 'refs/heads/main']);
+    expect(tree).toContain('docs/notes.md');
+    expect(tree).toContain('src/feature.ts');
+  }, 60_000);
+
+  test('AT-10: repeated identical failures quarantine one PR while others continue', async () => {
+    fx = await createGitHubFixture({
+      config: {
+        agents: { max_retries_per_failure: 2 },
+        validation: { broad: [{ name: 'unit', command: 'test ! -f fail.marker' }] },
+      },
+    });
+    const f = fx;
+    const bad = await openPull(f, 'bad', { 'fail.marker': 'x\n' });
+    const good = await openPull(f, 'good', { 'src/good.ts': 'export const ok = true;\n' });
+    await syncRepository(f.ctx, f.repositoryId, f.env);
+    await requestIntegration(
+      f.ctx,
+      { repositoryId: f.repositoryId, number: bad, priority: 90, requestedBy: agent },
+      f.env,
+    );
+    await requestIntegration(
+      f.ctx,
+      { repositoryId: f.repositoryId, number: good, priority: 10, requestedBy: agent },
+      f.env,
+    );
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    expect(showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: good }).state).toBe('merged');
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    const badPr = showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: bad });
+    const status = getQueueStatus(f.ctx, { repositoryId: f.repositoryId }, f.env);
+    const entry = status.entries.find((e) => e.pr.id === badPr.id)!;
+    expect(entry.entry.status).toBe('quarantined');
+    const failures = all<{ attempts: number; failure_class: string }>(
+      f.ctx.store.db,
+      `SELECT attempts, failure_class FROM failure_records WHERE subject_id = ?`,
+      badPr.id,
+    );
+    expect(failures).toEqual([{ attempts: 2, failure_class: 'test_failure' }]);
+    const runs = all<{ n: number }>(
+      f.ctx.store.db,
+      `SELECT COUNT(*) AS n FROM validation_runs WHERE status = 'failed'`,
+    );
+    expect(runs[0]!.n).toBe(2);
+    expect(
+      all(f.ctx.store.db, `SELECT 1 FROM notifications WHERE pr_id = ? AND level = 'action_required'`, badPr.id),
+    ).toHaveLength(1);
+  }, 60_000);
+
+  test('AT-11: rule changes recompute eligibility and approvals never go stale', async () => {
+    fx = await createGitHubFixture({ autonomy: 'assisted', config: { integration: { auto_merge_eligible: false } } });
+    const f = fx;
+    f.mock.requireChecks('main', ['ci']);
+    const n = await openPull(f, 'feature', { 'src/feature.ts': 'export const f = 1;\n' });
+    await queueAll(f, [n]);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    const pr = showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: n });
+    expect(explainPullRequest(f.ctx, pr.id, f.env).blockers.map((b) => b.code)).toEqual([
+      'OPERATOR_MERGE_APPROVAL_REQUIRED',
+    ]);
+    expect(
+      all(f.ctx.store.db, `SELECT 1 FROM approvals WHERE status = 'pending' AND subject_kind = 'merge'`),
+    ).toHaveLength(1);
+    decideMergeApproval(f.ctx, { prId: pr.id, approved: true }, operator);
+
+    f.mock.requireChecks('main', ['ci', 'security-scan']);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    expect(mergeCalls(f)).toBe(0);
+    expect(explainPullRequest(f.ctx, pr.id, f.env).blockers.map((b) => b.code)).toEqual(['REQUIRED_CHECK_MISSING']);
+    const observed = all<{ payload: string }>(
+      f.ctx.store.db,
+      `SELECT payload FROM events WHERE type = 'github.pr_observed'`,
+    );
+    expect(observed.some((e) => e.payload.includes('rules_changed'))).toBe(true);
+
+    await f.pushBranch('feature', { 'src/feature.ts': 'export const f = 2;\n' });
+    f.mock.passChecks(n, ['ci', 'security-scan']);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    expect(mergeCalls(f)).toBe(0);
+    expect(explainPullRequest(f.ctx, pr.id, f.env).blockers.map((b) => b.code)).toEqual([
+      'OPERATOR_MERGE_APPROVAL_REQUIRED',
+    ]);
+    decideMergeApproval(f.ctx, { prId: pr.id, approved: true }, operator);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    expect(showPullRequest(f.ctx, { prId: pr.id }).state).toBe('merged');
+  }, 60_000);
+
+  test('speculative grouping validates disjoint PRs together and checks tree equivalence between merges', async () => {
+    fx = await createGitHubFixture({
+      config: {
+        scheduler: { integration_capacity_per_branch: 2 },
+        validation: { broad: [{ name: 'smoke', command: 'true' }] },
+      },
+    });
+    const f = fx;
+    const a = await openPull(f, 'a', { 'src/a.ts': 'export const a = 1;\n' });
+    const b = await openPull(f, 'b', { 'src/b.ts': 'export const b = 1;\n' });
+    await queueAll(f, [a, b]);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    const candidates = all<{ entries: string; status: string }>(
+      f.ctx.store.db,
+      'SELECT entries, status FROM integration_candidates',
+    );
+    expect(candidates).toHaveLength(1);
+    expect((JSON.parse(candidates[0]!.entries) as unknown[]).length).toBe(2);
+    expect(candidates[0]!.status).toBe('merged');
+    expect(mergeCalls(f)).toBe(2);
+  }, 60_000);
+
+  test('GitHub-native stacks merge contiguously through the asynchronous merge API', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    await f.pushBranch('n1', { 'stack/one.ts': '1\n' });
+    await f.pushBranch('n2', { 'stack/two.ts': '2\n' }, 'n1');
+    const one = f.mock.addPull({ headRef: 'n1', stack: { id: 77, position: 1, size: 2 } }).number;
+    const two = f.mock.addPull({ headRef: 'n2', baseRef: 'n1', stack: { id: 77, position: 2, size: 2 } }).number;
+    f.mock.passChecks(one);
+    f.mock.passChecks(two);
+    await queueAll(f, [one, two]);
+    expect(listPullRequests(f.ctx, { repositoryId: f.repositoryId }).map((p) => [p.stackId, p.stackOrder])).toEqual([
+      ['gh:77', 1],
+      ['gh:77', 2],
+    ]);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    expect(f.mock.countCalls('PUT', /merge-async$/)).toBe(1);
+    expect(mergeCalls(f)).toBe(0);
+    expect(listPullRequests(f.ctx, { repositoryId: f.repositoryId }).map((p) => p.state)).toEqual(['merged', 'merged']);
+  }, 60_000);
+
+  test('observe autonomy never merges', async () => {
+    fx = await createGitHubFixture({ autonomy: 'observe', config: { integration: { auto_merge_eligible: false } } });
+    const f = fx;
+    const n = await openPull(f, 'feature', { 'src/feature.ts': 'export const f = 1;\n' });
+    await queueAll(f, [n]);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    expect(mergeCalls(f)).toBe(0);
+    const pr = showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: n });
+    expect(explainPullRequest(f.ctx, pr.id, f.env).blockers.map((b) => b.code)).toContain('AUTONOMY_OBSERVE');
+  }, 30_000);
+});
+
+describe('github-managed integration queue', () => {
+  test('enqueues through the native merge queue and observes the merge', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    f.mock.enableMergeQueue('main');
+    f.mock.requireChecks('main', ['ci']);
+    const n = await openPull(f, 'feature', { 'src/feature.ts': 'export const f = 1;\n' });
+    await f.ctx.store.immediate((db) =>
+      db
+        .query(
+          `INSERT INTO tasks (id, project_id, title, state, created_at, updated_at, state_changed_at) VALUES ('task_1', ?, 't', 'IN_REVIEW', 'x', 'x', 'x')`,
+        )
+        .run(f.projectId),
+    );
+    await queueAll(f, [n]);
+    f.ctx.store.db.query(`UPDATE pull_requests SET task_id = 'task_1'`).run();
+    const tick = await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    expect(tick.queues[0]!.mode).toBe('github-managed');
+    expect(f.mock.countCalls('POST', 'EnqueuePullRequest')).toBe(1);
+    expect(f.mock.mergeQueues.get('main')?.map((e) => e.number)).toEqual([n]);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    expect(f.mock.countCalls('POST', 'EnqueuePullRequest')).toBe(1);
+    f.mock.processMergeQueue('main');
+    const result = await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    expect(result.sync?.merged).toEqual([expect.objectContaining({ number: n, outsideRail: false })]);
+    expect(mergeCalls(f)).toBe(0);
+    expect(f.hookCalls.filter((h) => h.name === 'onMerged')).toHaveLength(1);
+    await git(f.repo, ['fetch', '-q', 'origin']);
+  }, 30_000);
+});

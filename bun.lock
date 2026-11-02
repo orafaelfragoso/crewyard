@@ -94,6 +94,7 @@
         "@agent-rail/storage": "workspace:*",
         "@agent-rail/tasks": "workspace:*",
         "@agent-rail/telemetry": "workspace:*",
+        "@agent-rail/tui": "workspace:*",
         "@agent-rail/workspaces": "workspace:*",
       },
     },
@@ -226,7 +227,6 @@
       "version": "1.0.0",
       "dependencies": {
         "@agent-rail/config": "workspace:*",
-        "@agent-rail/context": "workspace:*",
         "@agent-rail/core": "workspace:*",
         "@agent-rail/storage": "workspace:*",
       },
