@@ -1,0 +1,152 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  BUN_VERSION: 1.4.4
+
+jobs:
+  build:
+    name: Build release artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: Tag matches package version
+        run: test "v$(jq -r .version package.json)" = "$GITHUB_REF_NAME"
+      - run: bun audit --audit-level=high
+      - run: bun run typecheck
+      - run: bun run test:unit
+      - run: bun test tests/contract
+      - name: Cross-compile binaries
+        run: bun run build:binaries
+      - name: Generate CycloneDX SBOM
+        run: bun run sbom
+      - name: Checksum every release asset
+        run: bun scripts/checksums.ts dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  verify:
+    name: Verify ${{ matrix.binary }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, binary: rail-linux-x64 }
+          - { os: ubuntu-24.04-arm, binary: rail-linux-arm64 }
+          - { os: macos-latest, binary: rail-darwin-arm64 }
+          - { os: macos-15-intel, binary: rail-darwin-x64 }
+          - { os: windows-latest, binary: rail-windows-x64.exe }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: Verify checksum and run
+        working-directory: dist
+        env:
+          BINARY: ${{ matrix.binary }}
+        run: |
+          if [ ! -f "$BINARY" ]; then
+            echo "::warning::$BINARY is marked unavailable in manifest.json; the Bun runtime install applies."
+            exit 0
+          fi
+          grep "  $BINARY\$" SHA256SUMS > one.sum
+          if command -v sha256sum >/dev/null; then sha256sum -c one.sum; else shasum -a 256 -c one.sum; fi
+          chmod +x "$BINARY"
+          "./$BINARY" version --json
+
+  publish:
+    name: Attest and publish GitHub Release
+    needs: [build, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: Build provenance for every checksummed asset
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS
+      - name: SBOM attestation for the binaries
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/rail-*
+          sbom-path: dist/sbom.cdx.json
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          {
+            echo "Verify downloads with \`sha256sum -c SHA256SUMS\` and \`gh attestation verify <file> --repo $GH_REPO\`."
+            echo
+            echo "Targets:"
+            jq -r '.targets[] | "- \(.target): \(.status)\(if .status == "unavailable" then " (" + .alternative + ")" else "" end)"' dist/manifest.json
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
+
+  npm:
+    name: Publish to npm (optional)
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - name: Skip when no npm token is configured
+        if: env.NODE_AUTH_TOKEN == ''
+        run: echo "NPM_TOKEN is not set; skipping npm publish."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.NODE_AUTH_TOKEN != ''
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: env.NODE_AUTH_TOKEN != ''
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Publish with npm provenance
+        if: env.NODE_AUTH_TOKEN != ''
+        run: |
+          if [ "$(jq -r '.private // false' package.json)" = "true" ]; then
+            echo "::error::package.json is private; prepare a publishable package before enabling npm publishing."
+            exit 1
+          fi
+          npm publish --provenance --access public
