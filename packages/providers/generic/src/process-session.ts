@@ -13,6 +13,7 @@ import {
   redact,
   type SessionOutcome,
   type UsageReport,
+  waitForGroupExit,
 } from '@agent-rail/core';
 import { createChannel } from './channel.ts';
 import { classifyFailureText } from './classify.ts';
@@ -223,6 +224,7 @@ export class ProcessSessions {
       const deadline = Date.now() + graceMs;
       while (proc.exitCode === null && proc.signalCode === null && Date.now() < deadline) await Bun.sleep(50);
       killProcessGroup(pid);
+      await waitForGroupExit(pid, 2_000);
     };
 
     const countBytes = (bytes: number): boolean => {

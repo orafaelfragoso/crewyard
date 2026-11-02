@@ -160,6 +160,25 @@ export function isProcessAlive(pid: number | null | undefined): boolean {
   }
 }
 
+export function isProcessGroupAlive(pgid: number): boolean {
+  if (process.platform === 'win32') return isProcessAlive(pgid);
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+export async function waitForGroupExit(pgid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (isProcessGroupAlive(pgid)) {
+    if (Date.now() >= deadline) return false;
+    await Bun.sleep(20);
+  }
+  return true;
+}
+
 export async function terminateTree(pid: number, graceMs: number): Promise<'exited' | 'killed' | 'not_running'> {
   if (!isProcessAlive(pid)) return 'not_running';
   killTree(pid, 'SIGTERM');
