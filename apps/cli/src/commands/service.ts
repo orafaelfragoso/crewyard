@@ -50,21 +50,19 @@ export function registerServiceCommands(program: Command): void {
         emit(opts, await stopService(ctx), (r) => (r.stopped ? 'stopped' : 'no service was running')),
       ),
     );
-  service
-    .command('status')
-    .action(
-      action((ctx, opts) =>
-        emit(opts, serviceStatus(ctx), (s) =>
-          keyValues({
-            running: s.running,
-            pid: s.pid,
-            log: s.logFile,
-            workers: s.workers.map((w) => `${w.workerId}@${w.host}:${w.pid}`).join(', '),
-            note: s.note,
-          }),
-        ),
+  service.command('status').action(
+    action((ctx, opts) =>
+      emit(opts, serviceStatus(ctx), (s) =>
+        keyValues({
+          running: s.running,
+          pid: s.pid,
+          log: s.logFile,
+          workers: s.workers.map((w) => `${w.workerId}@${w.host}:${w.pid}`).join(', '),
+          note: s.note,
+        }),
       ),
-    );
+    ),
+  );
   withMutationOptions(
     service
       .command('install')
