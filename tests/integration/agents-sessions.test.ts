@@ -121,9 +121,12 @@ describe('managed session supervision', () => {
       timeoutMinutes: 5,
       prompt: `FAKE:${JSON.stringify(['--echo-env', 'RAIL_SESSION_TOKEN', '--dump-env', `RAIL_SESSION_TOKEN=${tokenFile}`, '--ready', ready, '--sleep', '1500'])}`,
     });
-    await waitFor(() => Bun.file(ready).exists());
-    const messages = listSessionEvents(ctx, started.sessionId, { types: ['agent.message'] });
-    const echoed = messages.map((m) => String(m.payload.text)).find((t) => t.startsWith('RAIL_SESSION_TOKEN='));
+    const echoedMessage = () =>
+      listSessionEvents(ctx!, started.sessionId, { types: ['agent.message'] })
+        .map((m) => String(m.payload.text))
+        .find((t) => t.startsWith('RAIL_SESSION_TOKEN='));
+    await waitFor(async () => (await Bun.file(ready).exists()) && echoedMessage() !== undefined);
+    const echoed = echoedMessage();
     expect(echoed).toBe('RAIL_SESSION_TOKEN=[REDACTED]');
 
     const token = readFileSync(tokenFile, 'utf8');

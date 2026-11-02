@@ -56,6 +56,7 @@ export async function createTempGitRepo(
   await git(dir, ['config', 'user.email', 'test@agent-rail.local']);
   await git(dir, ['config', 'user.name', 'Rail Test']);
   await git(dir, ['config', 'commit.gpgsign', 'false']);
+  await git(dir, ['config', 'core.autocrlf', 'false']);
   writeFiles(dir, files);
   await git(dir, ['add', '-A']);
   await git(dir, ['commit', '-q', '-m', 'initial']);
