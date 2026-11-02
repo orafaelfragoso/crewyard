@@ -6,9 +6,16 @@ import { createTestContext, type TestContext } from '../../helpers/index.ts';
 let ctx: TestContext | undefined;
 afterEach(() => ctx?.cleanup());
 
-function seedSession(c: TestContext, id: string, provider: string, usage: { input: number | null; output: number | null; cost: number | null; source: string; costSource: string }) {
+function seedSession(
+  c: TestContext,
+  id: string,
+  provider: string,
+  usage: { input: number | null; output: number | null; cost: number | null; source: string; costSource: string },
+) {
   const at = '2026-11-02T10:00:00Z';
-  c.store.db.query(`INSERT INTO sessions (id, provider_id, state, started_at, managed) VALUES (?, ?, 'completed', ?, 1)`).run(id, provider, at);
+  c.store.db
+    .query(`INSERT INTO sessions (id, provider_id, state, started_at, managed) VALUES (?, ?, 'completed', ?, 1)`)
+    .run(id, provider, at);
   c.store.db
     .query(
       `INSERT INTO session_usage (session_id, provider_id, model, input_tokens, output_tokens, cost_usd, usage_source, cost_source, at) VALUES (?, ?, 'm', ?, ?, ?, ?, ?, ?)`,
@@ -19,8 +26,20 @@ function seedSession(c: TestContext, id: string, provider: string, usage: { inpu
 describe('metrics', () => {
   test('AT-20: unknown usage is labelled unknown, never zero, across mixed adapters', () => {
     ctx = createTestContext();
-    seedSession(ctx, 'ses_a', 'claude', { input: 1200, output: 300, cost: 0.02, source: 'measured', costSource: 'reported' });
-    seedSession(ctx, 'ses_b', 'generic', { input: null, output: null, cost: null, source: 'unknown', costSource: 'unknown' });
+    seedSession(ctx, 'ses_a', 'claude', {
+      input: 1200,
+      output: 300,
+      cost: 0.02,
+      source: 'measured',
+      costSource: 'reported',
+    });
+    seedSession(ctx, 'ses_b', 'generic', {
+      input: null,
+      output: null,
+      cost: null,
+      source: 'unknown',
+      costSource: 'unknown',
+    });
     const report = computeMetrics(ctx);
     const claude = report.usage.find((u) => u.providerId === 'claude')!;
     const generic = report.usage.find((u) => u.providerId === 'generic')!;
@@ -43,7 +62,8 @@ describe('metrics', () => {
     ctx = createTestContext();
     const c = ctx;
     c.store.immediate((db) => {
-      for (let i = 0; i < 10_000; i++) appendEvent(db, { type: 'bulk', actor: { kind: 'system', id: 't' }, payload: { i } });
+      for (let i = 0; i < 10_000; i++)
+        appendEvent(db, { type: 'bulk', actor: { kind: 'system', id: 't' }, payload: { i } });
     });
     let page = pageEvents(c, { limit: 500, direction: 'older' });
     let seen = page.items.length;

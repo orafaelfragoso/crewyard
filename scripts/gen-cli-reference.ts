@@ -16,7 +16,10 @@ function render(cmd: Command, parents: string[], depth: number, out: string[]): 
     const options = cmd.options.filter((o) => !['--help'].includes(o.long ?? ''));
     if (options.length > 0) {
       out.push('| Option | Description |', '|---|---|');
-      for (const o of options) out.push(`| \`${o.flags.replaceAll('|', '\\|')}\` | ${o.description}${o.defaultValue !== undefined ? ` (default: \`${String(o.defaultValue)}\`)` : ''} |`);
+      for (const o of options)
+        out.push(
+          `| \`${o.flags.replaceAll('|', '\\|')}\` | ${o.description}${o.defaultValue !== undefined ? ` (default: \`${String(o.defaultValue)}\`)` : ''} |`,
+        );
       out.push('');
     }
   }

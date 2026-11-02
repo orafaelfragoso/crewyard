@@ -24,6 +24,8 @@ describe('path safety', () => {
   test('uses OS-standard data directories', () => {
     expect(resolveDirs({ HOME: '/h' } as NodeJS.ProcessEnv, 'linux').data).toBe('/h/.local/share/agent-rail');
     expect(resolveDirs({ HOME: '/h', XDG_DATA_HOME: '/x' } as NodeJS.ProcessEnv, 'linux').data).toBe('/x/agent-rail');
-    expect(resolveDirs({ HOME: '/h' } as NodeJS.ProcessEnv, 'darwin').data).toBe('/h/Library/Application Support/agent-rail');
+    expect(resolveDirs({ HOME: '/h' } as NodeJS.ProcessEnv, 'darwin').data).toBe(
+      '/h/Library/Application Support/agent-rail',
+    );
   });
 });
