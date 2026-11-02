@@ -1,6 +1,6 @@
 # Acceptance matrix
 
-How each PRD release gate is exercised. Run everything with `bun test`; CI runs the suites on Linux, macOS and Windows.
+How each PRD release gate is exercised. Run everything with `bun test`. CI runs every suite (unit, contract, concurrency, integration, resilience, end-to-end) on Linux, macOS and Windows.
 
 ## Mandatory scenarios (PRD §23.2)
 
@@ -44,4 +44,4 @@ How each PRD release gate is exercised. Run everything with `bun test`; CI runs 
 ## Not yet demonstrated
 
 - The §23.3 system demonstration against a real GitHub organization with Codex, Claude Code and OpenCode sessions has not been run; the automated suite uses a mock GitHub API, a bare Git origin and scripted agents.
-- Windows and macOS results depend on CI runs; locally the suite was run on Linux.
+- Release-tag builds (`.github/workflows/release.yml`) have not run yet; the arm64 Linux and Intel macOS runner labels it uses should be confirmed on the first tag.
