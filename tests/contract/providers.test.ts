@@ -141,7 +141,7 @@ describe('codex adapter contract', () => {
     );
     expect(review.argv).toContain('read-only');
     expect(review.argv).toContain('--output-schema');
-    expect(review.outputSchemaPath).toBe('/data/logs/ses_1/output-schema.json');
+    expect(review.outputSchemaPath).toBe(join('/data/logs/ses_1', 'output-schema.json'));
     expect(review.env[CODEX_API_KEY_ENV]).toBe('sk-test-key-1234567890');
     expect(review.env[CODEX_HOME_ENV]).toBe('/home/u/.codex');
   });
@@ -252,8 +252,8 @@ describe('opencode adapter contract', () => {
     expect(exec.argv.slice(0, 5)).toEqual(['/bin/opencode', 'run', '--standalone', '--format', 'json']);
     expect(exec.argv).toContain('--auto');
     expect(exec.argv.at(-2)).toBe('--');
-    expect(exec.env.XDG_DATA_HOME).toBe('/data/profiles/opencode/work/data');
-    expect(exec.env.XDG_CONFIG_HOME).toBe('/data/profiles/opencode/work/config');
+    expect(exec.env.XDG_DATA_HOME).toBe(join('/data/profiles/opencode/work', 'data'));
+    expect(exec.env.XDG_CONFIG_HOME).toBe(join('/data/profiles/opencode/work', 'config'));
     const plan = buildOpencodeInvocation(launch(p, { mode: 'plan' }), { executable: '/bin/opencode', apiKey: null });
     expect(plan.argv[plan.argv.indexOf('--agent') + 1]).toBe('plan');
     expect(plan.argv).not.toContain('--auto');
