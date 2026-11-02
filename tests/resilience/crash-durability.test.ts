@@ -35,15 +35,23 @@ describe('crash durability', () => {
     for (let run = 0; run < 100; run++) acks.push(await crashRun(dataDir, run));
     const store = openRailStore({ dirs: resolveDirs({ RAIL_DATA_DIR: dataDir } as NodeJS.ProcessEnv) });
     try {
-      expect((store.db.query('PRAGMA integrity_check').get() as { integrity_check: string }).integrity_check).toBe('ok');
+      expect((store.db.query('PRAGMA integrity_check').get() as { integrity_check: string }).integrity_check).toBe(
+        'ok',
+      );
       let acknowledged = 0;
       for (let run = 0; run < 100; run++) {
         const ack = acks[run]!;
         if (ack < 0) continue;
         acknowledged++;
-        const row = store.db.query('SELECT value FROM sequences WHERE name = ?').get(`crash:${run}`) as { value: number } | null;
+        const row = store.db.query('SELECT value FROM sequences WHERE name = ?').get(`crash:${run}`) as {
+          value: number;
+        } | null;
         expect(row?.value ?? -1).toBeGreaterThanOrEqual(ack);
-        const events = (store.db.query(`SELECT COUNT(*) AS n FROM events WHERE type = 'crash.ack' AND json_extract(payload, '$.runId') = ?`).get(String(run)) as { n: number }).n;
+        const events = (
+          store.db
+            .query(`SELECT COUNT(*) AS n FROM events WHERE type = 'crash.ack' AND json_extract(payload, '$.runId') = ?`)
+            .get(String(run)) as { n: number }
+        ).n;
         expect(events).toBeGreaterThanOrEqual(ack + 1);
       }
       expect(acknowledged).toBeGreaterThan(50);

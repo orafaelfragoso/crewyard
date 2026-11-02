@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { RailError, resolveDirs } from '@agent-rail/core';
 import { loadConfig, renderConfigTemplate, setConfigValue, validateConfigText } from '@agent-rail/config';
+import { RailError, resolveDirs } from '@agent-rail/core';
 import { tempDir, writeFiles } from '../../helpers/index.ts';
 
 const dirs = () => resolveDirs({ RAIL_DATA_DIR: join(tempDir(), 'data') } as NodeJS.ProcessEnv);
@@ -28,8 +28,13 @@ surprise: true
   test('precedence is flags > env > repository > user > defaults', () => {
     const d = dirs();
     const repo = tempDir();
-    writeFiles(d.config, { 'config.yaml': 'version: 1\nproject: { name: demo }\nagents: { max_parallel: 2, max_retries_per_failure: 5 }\n' });
-    writeFiles(repo, { '.agent-rail/config.yaml': 'version: 1\nproject: { name: demo }\nagents: { max_parallel: 3 }\nscheduler: { max_open_prs: 4 }\n' });
+    writeFiles(d.config, {
+      'config.yaml': 'version: 1\nproject: { name: demo }\nagents: { max_parallel: 2, max_retries_per_failure: 5 }\n',
+    });
+    writeFiles(repo, {
+      '.agent-rail/config.yaml':
+        'version: 1\nproject: { name: demo }\nagents: { max_parallel: 3 }\nscheduler: { max_open_prs: 4 }\n',
+    });
     const loaded = loadConfig({
       repoRoot: repo,
       dirs: d,

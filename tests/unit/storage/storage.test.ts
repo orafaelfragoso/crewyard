@@ -36,7 +36,9 @@ describe('storage', () => {
     ctx = createTestContext();
     const c = ctx;
     for (let i = 0; i < 25; i++) {
-      c.store.immediate((db) => appendEvent(db, { type: 't', actor: { kind: 'system', id: 'x' }, payload: { i, apiKey: 'secret' } }));
+      c.store.immediate((db) =>
+        appendEvent(db, { type: 't', actor: { kind: 'system', id: 'x' }, payload: { i, apiKey: 'secret' } }),
+      );
     }
     const first = listEvents(c.store, { limit: 10 });
     const second = listEvents(c.store, { afterSeq: first.at(-1)!.seq, limit: 10 });
@@ -48,8 +50,12 @@ describe('storage', () => {
   test('outbox deduplicates by idempotency key and claims due work once', () => {
     ctx = createTestContext();
     const c = ctx;
-    const a = c.store.immediate((db) => enqueueOutbox(db, { kind: 'github.merge', intent: { pr: 1 }, idempotencyKey: 'merge:1' }));
-    const b = c.store.immediate((db) => enqueueOutbox(db, { kind: 'github.merge', intent: { pr: 1 }, idempotencyKey: 'merge:1' }));
+    const a = c.store.immediate((db) =>
+      enqueueOutbox(db, { kind: 'github.merge', intent: { pr: 1 }, idempotencyKey: 'merge:1' }),
+    );
+    const b = c.store.immediate((db) =>
+      enqueueOutbox(db, { kind: 'github.merge', intent: { pr: 1 }, idempotencyKey: 'merge:1' }),
+    );
     expect(a.operationId).toBe(b.operationId);
     expect(claimDueOutbox(c.store).length).toBe(1);
     expect(claimDueOutbox(c.store).length).toBe(0);

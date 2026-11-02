@@ -93,6 +93,7 @@ export interface EventBrowserState {
 export function useEventBrowser(ctx: RailContext, projectId: string | null, pageSize: number, liveCursor: number) {
   const [state, setState] = useState<EventBrowserState>({ items: [], before: null, after: null, follow: true });
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: liveCursor triggers a reload of the newest page when events arrive
   useEffect(() => {
     if (!state.follow) return;
     const page = pageEvents(ctx, { ...(projectId ? { projectId } : {}), limit: pageSize, direction: 'older' });

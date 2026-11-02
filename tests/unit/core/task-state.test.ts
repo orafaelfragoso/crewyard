@@ -3,7 +3,18 @@ import { allowedNextStates, assertTransition, RailError, TASK_STATES } from '@ag
 
 describe('task state machine', () => {
   test('follows the documented happy path', () => {
-    const path = ['DRAFT', 'READY', 'CLAIMED', 'RUNNING', 'SUBMITTED', 'REVIEWING', 'QUEUED', 'VALIDATING', 'MERGED', 'DONE'] as const;
+    const path = [
+      'DRAFT',
+      'READY',
+      'CLAIMED',
+      'RUNNING',
+      'SUBMITTED',
+      'REVIEWING',
+      'QUEUED',
+      'VALIDATING',
+      'MERGED',
+      'DONE',
+    ] as const;
     for (let i = 0; i < path.length - 1; i++) expect(() => assertTransition(path[i]!, path[i + 1]!)).not.toThrow();
   });
 
@@ -23,7 +34,16 @@ describe('task state machine', () => {
   test('terminal states have no exits and every active state can be cancelled or escalated', () => {
     expect(allowedNextStates('DONE')).toEqual([]);
     expect(allowedNextStates('CANCELLED')).toEqual([]);
-    for (const state of ['CLAIMED', 'RUNNING', 'SUBMITTED', 'REVIEWING', 'REVISION', 'BLOCKED', 'QUEUED', 'VALIDATING'] as const) {
+    for (const state of [
+      'CLAIMED',
+      'RUNNING',
+      'SUBMITTED',
+      'REVIEWING',
+      'REVISION',
+      'BLOCKED',
+      'QUEUED',
+      'VALIDATING',
+    ] as const) {
       expect(allowedNextStates(state)).toContain('CANCEL_REQUESTED');
       expect(allowedNextStates(state)).toContain('ESCALATED');
     }
