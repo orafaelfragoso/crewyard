@@ -22,6 +22,7 @@ export interface BoundedOptions {
   graceMs?: number;
   allowPrivileged?: boolean;
   input?: string;
+  verbatimArguments?: boolean;
 }
 
 export interface BoundedResult {
@@ -108,6 +109,7 @@ export async function runBounded(cmd: readonly string[], options: BoundedOptions
       stdout: 'pipe',
       stderr: 'pipe',
       detached: process.platform !== 'win32',
+      ...(options.verbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
   } catch (error) {
     throw new RailError('UNAVAILABLE', `Cannot execute ${cmd[0]}`, { cause: error });
