@@ -2,6 +2,27 @@
   "name": "crewyard",
   "version": "1.0.0",
   "description": "Local-first coordination engine for independent AI coding agents.",
+  "keywords": [
+    "ai",
+    "agents",
+    "coding-agents",
+    "mcp",
+    "orchestration",
+    "git",
+    "worktrees",
+    "merge-queue",
+    "cli"
+  ],
+  "license": "MIT",
+  "author": "Rafael Fragoso",
+  "homepage": "https://github.com/orafaelfragoso/crewyard#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/orafaelfragoso/crewyard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/orafaelfragoso/crewyard/issues"
+  },
   "private": true,
   "type": "module",
   "workspaces": [
@@ -21,6 +42,7 @@
     "test:unit": "bun test tests/unit packages",
     "test:concurrency": "bun test tests/concurrency",
     "build:binaries": "bun scripts/build-binaries.ts",
+    "build:npm": "bun scripts/npm-packages.ts",
     "sbom": "bun scripts/sbom.ts",
     "docs:cli": "bun scripts/gen-cli-reference.ts"
   },

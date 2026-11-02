@@ -91,3 +91,10 @@ jobs:
         run: |
           sha256sum -c SHA256SUMS
           ./crew-linux-x64 version --json
+      - run: bun run build:npm
+      - name: Install the npm tarballs and run crew
+        working-directory: dist-npm
+        run: |
+          prefix="$RUNNER_TEMP/npm-global"
+          npm install --global --prefix "$prefix" ./crewyard-cli-linux-x64-*.tgz ./crewyard-[0-9]*.tgz
+          "$prefix/bin/crew" version --json

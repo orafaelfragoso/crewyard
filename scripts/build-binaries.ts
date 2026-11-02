@@ -17,7 +17,7 @@ export const RELEASE_TARGETS = [
 type ReleaseTarget = (typeof RELEASE_TARGETS)[number];
 
 export const BUN_RUNTIME_ALTERNATIVE =
-  'Install with the Bun runtime instead (Bun >= 1.4.4): `bun install -g crewyard`, or from source; see docs/installation.md.';
+  'Run from a source checkout with the Bun runtime instead (Bun >= 1.4.4); see docs/installation.md.';
 
 type Artifact =
   | { target: string; os: string; arch: string; status: 'available'; file: string; size: number; sha256: string }
