@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.4](https://github.com/orafaelfragoso/crewyard/compare/v0.4.3...v0.4.4) (2026-11-03)
+
+
+### Bug Fixes
+
+* **github:** read merge commits from GraphQL ([aaac04d](https://github.com/orafaelfragoso/crewyard/commit/aaac04d9c36b63216fee56512e9b9a8f66fecb63))
+* **github:** read merge commits from GraphQL and stop quarantining unrevised PRs ([#38](https://github.com/orafaelfragoso/crewyard/issues/38)) ([aaac04d](https://github.com/orafaelfragoso/crewyard/commit/aaac04d9c36b63216fee56512e9b9a8f66fecb63))
+* **queue:** keep pending revisions through transient mergeability and ([aaac04d](https://github.com/orafaelfragoso/crewyard/commit/aaac04d9c36b63216fee56512e9b9a8f66fecb63))
+* **service:** keep PATH in the installed service unit ([aaac04d](https://github.com/orafaelfragoso/crewyard/commit/aaac04d9c36b63216fee56512e9b9a8f66fecb63))
+
 ## [0.4.3](https://github.com/orafaelfragoso/crewyard/compare/v0.4.2...v0.4.3) (2026-11-03)
 
 
