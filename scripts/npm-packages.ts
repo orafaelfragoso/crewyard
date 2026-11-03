@@ -61,21 +61,26 @@ function shared(root: RootManifest) {
   };
 }
 
-function pack(dir: string, outDir: string): string {
-  const result = Bun.spawnSync(['npm', 'pack', '--json', '--pack-destination', outDir], {
+async function pack(dir: string, outDir: string): Promise<string> {
+  const child = Bun.spawn(['npm', 'pack', '--json', '--pack-destination', outDir], {
     cwd: dir,
     stdout: 'pipe',
     stderr: 'pipe',
   });
-  if (result.exitCode !== 0) throw new Error(`npm pack failed in ${dir}: ${result.stderr.toString().trim()}`);
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  if (exitCode !== 0) throw new Error(`npm pack failed in ${dir}: ${stderr.trim()}`);
   type PackEntry = { filename: string };
-  const parsed = JSON.parse(result.stdout.toString()) as PackEntry[] | Record<string, PackEntry>;
+  const parsed = JSON.parse(stdout) as PackEntry[] | Record<string, PackEntry>;
   const [entry] = Array.isArray(parsed) ? parsed : Object.values(parsed);
   if (!entry) throw new Error(`npm pack produced no tarball in ${dir}`);
   return basename(entry.filename);
 }
 
-export function buildNpmPackages(options: BuildNpmPackagesOptions): NpmPackage[] {
+export async function buildNpmPackages(options: BuildNpmPackagesOptions): Promise<NpmPackage[]> {
   const { distDir, outDir, root } = options;
   const binaries = JSON.parse(readFileSync(join(distDir, 'manifest.json'), 'utf8')) as BinaryManifest;
   if (binaries.version !== root.version) {
@@ -138,7 +143,10 @@ export function buildNpmPackages(options: BuildNpmPackagesOptions): NpmPackage[]
   packages.push({ name: MAIN_PACKAGE, version: root.version, dir: mainDir, tarball: null });
 
   if (options.pack) {
-    for (const p of packages) p.tarball = pack(p.dir, outDir);
+    const tarballs = await Promise.all(packages.map((p) => pack(p.dir, outDir)));
+    packages.forEach((p, i) => {
+      p.tarball = tarballs[i] ?? null;
+    });
   }
   writeJson(join(outDir, PACKAGES_FILE), packages);
   return packages;
@@ -157,6 +165,6 @@ if (import.meta.main) {
     process.exit(2);
   }
   const root = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as RootManifest;
-  const packages = buildNpmPackages({ distDir, outDir: resolve(values.outdir), root, pack: true });
+  const packages = await buildNpmPackages({ distDir, outDir: resolve(values.outdir), root, pack: true });
   for (const p of packages) console.error(`packed ${p.name}@${p.version} -> ${p.tarball}`);
 }

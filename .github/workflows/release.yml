@@ -77,21 +77,26 @@ jobs:
       - name: Checksum every release asset
         run: bun scripts/checksums.ts dist
       - name: Pack npm packages
-        run: bun run build:npm
+        run: |
+          bun run build:npm
+          cp dist/SHA256SUMS dist-npm/
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
           path: dist/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
+          compression-level: 1
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: npm
           path: |
             dist-npm/*.tgz
             dist-npm/packages.json
+            dist-npm/SHA256SUMS
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
+          compression-level: 0
 
   verify:
     name: Verify ${{ matrix.binary }}
@@ -117,29 +122,20 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: dist
-          path: dist
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
           name: npm
           path: npm
-      - name: Verify checksum and run
-        working-directory: dist
-        env:
-          BINARY: ${{ matrix.binary }}
-        run: |
-          grep "  $BINARY\$" SHA256SUMS > one.sum
-          if command -v sha256sum >/dev/null; then sha256sum -c one.sum; else shasum -a 256 -c one.sum; fi
-          chmod +x "$BINARY"
-          "./$BINARY" version --json
-      - name: Install the npm tarballs and run crew
+      - name: Install the npm tarballs, check the binary checksum and run crew
         working-directory: npm
         env:
+          BINARY: ${{ matrix.binary }}
           PLATFORM_PACKAGE: ${{ matrix.npm }}
         run: |
           tarball() { node -p "require('./packages.json').find((p) => p.name === process.argv[1]).tarball" "$1"; }
+          sha() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
           prefix="$RUNNER_TEMP/npm-global"
           npm install --global --prefix "$prefix" "./$(tarball "$PLATFORM_PACKAGE")" "./$(tarball crewyard)"
+          installed=$(find "$prefix" -type f -path "*${PLATFORM_PACKAGE}/bin/crew*")
+          test "$(sha "$installed")" = "$(grep "  $BINARY\$" SHA256SUMS | cut -d' ' -f1)"
           if [ "$RUNNER_OS" = Windows ]; then crew="$prefix/crew.cmd"; else crew="$prefix/bin/crew"; fi
           expected=$(node -p "require('./packages.json')[0].version")
           actual=$("$crew" version --json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).data.version")

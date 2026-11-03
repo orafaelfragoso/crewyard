@@ -46,8 +46,8 @@ afterEach(() => {
 });
 
 describe('npm packages', () => {
-  test('publishes platform packages before the launcher package that pins them', () => {
-    const packages = buildNpmPackages({ distDir: fakeDist('1.2.3'), outDir: outDir(), root: ROOT, pack: false });
+  test('publishes platform packages before the launcher package that pins them', async () => {
+    const packages = await buildNpmPackages({ distDir: fakeDist('1.2.3'), outDir: outDir(), root: ROOT, pack: false });
     expect(packages.map((p) => p.name)).toEqual(['@crewyard/cli-linux-x64', '@crewyard/cli-win32-x64', 'crewyard']);
     const main = manifest(packages[2]!.dir);
     expect(main.bin).toEqual({ crew: 'bin/crew.js' });
@@ -57,8 +57,8 @@ describe('npm packages', () => {
     });
   });
 
-  test('maps each binary to npm os and cpu with an executable crew binary', () => {
-    const [linux, windows] = buildNpmPackages({
+  test('maps each binary to npm os and cpu with an executable crew binary', async () => {
+    const [linux, windows] = await buildNpmPackages({
       distDir: fakeDist('1.2.3'),
       outDir: outDir(),
       root: ROOT,
