@@ -353,6 +353,7 @@ export function toGraphState(value: unknown): PullRequestGraphState {
     isInMergeQueue: asBoolean(raw.isInMergeQueue) ?? false,
     isMergeQueueEnabled: asBoolean(raw.isMergeQueueEnabled) ?? false,
     mergeQueueEntry: raw.mergeQueueEntry == null ? null : toMergeQueueEntry(raw.mergeQueueEntry),
+    mergeCommitSha: asString(field(raw, 'mergeCommit', 'oid')),
   };
 }
 

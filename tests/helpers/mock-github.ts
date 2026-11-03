@@ -144,6 +144,8 @@ export class MockGitHub {
   rateLimit: MockRateLimit | null = null;
   movedTo: string | null = null;
   pendingMergeCommits = new Set<number>();
+  unknownMergeability = new Set<number>();
+  runningWorkflows: { sha: string; name: string }[] = [];
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port = 0;
   private nextId = 1000;
@@ -394,7 +396,7 @@ export class MockGitHub {
   }
 
   mergeableState(pr: MockPull): string {
-    if (pr.state !== 'open') return 'unknown';
+    if (pr.state !== 'open' || this.unknownMergeability.has(pr.number)) return 'unknown';
     if (pr.draft) return 'draft';
     if (this.conflicts(pr)) return 'dirty';
     const req = this.requirements(pr.baseRef);
@@ -430,8 +432,7 @@ export class MockGitHub {
       head: { ref: pr.headRef, sha: head, repo: { full_name: `${this.owner}/${this.name}` } },
       base: { ref: pr.baseRef, sha: baseSha },
       merged_at: pr.mergedAt,
-      merge_commit_sha: this.pendingMergeCommits.has(pr.number) ? null : pr.mergeCommitSha,
-      mergeable: pr.state === 'open' ? !conflict : null,
+      mergeable: pr.state === 'open' && !this.unknownMergeability.has(pr.number) ? !conflict : null,
       mergeable_state: this.mergeableState(pr),
       updated_at: pr.updatedAt,
       ...(pr.stack && stackBase
@@ -820,7 +821,20 @@ export class MockGitHub {
           conclusion: c.conclusion,
           head_sha: c.sha,
           head_branch: null,
-        }));
+        }))
+        .concat(
+          this.runningWorkflows
+            .filter((w) => w.sha === sha)
+            .map((w, i) => ({
+              id: 900_000 + i,
+              name: w.name,
+              event: 'pull_request',
+              status: 'in_progress',
+              conclusion: null,
+              head_sha: w.sha,
+              head_branch: null,
+            })),
+        );
       return this.respond(req, 200, { total_count: runs.length, workflow_runs: runs });
     }
     match = m(/^\/branches\/([^/]+)\/protection$/);
@@ -886,11 +900,18 @@ export class MockGitHub {
             pullRequest: {
               id: pr.nodeId,
               reviewDecision: this.reviewDecision(pr),
-              mergeable: pr.state === 'open' ? (this.conflicts(pr) ? 'CONFLICTING' : 'MERGEABLE') : 'UNKNOWN',
+              mergeable:
+                pr.state !== 'open' || this.unknownMergeability.has(pr.number)
+                  ? 'UNKNOWN'
+                  : this.conflicts(pr)
+                    ? 'CONFLICTING'
+                    : 'MERGEABLE',
               mergeStateStatus: this.mergeableState(pr).toUpperCase(),
               isInMergeQueue: index >= 0,
               isMergeQueueEnabled: this.requirements(pr.baseRef).mergeQueue,
               mergeQueueEntry: index >= 0 ? this.entryJson(queue[index]!, index + 1) : null,
+              mergeCommit:
+                pr.mergeCommitSha && !this.pendingMergeCommits.has(pr.number) ? { oid: pr.mergeCommitSha } : null,
             },
           },
         },

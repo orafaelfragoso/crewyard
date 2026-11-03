@@ -208,9 +208,9 @@ describe('credentials and repository identity', () => {
     },
   );
 
-  test('a merged pull request without its merge commit is never served from the ETag cache', async () => {
+  test('a merged pull request reads its merge commit from GraphQL, which REST 2026-03-10 no longer returns', async () => {
     const entries = new Map<string, ConditionalEntry>();
-    let mergeCommitSha: string | null = null;
+    let mergeCommit: { oid: string } | null = null;
     const etag = 'W/"unchanged"';
     const c = new GitHubClient({
       repository: { host: 'github.com', owner: 'acme', name: 'widgets' },
@@ -218,16 +218,19 @@ describe('credentials and repository identity', () => {
       baseUrl: 'https://api.test',
       cache: { get: (key) => entries.get(key) ?? null, set: (key, entry) => void entries.set(key, entry) },
       fetch: async (url, init) => {
+        if (url.endsWith('/graphql')) {
+          return Response.json({ data: { repository: { pullRequest: { id: 'PR_1', mergeCommit } } } });
+        }
         if (new Headers(init.headers).get('if-none-match') === etag) return new Response(null, { status: 304 });
         const body = url.endsWith('/pulls/1')
-          ? { number: 1, state: 'closed', merged_at: '2026-11-03T16:22:46Z', merge_commit_sha: mergeCommitSha }
+          ? { number: 1, state: 'closed', merged_at: '2026-11-03T16:22:46Z' }
           : { full_name: 'acme/widgets' };
         return Response.json(body, { headers: { etag } });
       },
     });
     expect(await c.getPullRequest(1)).toMatchObject({ state: 'merged', mergeCommitSha: null });
-    mergeCommitSha = 'd'.repeat(40);
-    expect((await c.getPullRequest(1)).mergeCommitSha).toBe(mergeCommitSha);
+    mergeCommit = { oid: 'd'.repeat(40) };
+    expect((await c.getPullRequest(1)).mergeCommitSha).toBe('d'.repeat(40));
   });
 
   test('remote validation refuses another repository', () => {

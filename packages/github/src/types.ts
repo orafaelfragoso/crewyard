@@ -140,6 +140,7 @@ export interface PullRequestGraphState {
   isInMergeQueue: boolean;
   isMergeQueueEnabled: boolean;
   mergeQueueEntry: MergeQueueEntry | null;
+  mergeCommitSha: string | null;
 }
 
 export interface MergeResult {
