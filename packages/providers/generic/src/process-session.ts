@@ -313,7 +313,7 @@ export class ProcessSessions {
         at: nowIso(),
         outcome,
         exitCode,
-        ...(result === null ? {} : { result: result.slice(0, MAX_EVENT_TEXT) }),
+        ...(result === null ? {} : { result }),
       });
       log.write('crew', `completed outcome=${outcome} exit=${exitCode ?? 'signal'}`);
       log.close();

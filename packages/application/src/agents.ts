@@ -117,6 +117,7 @@ export async function planGoalWithAgent(
   const prompt = [
     `You are planning work for the goal "${goal.title}" in repository ${repo.remoteOwner ?? ''}/${repo.remoteName ?? repo.canonicalPath} (base ${repo.defaultBase}).`,
     'Produce a dependency DAG of small, independently mergeable tasks. Each task must touch a narrow scope, list concrete acceptance criteria and tests, and declare dependencies by task key. Mark tasks touching auth, payments, secrets, permissions, deployment or migrations as high risk and list them as exclusiveResources where they must not run concurrently.',
+    'Follow the crew-planning skill. Call crew_get_state and crew_list_tasks first so the plan respects policy and does not duplicate open work. Use crew_search_context, crew_get_symbol and crew_analyze_impact for targeted context and to size tasks; read files directly only for what those tools do not answer.',
     'Do not modify any files. Respond with only a JSON object that matches the provided schema.',
     UNTRUSTED_NOTICE,
     '',
