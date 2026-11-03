@@ -473,6 +473,8 @@ describe('branches behind a strict base', () => {
       expect(after).toMatchObject({ headSha: merged, expectedRemoteHead: merged, externalDivergence: null });
     }, 60_000);
   }
+});
+
 describe('queue routing', () => {
   const entryFor = (f: GitHubFixture, number: number) => {
     const record = showPullRequest(f.ctx, { repositoryId: f.repositoryId, number });

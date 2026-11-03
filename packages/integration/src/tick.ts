@@ -293,7 +293,7 @@ function evaluateQueue(
     if (base && next === 'eligible' && entry.status === 'blocked') {
       scope.hooks.push({ name: 'onQueued', event: { ...base, entryId: entry.id } });
     }
-    if (hard.some((b) => b.code === 'HIGH_RISK_REVIEW_REQUIRED')) {
+    if (scope.config.review.enabled && hard.some((b) => b.code === 'HIGH_RISK_REVIEW_REQUIRED')) {
       requestHighRiskReview(db, scope, pr, input.reviews, at);
     }
     const operator = operatorBlockers(pr, hard);

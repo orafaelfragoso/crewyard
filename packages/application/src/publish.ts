@@ -6,7 +6,6 @@ import {
   listPullRequests,
   type PullRequestRecord,
   requestIntegration,
-  requestPullRequestReview,
   submitPullRequest,
   syncRepository,
 } from '@crewyard/integration';
@@ -15,7 +14,7 @@ import { requestInterventionInTx } from '@crewyard/reviews';
 import { type CrewContext, one, recordRemoteOperation, recordTransition } from '@crewyard/storage';
 import { applyTransition, listApprovals, requestApprovalInTx, showTask, transitionTask } from '@crewyard/tasks';
 import { collectCommits, getWorkspace, listWorkspaces, setExpectedRemoteHead } from '@crewyard/workspaces';
-import { contextFingerprints, integrationEnv, reviewersFor } from './integration.ts';
+import { integrationEnv, reviewPullRequest } from './integration.ts';
 
 export interface PublishResult {
   taskId: string;
@@ -105,7 +104,15 @@ function prBody(task: ReturnType<typeof showTask>['task']): string {
 
 export async function publishTask(
   ctx: CrewContext,
-  input: { taskId: string; actor: Actor; leaderId: string; env?: IntegrationEnv; review?: boolean; enqueue?: boolean },
+  input: {
+    taskId: string;
+    actor: Actor;
+    leaderId: string;
+    env?: IntegrationEnv;
+    review?: boolean;
+    enqueue?: boolean;
+    background?: (work: Promise<unknown>) => void;
+  },
 ): Promise<PublishResult> {
   const task = showTask(ctx, input.taskId).task;
   if (!['SUBMITTED', 'REVIEWING', 'REVISION', 'BLOCKED'].includes(task.state)) {
@@ -226,51 +233,46 @@ export async function publishTask(
     };
   }
 
-  const review: PublishResult['review'] = [];
-  if (input.review !== false && config.review.enabled) {
-    if (showTask(ctx, task.id).task.state === 'SUBMITTED') {
-      transitionTask(ctx, {
-        taskId: task.id,
-        to: 'REVIEWING',
-        actor: input.actor,
-        reason: `review of PR #${pr.number}`,
-      });
-    }
-    const result = await requestPullRequestReview(
-      ctx,
-      { prId: pr.id },
-      { reviewers: reviewersFor(ctx, task.projectId), context: contextFingerprints(ctx), env },
-    );
-    for (const o of result.outcomes) {
-      review.push({
-        type: o.reviewType,
-        decision: o.decision,
-        status: o.review?.status ?? null,
-        reviewerInvoked: o.reviewerInvoked,
-        error: o.error,
-      });
-    }
+  const reviewing = input.review !== false && config.review.enabled;
+  if (reviewing && showTask(ctx, task.id).task.state === 'SUBMITTED') {
+    transitionTask(ctx, {
+      taskId: task.id,
+      to: 'REVIEWING',
+      actor: input.actor,
+      reason: `review of PR #${pr.number}`,
+    });
   }
-  let queued = false;
-  const autonomy = getProject(ctx, task.projectId).autonomy;
-  if (
-    input.enqueue !== false &&
-    (autonomy === 'guarded' || autonomy === 'autopilot' || input.actor.kind === 'operator')
-  ) {
-    await requestIntegration(ctx, { prId: pr.id, priority: task.priority, requestedBy: input.actor }, env);
-    queued = true;
-  }
-  return {
-    taskId: task.id,
-    branch: workspace.branch,
-    headSha,
-    pushed,
-    pullRequest: pr,
-    operationStatus,
-    review,
-    queued,
-    notes,
+  const finish = async (published: PullRequestRecord) => {
+    const review: PublishResult['review'] = [];
+    if (reviewing) {
+      const result = await reviewPullRequest(ctx, { prId: published.id }, env);
+      for (const o of result.outcomes) {
+        review.push({
+          type: o.reviewType,
+          decision: o.decision,
+          status: o.review?.status ?? null,
+          reviewerInvoked: o.reviewerInvoked,
+          error: o.error,
+        });
+      }
+    }
+    let queued = false;
+    const autonomy = getProject(ctx, task.projectId).autonomy;
+    if (
+      input.enqueue !== false &&
+      (autonomy === 'guarded' || autonomy === 'autopilot' || input.actor.kind === 'operator')
+    ) {
+      await requestIntegration(ctx, { prId: published.id, priority: task.priority, requestedBy: input.actor }, env);
+      queued = true;
+    }
+    return { review, queued };
   };
+  const base = { taskId: task.id, branch: workspace.branch, headSha, pushed, pullRequest: pr, operationStatus };
+  if (input.background) {
+    input.background(finish(pr));
+    return { ...base, review: [], queued: false, notes: [...notes, 'review and enqueue continue in the background'] };
+  }
+  return { ...base, ...(await finish(pr)), notes };
 }
 
 export function blockDivergedPublication(ctx: CrewContext, taskId: string, error: CrewError, actor: Actor): void {
