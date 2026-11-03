@@ -48,9 +48,16 @@ async function compile(t: ReleaseTarget, outdir: string): Promise<Artifact> {
   try {
     const result = await Bun.build({
       entrypoints: [ENTRY],
-      compile: { target: t.target, outfile },
+      compile: {
+        target: t.target,
+        outfile,
+        autoloadDotenv: false,
+        autoloadBunfig: false,
+        autoloadTsconfig: false,
+        autoloadPackageJson: false,
+      },
       minify: true,
-      sourcemap: 'linked',
+      sourcemap: 'none',
       plugins: [stubInkDevtools],
       throw: false,
     });
