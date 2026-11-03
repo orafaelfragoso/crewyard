@@ -94,7 +94,13 @@ describe('account profiles', () => {
       allowedTools: ['Bash(cargo test:*)'],
     });
     expect(() => updateProfileSettings(ctx!, 'claude/work', { permissionMode: 'manual' })).toThrow('Unknown');
-    expect(() => updateProfileSettings(ctx!, 'codex/work', { permissionMode: 'auto' })).toThrow('claude profiles');
+    expect(() => updateProfileSettings(ctx!, 'codex/work', { permissionMode: 'auto' })).toThrow('Unknown');
+    updateProfileSettings(ctx, 'codex/work', { permissionMode: 'danger-full-access', networkAccess: false });
+    expect(listProfiles(ctx, { providerId: 'codex' })[0]!.settings).toEqual({
+      sandbox: 'danger-full-access',
+      networkAccess: false,
+    });
+    expect(() => updateProfileSettings(ctx!, 'codex/work', { allowedTools: ['x'] })).toThrow('claude profiles');
   });
 
   test('test validates through the adapter and keeps an active rate limit', async () => {

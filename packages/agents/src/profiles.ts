@@ -20,6 +20,7 @@ import {
   SYSTEM_ACTOR,
 } from '@crewyard/core';
 import { CLAUDE_EXECUTE_PERMISSION_MODES } from '@crewyard/provider-claude';
+import { CODEX_EXECUTE_SANDBOXES } from '@crewyard/provider-codex';
 import { all, type CrewContext, one, parseJson, recordTransition } from '@crewyard/storage';
 import { createProviderRegistry, type LoginCommand, type ProviderRegistry, providerManifest } from './registry.ts';
 import { type SecretStore, systemSecretStore } from './secrets.ts';
@@ -290,9 +291,36 @@ export async function addProfile(
   }
 }
 
+interface PermissionSetting {
+  modes: readonly string[];
+  unrestricted: string | null;
+  apply(mode: string): Record<string, unknown>;
+}
+
+const PERMISSION_SETTINGS: Partial<Record<ProviderId, PermissionSetting>> = {
+  claude: {
+    modes: CLAUDE_EXECUTE_PERMISSION_MODES,
+    unrestricted: 'bypassPermissions',
+    apply: (mode) => ({ permissionMode: mode }),
+  },
+  codex: { modes: CODEX_EXECUTE_SANDBOXES, unrestricted: 'danger-full-access', apply: (mode) => ({ sandbox: mode }) },
+  opencode: { modes: ['auto', 'ask'], unrestricted: null, apply: (mode) => ({ autoApprove: mode === 'auto' }) },
+};
+
+export function isUnrestrictedPermissionMode(providerId: ProviderId, mode: string): boolean {
+  return PERMISSION_SETTINGS[providerId]?.unrestricted === mode;
+}
+
+function onlyFor(profile: AccountProfile, providerId: ProviderId, option: string): void {
+  if (profile.providerId !== providerId) {
+    throw new CrewError('INVALID_INPUT', `${option} applies to ${providerId} profiles, not ${profile.providerId}`);
+  }
+}
+
 export interface UpdateProfileSettingsInput {
   permissionMode?: string;
   allowedTools?: string[];
+  networkAccess?: boolean;
   actor?: Actor;
   dryRun?: boolean;
 }
@@ -306,20 +334,24 @@ export function updateProfileSettings(
   return (input.dryRun ? ctx.store.preview : ctx.store.immediate)((db) => {
     const row = requireProfileRow(db, ref);
     const profile = mapProfile(row);
+    const permission = PERMISSION_SETTINGS[profile.providerId];
     if (input.permissionMode !== undefined) {
-      if (profile.providerId !== 'claude') {
-        throw new CrewError('INVALID_INPUT', `--permission-mode applies to claude profiles, not ${profile.providerId}`);
+      if (!permission) {
+        throw new CrewError('INVALID_INPUT', `${profile.providerId} profiles have no permission modes`);
       }
-      if (!(CLAUDE_EXECUTE_PERMISSION_MODES as readonly string[]).includes(input.permissionMode)) {
-        throw new CrewError('INVALID_INPUT', `Unknown Claude permission mode ${input.permissionMode}`, {
-          details: { allowed: CLAUDE_EXECUTE_PERMISSION_MODES },
+      if (!permission.modes.includes(input.permissionMode)) {
+        throw new CrewError('INVALID_INPUT', `Unknown ${profile.providerId} permission mode ${input.permissionMode}`, {
+          details: { allowed: permission.modes },
         });
       }
     }
+    if (input.allowedTools !== undefined) onlyFor(profile, 'claude', '--allowed-tools');
+    if (input.networkAccess !== undefined) onlyFor(profile, 'codex', '--network');
     const next: Record<string, unknown> = {
       ...profile.settings,
-      ...(input.permissionMode !== undefined ? { permissionMode: input.permissionMode } : {}),
+      ...(input.permissionMode !== undefined && permission ? permission.apply(input.permissionMode) : {}),
       ...(input.allowedTools !== undefined ? { allowedTools: input.allowedTools } : {}),
+      ...(input.networkAccess !== undefined ? { networkAccess: input.networkAccess } : {}),
     };
     validateSettings(next);
     db.query('UPDATE provider_profiles SET settings = ?, updated_at = ? WHERE id = ?').run(

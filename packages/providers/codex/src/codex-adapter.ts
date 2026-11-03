@@ -41,7 +41,8 @@ import {
 export const CODEX_API_KEY_ENV = 'CODEX_API_KEY';
 export const CODEX_HOME_ENV = 'CODEX_HOME';
 
-type Sandbox = 'read-only' | 'workspace-write';
+export const CODEX_EXECUTE_SANDBOXES = ['workspace-write', 'read-only', 'danger-full-access'] as const;
+type Sandbox = (typeof CODEX_EXECUTE_SANDBOXES)[number];
 
 export function codexBinary(profile: AccountProfile): string {
   return settingString(profile, 'binary') ?? 'codex';
@@ -57,11 +58,10 @@ export function codexLoginCommand(profile: AccountProfile): { argv: string[]; en
 
 function sandboxFor(launch: AgentLaunch): Sandbox {
   if (launch.mode !== 'execute') return 'read-only';
-  const configured = settingString(launch.profile, 'sandbox');
-  if (configured === null || configured === 'workspace-write') return 'workspace-write';
-  if (configured === 'read-only') return 'read-only';
+  const configured = settingString(launch.profile, 'sandbox') ?? 'workspace-write';
+  if ((CODEX_EXECUTE_SANDBOXES as readonly string[]).includes(configured)) return configured as Sandbox;
   throw new CrewError('POLICY_DENIED', `Codex sandbox ${configured} is not permitted for managed sessions`, {
-    suggestion: 'Use read-only or workspace-write.',
+    suggestion: `Use ${CODEX_EXECUTE_SANDBOXES.join(', ')}.`,
   });
 }
 
@@ -98,7 +98,11 @@ export function buildCodexInvocation(
   input: { executable: string; apiKey: string | null; options?: AdapterOptions },
 ): CodexInvocation {
   const outputSchemaPath = launch.outputSchema ? join(dirname(launch.logPath), 'output-schema.json') : null;
-  const argv = [input.executable, 'exec', '--json', '--cd', launch.cwd, '--sandbox', sandboxFor(launch)];
+  const sandbox = sandboxFor(launch);
+  const argv = [input.executable, 'exec', '--json', '--cd', launch.cwd, '--sandbox', sandbox];
+  if (sandbox === 'workspace-write' && settingBool(launch.profile, 'networkAccess') !== false) {
+    argv.push('-c', 'sandbox_workspace_write.network_access=true');
+  }
   if (launch.model) argv.push('--model', launch.model);
   if (outputSchemaPath) argv.push('--output-schema', outputSchemaPath);
   if (settingBool(launch.profile, 'skipGitRepoCheck')) argv.push('--skip-git-repo-check');

@@ -573,8 +573,9 @@ change how execution sessions on this account may use tools
 
 | Option | Description |
 |---|---|
-| `--permission-mode <mode>` | claude: auto | acceptEdits | dontAsk | bypassPermissions |
-| `--allowed-tools <tools>` | tools allowed without a prompt, e.g. "Bash(cargo test:*)" |
+| `--permission-mode <mode>` | claude: auto | acceptEdits | dontAsk | bypassPermissions; codex: workspace-write | read-only | danger-full-access; opencode: auto | ask |
+| `--allowed-tools <tools>` | claude: tools allowed without a prompt, e.g. "Bash(cargo test:*)" |
+| `--network <on\|off>` | codex: network access inside the workspace-write sandbox |
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 

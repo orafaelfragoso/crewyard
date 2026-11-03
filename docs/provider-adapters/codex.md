@@ -5,13 +5,16 @@ Package: `@crewyard/provider-codex`. Verified against `codex-cli 0.166.0`.
 ## Invocation
 
 ```text
-codex exec --json --cd <cwd> --sandbox <workspace-write|read-only> [--model <m>] [--output-schema <log-dir>/output-schema.json] [--skip-git-repo-check] \
+codex exec --json --cd <cwd> --sandbox <workspace-write|read-only|danger-full-access> [-c sandbox_workspace_write.network_access=true] [--model <m>] [--output-schema <log-dir>/output-schema.json] [--skip-git-repo-check] \
   -c mcp_servers.crewyard.command=... -c mcp_servers.crewyard.args=[...] -c mcp_servers.crewyard.env={...} -c mcp_servers.crewyard.env_vars=[...] -
 ```
 
 - The prompt (with agent system instructions prepended in a `<system-instructions>` block) is written to stdin (`-`).
-- `execute` uses `workspace-write`; `plan`/`review` use `read-only`. `settings.sandbox` may narrow execute to
-  `read-only`; `danger-full-access` is refused.
+- `execute` uses `settings.sandbox`: `workspace-write` (default), `read-only` or `danger-full-access`. `plan`/`review`
+  use `read-only`. In `workspace-write`, commands can reach the network so builds can fetch dependencies; set
+  `settings.networkAccess: false` to block it (`crew account set <ref> --network off`). `danger-full-access` runs
+  commands without a sandbox; use it only for profiles you trust in an isolated machine
+  (`crew account set <ref> --permission-mode danger-full-access --yes`).
 - `launch.outputSchema` is written next to the session log and passed with `--output-schema`.
 - `settings.binary` overrides the executable, `settings.skipGitRepoCheck` adds `--skip-git-repo-check`.
 - **Commits.** Codex keeps `.git` read-only inside its sandbox, and Crewyard grants no extra writable directories. The

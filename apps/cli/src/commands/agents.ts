@@ -9,6 +9,7 @@ import {
   getAccountPolicy,
   getAgent,
   getProfile,
+  isUnrestrictedPermissionMode,
   listAccountPolicies,
   listAgents,
   listProfiles,
@@ -154,21 +155,30 @@ export function registerAgentCommands(program: Command): void {
     account
       .command('set <ref>')
       .description('change how execution sessions on this account may use tools')
-      .option('--permission-mode <mode>', 'claude: auto | acceptEdits | dontAsk | bypassPermissions')
-      .option('--allowed-tools <tools>', 'tools allowed without a prompt, e.g. "Bash(cargo test:*)"', list),
+      .option(
+        '--permission-mode <mode>',
+        'claude: auto | acceptEdits | dontAsk | bypassPermissions; codex: workspace-write | read-only | danger-full-access; opencode: auto | ask',
+      )
+      .option('--allowed-tools <tools>', 'claude: tools allowed without a prompt, e.g. "Bash(cargo test:*)"', list)
+      .option('--network <on|off>', 'codex: network access inside the workspace-write sandbox'),
   ).action(
     action(async (ctx, opts, ref: string) => {
-      if (opts.permissionMode === undefined && opts.allowedTools === undefined) {
+      if (opts.permissionMode === undefined && opts.allowedTools === undefined && opts.network === undefined) {
         throw new CrewError('INVALID_INPUT', 'Nothing to change', {
-          suggestion: 'Pass --permission-mode or --allowed-tools.',
+          suggestion: 'Pass --permission-mode, --allowed-tools or --network.',
         });
       }
-      if (opts.permissionMode === 'bypassPermissions' && !opts.dryRun) {
-        await confirm(opts, `Let sessions on ${ref} run every tool without any permission check?`);
+      if (opts.network !== undefined && opts.network !== 'on' && opts.network !== 'off') {
+        throw new CrewError('INVALID_INPUT', '--network must be on or off');
+      }
+      const mode = opts.permissionMode === undefined ? undefined : String(opts.permissionMode);
+      if (mode && !opts.dryRun && isUnrestrictedPermissionMode(getProfile(ctx, ref).providerId, mode)) {
+        await confirm(opts, `Let sessions on ${ref} run every command without a sandbox or permission check?`);
       }
       const result = updateProfileSettings(ctx, ref, {
-        ...(opts.permissionMode !== undefined ? { permissionMode: String(opts.permissionMode) } : {}),
+        ...(mode !== undefined ? { permissionMode: mode } : {}),
         ...(opts.allowedTools !== undefined ? { allowedTools: opts.allowedTools as string[] } : {}),
+        ...(opts.network !== undefined ? { networkAccess: opts.network === 'on' } : {}),
         dryRun: Boolean(opts.dryRun),
         actor: operatorActor(),
       });

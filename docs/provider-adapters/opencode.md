@@ -10,7 +10,10 @@ opencode run --standalone --format json [--model provider/model] [--agent plan|<
 
 - `--standalone` runs a private server inside the child process tree. Without it OpenCode talks to the shared background
   service, which ignores the profile's isolated directories and outlives cancellation.
-- `plan`/`review` use the built-in `plan` agent; `execute` adds `--auto` unless `settings.autoApprove` is `false`.
+- `plan`/`review` use the built-in `plan` agent; `execute` adds `--auto` unless `settings.autoApprove` is `false`
+  (`crew account set <ref> --permission-mode ask`). `--auto` approves every permission your OpenCode configuration does
+  not explicitly deny, and OpenCode has no sandbox, so it is already unrestricted; deny tools in the OpenCode
+  configuration to restrict it.
 - System instructions are prepended to the prompt. Output schemas are not supported (`UNSUPPORTED_CAPABILITY`).
 - **Crewyard MCP server.** `OPENCODE_CONFIG_CONTENT` in the child environment adds a local `crewyard` server (`crew mcp`)
   for this run only. OpenCode merges inline config over the user and project config, and the server inherits the session
