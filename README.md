@@ -175,9 +175,11 @@ crew init --repo .
 crew account add --provider claude --name personal --use-default-config
 crew account test claude/personal
 
-# 3. Create agents that use it
-crew agent create --name architect --role architect --provider claude --account claude/personal
-crew agent create --name engineer  --role engineer  --provider claude --account claude/personal
+# 3. Create agents that use it, and turn on AI review
+crew agent create --name architect --role architect --account claude/personal
+crew agent create --name engineer  --account claude/personal
+crew agent create --name reviewer  --role reviewer  --account claude/personal
+crew config set review.reviewer_agent reviewer --yes
 
 # 4. Give it a goal, review the plan, approve it
 crew goal create --title "Add JWT authentication" --description-file goal.md
@@ -190,13 +192,13 @@ crew service start
 crew dashboard
 ```
 
-`GOAL-1` is the ID that `goal create` prints. Codex and OpenCode work the same way with `--provider codex` or `--provider opencode`. For separate logins, several accounts or API keys, see [Accounts](docs/accounts.md).
+`GOAL-1` is the ID that `goal create` prints. Codex and OpenCode work the same way with `--provider codex` or `--provider opencode`. For separate logins, several accounts or API keys, see [Accounts](docs/accounts.md); to change or remove agents, see [Agents and policies](docs/agents.md).
 
-To let Claude Code, Codex and OpenCode sessions you start yourself use Crewyard's tasks and tools, run `crew install --target codex,claude,opencode` (add `--dry-run` first to see the changes).
+To let Claude Code, Codex and OpenCode sessions you start yourself use Crewyard's tasks and tools, run `crew install` (add `--dry-run` first to see the changes). The guide lists [where it installs the MCP server and Skills](docs/getting-started.md#6-connect-your-own-agent-tools-optional).
 
 The background service keeps dispatching ready tasks; the MCP server alone does not keep work running after its host exits.
 
-<p><a href="docs/getting-started.md"><strong>Getting started →</strong></a> &nbsp;·&nbsp; <a href="docs/accounts.md"><strong>Accounts →</strong></a> &nbsp;·&nbsp; <a href="docs/reference/cli.md"><strong>CLI reference →</strong></a></p>
+<p><a href="docs/getting-started.md"><strong>Getting started →</strong></a> &nbsp;·&nbsp; <a href="docs/accounts.md"><strong>Accounts →</strong></a> &nbsp;·&nbsp; <a href="docs/agents.md"><strong>Agents →</strong></a> &nbsp;·&nbsp; <a href="docs/reference/cli.md"><strong>CLI reference →</strong></a></p>
 
 ## How it works
 
@@ -259,7 +261,8 @@ Security properties depend on configuration and implementation maturity. Read th
 | Start here | Learn more |
 | :--- | :--- |
 | [Getting started](docs/getting-started.md) | From install to your first agent-run task, step by step |
-| [Accounts](docs/accounts.md) | Logging agents in: existing logins, separate logins, API keys, several accounts |
+| [Accounts](docs/accounts.md) | Logging agents in: existing logins, separate logins, API keys |
+| [Agents and policies](docs/agents.md) | Roles, using several accounts, changing and removing agents |
 | [Installation](docs/installation.md) | Supported setups, local data, upgrades, and backups |
 | [CLI reference](docs/reference/cli.md) | Commands, options, and machine-readable output |
 | [MCP host setup](docs/mcp-hosts.md) | Connecting existing coding-agent tools |

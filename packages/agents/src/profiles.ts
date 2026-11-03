@@ -292,6 +292,7 @@ export async function addProfile(
 export interface RemoveProfileInput {
   actor?: Actor;
   purgeConfigRoot?: boolean;
+  dryRun?: boolean;
 }
 
 export async function removeProfile(
@@ -299,9 +300,15 @@ export async function removeProfile(
   ref: string,
   input: RemoveProfileInput = {},
   options: { secrets?: SecretStore } = {},
-): Promise<{ profileId: string; ref: string; removedFromPolicies: string[]; configRootPurged: boolean }> {
+): Promise<{
+  profileId: string;
+  ref: string;
+  removedFromPolicies: string[];
+  configRootPurged: boolean;
+  dryRun: boolean;
+}> {
   const at = nowIso(ctx.clock);
-  const removed = ctx.store.immediate((db) => {
+  const removed = (input.dryRun ? ctx.store.preview : ctx.store.immediate)((db) => {
     const row = requireProfileRow(db, ref);
     const active = one<{ n: number }>(
       db,
@@ -342,16 +349,19 @@ export async function removeProfile(
     );
     return { profile, touched };
   });
-  if (removed.profile.authRef) await (options.secrets ?? systemSecretStore).delete(removed.profile.authRef);
   const root = removed.profile.configRoot;
   const managedRoot = join(ctx.dirs.data, 'profiles');
   const purge = Boolean(input.purgeConfigRoot && root && existsSync(root) && isWithin(managedRoot, root));
-  if (purge && root) rmSync(root, { recursive: true, force: true });
+  if (!input.dryRun) {
+    if (removed.profile.authRef) await (options.secrets ?? systemSecretStore).delete(removed.profile.authRef);
+    if (purge && root) rmSync(root, { recursive: true, force: true });
+  }
   return {
     profileId: removed.profile.id,
     ref: profileRef(removed.profile),
     removedFromPolicies: removed.touched,
     configRootPurged: purge,
+    dryRun: Boolean(input.dryRun),
   };
 }
 

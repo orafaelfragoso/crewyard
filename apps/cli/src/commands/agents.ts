@@ -1,12 +1,15 @@
 import { createInterface } from 'node:readline/promises';
 import {
+  type AccountPolicyView,
   addProfile,
   assignAgentToTeam,
   createAccountPolicy,
   createAgent,
   createTeam,
+  getAccountPolicy,
   getAgent,
   getProfile,
+  listAccountPolicies,
   listAgents,
   listProfiles,
   listSessions,
@@ -14,13 +17,17 @@ import {
   loginProfile,
   readSessionLog,
   registerUnmanagedAgent,
+  removeAccountPolicy,
+  removeAgent,
   removeProfile,
   stopSession,
   testProfile,
+  updateAccountPolicy,
+  updateAgent,
 } from '@crewyard/agents';
 import { dispatchTask } from '@crewyard/application';
 import { type AuthMechanism, CrewError, type ProviderId } from '@crewyard/core';
-import { resolveProject } from '@crewyard/projects';
+import { listProjects, resolveProject } from '@crewyard/projects';
 import type { Command } from 'commander';
 import { confirm, emit, keyValues, table, writeLine } from '../output.ts';
 import { action, operatorActor, withMutationOptions } from '../program.ts';
@@ -155,34 +162,94 @@ export function registerAgentCommands(program: Command): void {
     account.command('remove <ref>').option('--purge-config-root', 'also delete the profile configuration directory'),
   ).action(
     action(async (ctx, opts, ref: string) => {
-      await confirm(opts, `Remove profile ${ref} and its stored credential?`);
-      emit(
-        opts,
-        await removeProfile(ctx, ref, { purgeConfigRoot: Boolean(opts.purgeConfigRoot), actor: operatorActor() }),
-        () => `removed ${ref}`,
-      );
+      if (!opts.dryRun) await confirm(opts, `Remove account ${ref} and its stored credential?`);
+      const removed = await removeProfile(ctx, ref, {
+        purgeConfigRoot: Boolean(opts.purgeConfigRoot),
+        dryRun: Boolean(opts.dryRun),
+        actor: operatorActor(),
+      });
+      emit(opts, removed, (r) => [
+        `${r.dryRun ? 'would remove' : 'removed'} ${r.ref}`,
+        ...(r.removedFromPolicies.length ? [`  dropped from policies: ${r.removedFromPolicies.join(', ')}`] : []),
+        ...(r.configRootPurged ? ['  configuration directory deleted'] : []),
+      ]);
     }),
   );
-  account
-    .command('policy <name>')
-    .description('create an ordered account policy for agents')
-    .requiredOption('--profiles <refs>', 'ordered profile refs', list)
-    .option('--allow-fallback', 'explicitly allow falling back to later profiles')
-    .option('--models <models>', 'model allowlist', list)
+
+  const policy = account
+    .command('policy')
+    .description('account policies: which accounts an agent may use, in order of preference');
+  const policyLine = (p: AccountPolicyView) =>
+    `${p.name}: ${p.profiles.join(' → ') || '(no accounts)'}${p.allowFallback ? ' (fallback on)' : ''}${
+      p.models.length ? ` models=${p.models.join(',')}` : ''
+    }${p.agents.length ? ` used by ${p.agents.join(', ')}` : ' (unused)'}`;
+  policy
+    .command('create <name>')
+    .description('create a policy from accounts in order of preference')
+    .requiredOption('--accounts <refs>', 'accounts in order of preference, e.g. claude/work,claude/work-2', list)
+    .option('--allow-fallback', 'move to the next account when one is rate limited or logged out')
+    .option('--models <models>', 'models agents may use with these accounts', list)
     .action(
       action((ctx, opts, name: string) =>
         emit(
           opts,
           createAccountPolicy(ctx, {
             name,
-            profiles: opts.profiles as string[],
+            profiles: opts.accounts as string[],
             allowFallback: Boolean(opts.allowFallback),
             ...(opts.models ? { models: opts.models as string[] } : {}),
+            actor: operatorActor(),
           }),
-          (p) => `policy ${p.name} (${p.id})`,
+          policyLine,
         ),
       ),
     );
+  policy.command('list').action(
+    action((ctx, opts) =>
+      emit(opts, listAccountPolicies(ctx), (rows) =>
+        table(
+          rows.map((p) => ({
+            name: p.name,
+            accounts: p.profiles.join(' → '),
+            fallback: p.allowFallback,
+            models: p.models.join(','),
+            agents: p.agents.join(','),
+          })),
+        ),
+      ),
+    ),
+  );
+  policy
+    .command('show <policy>')
+    .action(action((ctx, opts, ref: string) => emit(opts, getAccountPolicy(ctx, ref), policyLine)));
+  policy
+    .command('update <policy>')
+    .description('change the accounts, fallback or models of a policy; agents using it pick it up on their next task')
+    .option('--accounts <refs>', 'replace the accounts, in order of preference', list)
+    .option('--allow-fallback', 'move to the next account when one is rate limited or logged out')
+    .option('--no-allow-fallback', 'only ever use the first account')
+    .option('--models <models>', 'replace the model allowlist (empty string clears it)', list)
+    .action(
+      action((ctx, opts, ref: string) =>
+        emit(
+          opts,
+          updateAccountPolicy(ctx, ref, {
+            ...(opts.accounts ? { profiles: opts.accounts as string[] } : {}),
+            ...(opts.allowFallback !== undefined ? { allowFallback: Boolean(opts.allowFallback) } : {}),
+            ...(opts.models ? { models: opts.models as string[] } : {}),
+            actor: operatorActor(),
+          }),
+          policyLine,
+        ),
+      ),
+    );
+  withMutationOptions(policy.command('remove <policy>').description('remove a policy that no agent uses')).action(
+    action(async (ctx, opts, ref: string) => {
+      if (!opts.dryRun) await confirm(opts, `Remove account policy ${ref}?`);
+      const removed = removeAccountPolicy(ctx, ref, { dryRun: Boolean(opts.dryRun), actor: operatorActor() });
+      emit(opts, removed, (p) => `${opts.dryRun ? 'would remove' : 'removed'} policy ${p.name}`);
+    }),
+  );
 
   const agent = program.command('agent').description('reusable agent definitions and managed sessions');
   agent
@@ -191,8 +258,8 @@ export function registerAgentCommands(program: Command): void {
     .option('--role <role>', 'engineer | architect | reviewer | ...', 'engineer')
     .option('--provider <provider>', 'preferred provider')
     .option('--model <model>', 'preferred model')
-    .option('--account <ref>', 'account profile ref (creates a single-profile policy)')
-    .option('--policy <name>', 'account policy name')
+    .option('--account <ref>', 'the account this agent uses, e.g. claude/personal')
+    .option('--policy <name>', 'an account policy, to use several accounts in order')
     .option('--instructions <text>', 'system instructions')
     .option('--skills <names>', 'skills', list)
     .option('--tools <names>', 'allowed MCP tools (default: all agent tools)', list)
@@ -215,29 +282,20 @@ export function registerAgentCommands(program: Command): void {
             ...a.limitations.map((l) => `  limitation: ${l}`),
           ]);
         }
-        let policy = opts.policy ? String(opts.policy) : null;
-        if (!policy && opts.account) {
-          const profile = getProfile(ctx, String(opts.account));
-          policy = createAccountPolicy(ctx, {
-            name: `${String(opts.name)}-${profile.name}`,
-            profiles: [profile.id],
-            allowFallback: false,
-          }).name;
-        }
+        const provider =
+          (opts.provider as ProviderId | undefined) ??
+          (opts.account ? getProfile(ctx, String(opts.account)).providerId : undefined);
         const created = createAgent(ctx, {
           name: String(opts.name),
           role: String(opts.role),
           ...(opts.instructions ? { systemInstructions: String(opts.instructions) } : {}),
           ...(opts.skills ? { skills: opts.skills as string[] } : {}),
           ...(opts.tools ? { allowedMcpTools: opts.tools as string[] } : {}),
-          ...(opts.provider
-            ? {
-                providerPreferences: [
-                  { provider: opts.provider as ProviderId, ...(opts.model ? { model: String(opts.model) } : {}) },
-                ],
-              }
+          ...(provider
+            ? { providerPreferences: [{ provider, ...(opts.model ? { model: String(opts.model) } : {}) }] }
             : {}),
-          ...(policy ? { accountPolicy: policy } : {}),
+          ...(opts.policy ? { accountPolicy: String(opts.policy) } : {}),
+          ...(opts.account ? { account: String(opts.account) } : {}),
           ...(opts.reviewAuthority ? { reviewAuthority: opts.reviewAuthority as never } : {}),
           ...(opts.maxParallel ? { maxParallel: Number(opts.maxParallel) } : {}),
           ...(project ? { projects: [project.id] } : {}),
@@ -247,23 +305,107 @@ export function registerAgentCommands(program: Command): void {
       }),
     );
   agent.command('list').action(
-    action((ctx, opts) =>
+    action((ctx, opts) => {
+      const policies = new Map(listAccountPolicies(ctx).map((p) => [p.id, p]));
+      const projects = new Map(listProjects(ctx).map((p) => [p.id, p.name]));
       emit(opts, listAgents(ctx), (rows) =>
         table(
-          rows.map((a) => ({
-            id: a.id,
-            name: a.name,
-            role: a.role,
-            managed: a.managed,
-            providers: a.providerPreferences.map((p) => p.provider).join(','),
-          })),
+          rows.map((a) => {
+            const p = a.accountPolicyId ? policies.get(a.accountPolicyId) : undefined;
+            return {
+              name: a.name,
+              role: a.role,
+              managed: a.managed,
+              providers: a.providerPreferences.map((pref) => pref.provider).join(','),
+              accounts: p ? `${p.profiles.join(' → ')} (${p.name})` : '—',
+              projects: a.projectIds.length ? a.projectIds.map((id) => projects.get(id) ?? id).join(',') : 'all',
+            };
+          }),
         ),
-      ),
-    ),
+      );
+    }),
   );
   agent
     .command('show <agent>')
     .action(action((ctx, opts, ref: string) => emit(opts, getAgent(ctx, ref), (a) => JSON.stringify(a, null, 2))));
+  agent
+    .command('update <agent>')
+    .description('change an agent; running sessions keep their settings, new tasks use the new ones')
+    .option('--role <role>', 'engineer | architect | reviewer | ...')
+    .option('--provider <provider>', 'preferred provider')
+    .option('--model <model>', 'preferred model')
+    .option('--account <ref>', 'switch to a single account, e.g. claude/work')
+    .option('--policy <name>', 'switch to an account policy')
+    .option('--instructions <text>', 'system instructions (empty string clears them)')
+    .option('--skills <names>', 'skills', list)
+    .option('--tools <names>', 'allowed MCP tools', list)
+    .option('--all-tools', 'allow all agent tools again')
+    .option('--review-authority <level>', 'none | advisory | required')
+    .option('--max-parallel <n>', 'max concurrent sessions', Number)
+    .option('--projects <names>', 'only work on these projects', list)
+    .option('--all-projects', 'work on every registered project')
+    .action(
+      action((ctx, opts, ref: string) => {
+        const current = getAgent(ctx, ref);
+        const preferred = current.providerPreferences[0];
+        const provider =
+          (opts.provider as ProviderId | undefined) ??
+          (opts.account ? getProfile(ctx, String(opts.account)).providerId : undefined) ??
+          preferred?.provider;
+        if (opts.model && !provider) {
+          throw new CrewError(
+            'INVALID_INPUT',
+            'Pass --provider with --model; this agent has no preferred provider yet',
+          );
+        }
+        const providerChanged = provider !== preferred?.provider;
+        const model = opts.model ? String(opts.model) : providerChanged ? undefined : preferred?.model;
+        const providerPreferences =
+          provider && (opts.model || providerChanged)
+            ? [{ provider, ...(model ? { model } : {}) }, ...current.providerPreferences.slice(1)]
+            : undefined;
+        const changed = updateAgent(ctx, ref, {
+          ...(opts.role ? { role: String(opts.role) } : {}),
+          ...(providerPreferences ? { providerPreferences } : {}),
+          ...(opts.account ? { account: String(opts.account) } : {}),
+          ...(opts.policy ? { accountPolicy: String(opts.policy) } : {}),
+          ...(opts.instructions !== undefined ? { systemInstructions: String(opts.instructions) || null } : {}),
+          ...(opts.skills ? { skills: opts.skills as string[] } : {}),
+          ...(opts.allTools
+            ? { allowedMcpTools: null }
+            : opts.tools
+              ? { allowedMcpTools: opts.tools as string[] }
+              : {}),
+          ...(opts.reviewAuthority ? { reviewAuthority: opts.reviewAuthority as never } : {}),
+          ...(opts.maxParallel ? { maxParallel: Number(opts.maxParallel) } : {}),
+          ...(opts.allProjects ? { projects: null } : opts.projects ? { projects: opts.projects as string[] } : {}),
+          actor: operatorActor(),
+        });
+        emit(opts, changed, (c) => [
+          `updated ${c.agent.name}`,
+          ...c.unusedPolicies.map(
+            (p) => `  policy ${p} is no longer used; remove it with: crew account policy remove ${p}`,
+          ),
+        ]);
+      }),
+    );
+  withMutationOptions(
+    agent
+      .command('remove <agent>')
+      .description('remove an agent; refuses while it has running sessions or claimed tasks'),
+  ).action(
+    action(async (ctx, opts, ref: string) => {
+      if (!opts.dryRun) await confirm(opts, `Remove agent ${ref}?`);
+      const removed = removeAgent(ctx, ref, { dryRun: Boolean(opts.dryRun), actor: operatorActor() });
+      emit(opts, removed, (r) => [
+        `${opts.dryRun ? 'would remove' : 'removed'} ${r.agent.name}`,
+        ...(r.unassignedTasks.length ? [`  unassigned tasks: ${r.unassignedTasks.join(', ')}`] : []),
+        ...r.unusedPolicies.map(
+          (p) => `  policy ${p} is no longer used; remove it with: crew account policy remove ${p}`,
+        ),
+      ]);
+    }),
+  );
   agent
     .command('run <agent>')
     .description('claim a task, allocate its worktree and run a managed session (stays attached until it ends)')

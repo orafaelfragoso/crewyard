@@ -60,20 +60,18 @@ See the [Ollama](provider-adapters/ollama.md) and [generic process](provider-ada
 
 ## Use accounts in agents
 
-One account:
-
 ```bash
-crew agent create --name engineer --provider claude --account claude/work
+crew agent create --name engineer --account claude/work
 ```
 
-Several accounts in order of preference, so work moves to the next account when one is rate limited or logged out:
+To let one agent use several accounts in order, for example two subscriptions, create a policy:
 
 ```bash
-crew account policy claude-pool --profiles claude/work,claude/work-2 --allow-fallback
-crew agent create --name engineer --provider claude --policy claude-pool
+crew account policy create claude-pool --accounts claude/work,claude/work-2 --allow-fallback
+crew agent update engineer --policy claude-pool
 ```
 
-Without `--allow-fallback`, an agent only uses the first account, and its work pauses while that account is rate limited.
+How policies pick an account, and how to change or remove agents and policies, is in [Agents and policies](agents.md).
 
 ## Manage accounts
 

@@ -1,89 +1,131 @@
 # Getting started
 
-This guide takes you from nothing to an agent working on a task in your repository, in about 15 minutes. Every command here was run as written.
+This guide takes you from nothing to agents working on your repository. Every command here was run as written.
 
-## How the pieces fit
+## How it works
 
-Crewyard has four kinds of things. Set them up in this order:
+You give Crewyard a **goal**. An **architect** agent splits it into **tasks**. The **service** hands each ready task to an **engineer** agent, which works in its own Git worktree using one of your **accounts**. A **reviewer** agent checks the work, and Crewyard opens and merges the pull request.
 
-| Thing | What it is | Example |
+```mermaid
+flowchart LR
+  G[Goal] -->|architect plans| T[Tasks]
+  T -->|service dispatches| E[Engineer agent<br/>own worktree]
+  E -->|commits| R[Reviewer agent]
+  R -->|approved| PR[Pull request → merge]
+```
+
+| Thing | What it is | Created with |
 |---|---|---|
-| **Project** | A Git repository Crewyard coordinates | your repo, registered with `crew init` |
-| **Account** | A login for an agent CLI you already use | your Claude Code login: `claude/personal` |
-| **Agent** | A worker with a role that uses an account | `engineer` (writes code) using `claude/personal` |
-| **Goal → tasks** | What you want done, split into tasks with dependencies | "Add a greeting helper" → TASK-1, TASK-2 |
+| **Project** | A Git repository Crewyard coordinates | `crew init` |
+| **Account** | A login for an agent CLI you already use (Claude Code, Codex, OpenCode) | `crew account add` |
+| **Agent** | A worker with a role (architect, engineer, reviewer) that uses an account | `crew agent create` |
+| **Goal → tasks** | What you want done, split into tasks with dependencies | `crew goal create` + `crew goal plan` |
+| **Service** | The background worker that keeps dispatching tasks | `crew service start` |
 
-Agents do the work; the **service** (`crew service start`) keeps handing ready tasks to agents in the background.
+Everything is stored locally in one SQLite database. Nothing runs in the cloud except the agent CLIs' own model calls and GitHub.
 
-## 1. Before you start
+## The steps at a glance
 
-You need:
+| # | Step | Command | Required? |
+|---|---|---|---|
+| 1 | Install and check your machine | `npm install -g crewyard` · `crew doctor` | Yes |
+| 2 | Register your repository | `crew init --repo .` | Yes |
+| 3 | Add an account | `crew account add …` | Yes |
+| 4 | Create agents | `crew agent create …` | Yes |
+| 5 | Turn on AI review | `crew config set review.reviewer_agent reviewer` | Recommended |
+| 6 | Connect your own agent tools | `crew install` | Optional |
+| 7 | Give it a goal and approve the plan | `crew goal create` · `crew goal plan` · `crew goal approve` | Yes |
+| 8 | Watch one task | `crew agent run engineer --task TASK-1` | Recommended |
+| 9 | Let it run | `crew service start` · `crew dashboard` | Yes |
 
-- Git 2.38 or newer
-- At least one agent CLI installed and logged in: [Claude Code](https://code.claude.com/docs) (`claude`), [Codex CLI](https://github.com/openai/codex) (`codex`) or [OpenCode](https://opencode.ai) (`opencode`)
-- The [GitHub CLI](https://cli.github.com/), logged in with `gh auth login`, if you want Crewyard to open and merge pull requests
-- Node.js 22+ to install from npm
+## 1. Install
 
-## 2. Install
+You need Git 2.38+, Node.js 22+, and at least one agent CLI that you are logged in to: [Claude Code](https://code.claude.com/docs) (`claude`), [Codex CLI](https://github.com/openai/codex) (`codex`) or [OpenCode](https://opencode.ai) (`opencode`). For pull requests, also the [GitHub CLI](https://cli.github.com/), logged in with `gh auth login`.
 
 ```bash
 npm install --global crewyard
 crew doctor
 ```
 
-`crew doctor` checks your machine. Every line should say `OK`; a `provider.*` line that is not OK means that agent CLI is missing. Fix those first ([what each check means](doctor.md)).
+Every line of `crew doctor` should say `OK`. A `provider.*` line that is not OK means that agent CLI is missing ([what each check means](doctor.md)).
 
-## 3. Register your repository
+## 2. Register your repository
 
 ```bash
 cd ~/src/my-repo
 crew init --repo .
 ```
 
-This writes `.crewyard/config.yaml` (safe to commit), indexes the code, and prints a readiness report. The ✗ lines tell you what is still missing; the next steps fix them.
+This writes `.crewyard/config.yaml` (safe to commit), indexes the code, and prints a readiness report. The ✗ lines are what the next steps fix. For pull requests the repository needs a GitHub `origin` remote.
 
-For pull requests, the repository needs a GitHub `origin` remote.
+## 3. Add an account
 
-## 4. Add an account
-
-An account tells Crewyard how to log in to an agent CLI. If you are already logged in to the CLI on this machine, reuse that login:
+Reuse the login you already have in the agent CLI:
 
 ```bash
 crew account add --provider claude --name personal --use-default-config
-crew account test claude/personal
+crew account test claude/personal          # should say "healthy"
 ```
 
-`crew account test` should print `"status": "healthy"`. Use `--provider codex` or `--provider opencode` the same way.
+Use `--provider codex` or `--provider opencode` the same way. For a separate login, several accounts or an API key, see [Accounts](accounts.md).
 
-Want a separate login for Crewyard, or several accounts for one provider? See [Accounts](accounts.md).
+## 4. Create agents
 
-## 5. Create agents
-
-Each agent has a **role** and uses an account. Most setups need three:
+Run these inside the repository. The provider comes from the account.
 
 ```bash
-crew agent create --name architect --role architect --provider claude --account claude/personal
-crew agent create --name engineer  --role engineer  --provider claude --account claude/personal
-crew agent create --name reviewer  --role reviewer  --provider claude --account claude/personal
+crew agent create --name architect --role architect --account claude/personal
+crew agent create --name engineer  --account claude/personal
+crew agent create --name reviewer  --role reviewer  --account claude/personal
 crew agent list
 ```
 
 - **architect** turns a goal into a task plan
 - **engineer** implements tasks (the default role)
-- **reviewer** reviews the work before it is merged
+- **reviewer** reviews work before it is merged
 
-Agents can use different providers: for example a Claude architect and a Codex engineer.
+An agent created inside a registered repository only works on that project (the `PROJECTS` column of `crew agent list`). To share one across projects: `crew agent update engineer --all-projects`.
 
-## 6. Connect your agent tools (optional)
+Agents can use different providers, and one agent can use several accounts in order. Changing, removing and sharing agents is covered in [Agents and policies](agents.md).
 
-This lets Claude Code, Codex and OpenCode sessions you start yourself see Crewyard's tasks and tools:
+## 5. Turn on AI review
+
+Without this, Crewyard reviews with static checks only:
 
 ```bash
-crew install --target codex,claude,opencode --dry-run   # shows every file it would change
-crew install --target codex,claude,opencode
+crew config set review.reviewer_agent reviewer --yes
 ```
 
-It registers `crew mcp` as an MCP server and installs the `crew-*` Skills, backing up anything it changes. `crew uninstall` restores the originals. See [MCP host setup](mcp-hosts.md).
+## 6. Connect your own agent tools (optional)
+
+This step is for the Claude Code, Codex and OpenCode sessions **you** start yourself: it lets them see Crewyard's tasks and tools. Agents that Crewyard launches in steps 8 and 9 work without it.
+
+```bash
+crew install --dry-run      # shows every file it would change
+crew install                # all hosts; or --target claude,codex,opencode
+```
+
+It does two things for each tool: registers `crew mcp` as an MCP server, and copies the six `crew-*` Skills. Anything it changes is backed up first, and `crew uninstall` restores the originals.
+
+**Where things are installed** with the default `--scope user` (for you, in every repository):
+
+| Tool | MCP server registered in | Skills copied to |
+|---|---|---|
+| Claude Code | `~/.claude.json`, via `claude mcp add-json --scope user` | `~/.claude/skills/crew-*` |
+| Codex | `~/.codex/config.toml` (or `$CODEX_HOME`) | `~/.agents/skills/crew-*` |
+| OpenCode | `~/.config/opencode/opencode.json` | `~/.agents/skills/crew-*` |
+
+With `--scope project` (shared with your team through the repository):
+
+| Tool | MCP server registered in | Skills copied to |
+|---|---|---|
+| Claude Code | `.mcp.json` | `.claude/skills/crew-*` |
+| Codex | `.codex/config.toml` (Codex loads it only for trusted projects) | `.agents/skills/crew-*` |
+| OpenCode | `opencode.json` | `.agents/skills/crew-*` |
+
+`crew hosts` shows what is registered where. Exact file contents are in [MCP host setup](mcp-hosts.md), and what each Skill does is in [Skills](skills.md).
+
+An agent that Crewyard launches with an account added with `--use-default-config` reads the same configuration, so with a user-scope install it also gets Crewyard's tools and Skills. Agents on a [separate login](accounts.md#a-separate-login) use their own configuration directory and don't get them yet: they still work, and Crewyard renews their task lease and submits their commits when the session ends.
 
 ## 7. Give Crewyard a goal
 
@@ -153,7 +195,7 @@ crew service start      # dispatches ready tasks, syncs GitHub, runs the merge q
 crew dashboard          # live view of tasks, agents, PRs and alerts
 ```
 
-Useful while it runs:
+The service picks an agent for each ready task by role (`engineer` unless the task asks for another), using agents that have free capacity (`--max-parallel`). To keep it running across reboots: `crew service install`.
 
 | Question | Command |
 |---|---|
@@ -164,16 +206,15 @@ Useful while it runs:
 | Is the service up? | `crew service status` |
 | Stop it | `crew service stop` |
 
-To keep the service running across reboots, use `crew service install`.
-
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
 | `crew account test` says `unauthenticated` | Run the command it suggests: `crew account login <account>` |
-| `error APPROVAL_REQUIRED … confirmation required` | Add `--yes` to approve, or `--dry-run` to preview |
+| `error APPROVAL_REQUIRED … confirmation required` | Add `--yes` to confirm, or `--dry-run` to preview |
 | `Goal … has no plan awaiting approval` | The plan was already accepted. Check `crew task list` |
-| Tasks stay `READY` | The service isn't running (`crew service start`), or see `crew task explain <task>` |
+| Tasks stay `READY` | Start the service (`crew service start`), check `crew task explain <task>`, and that an agent with the right role works on this project (`crew agent list`) |
+| Reviews never use your reviewer agent | `crew config set review.reviewer_agent reviewer --yes` |
 | `✗ remote` in the readiness report | Add a GitHub `origin` remote and run `gh auth login` |
 
 More in [`crew doctor`](doctor.md) and the [recovery runbooks](incident-recovery/runbooks.md). Every command is in the [CLI reference](reference/cli.md).
