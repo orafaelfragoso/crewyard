@@ -2,7 +2,7 @@
 
 <div align="center">
 
-  <h1>crewyard</h1>
+  <img src="docs/assets/banner.jpg" alt="Crewyard: a crew of AI coding agents planning, coding, reviewing and merging together" width="100%" />
 
   <p><strong>Ship together. Merge safely.</strong></p>
 
