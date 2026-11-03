@@ -1,6 +1,6 @@
 {
   "name": "crewyard",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Local-first coordination engine for independent AI coding agents.",
   "keywords": [
     "ai",
