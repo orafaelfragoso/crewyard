@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/orafaelfragoso/crewyard/compare/v0.2.0...v0.3.0) (2026-11-03)
+
+
+### Features
+
+* give every managed session the crew MCP server and Skills ([#10](https://github.com/orafaelfragoso/crewyard/issues/10)) ([a670910](https://github.com/orafaelfragoso/crewyard/commit/a6709105bbc05d1ef243855894a3b49091736439))
+
 ## [0.2.0](https://github.com/orafaelfragoso/crewyard/compare/v0.1.1...v0.2.0) (2026-11-03)
 
 
