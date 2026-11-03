@@ -22,30 +22,23 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    permissions:
-      actions: write
-      contents: write
-      issues: write
-      pull-requests: write
+    permissions: {}
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
+      - id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
       - id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
-      - name: Run CI on the release PR
-        if: steps.release.outputs.prs_created == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR: ${{ steps.release.outputs.pr }}
-        run: |
-          branch=$(jq -r '.headBranchName // empty' <<< "$PR")
-          if [ -z "$branch" ]; then
-            echo "::warning::release-please reported a PR without a branch name; run CI on it manually."
-            exit 0
-          fi
-          gh workflow run ci.yml --ref "$branch"
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
   build:
     name: Build release artifacts
