@@ -47,7 +47,7 @@ If you change CLI commands or options, regenerate the reference with `bun run do
 - Keep each pull request to one change.
 - Title it as a [Conventional Commit](https://www.conventionalcommits.org/): `feat: add queue pause command`, `fix(github): retry rate-limited syncs`, `docs: clarify recovery runbook`. Allowed types: `feat`, `fix`, `perf`, `revert`, `docs`, `deps`, `refactor`, `test`, `build`, `ci`, `chore`. Mark breaking changes with `!` (`feat!: …`) and explain them in the body.
 - Pull requests are squash-merged: the title becomes the commit on `main` and the first changelog entry, and the body becomes the commit message.
-- End the body with a `## Changelog` section that lists every other user-visible change, one Conventional Commit line each, so each one gets its own changelog entry. Write `none` when the title covers the whole change. Put a blank line between entries: release-please only splits out an entry that follows an empty line, and drops or truncates entries on consecutive lines. Entries can use every type except `deps`.
+- End the body with a `## Changelog` section that lists every other user-visible change, one Conventional Commit line each, so each one gets its own changelog entry. Write `none` when the title covers the whole change. Put a blank line between entries: release-please only splits out an entry that follows an empty line, and drops or truncates entries on consecutive lines. Keep each entry within 72 characters, prefix included: GitHub wraps longer lines in the squash commit, and release-please keeps only the first part. Entries can use every type except `deps`.
 
   ```markdown
   ## Changelog
