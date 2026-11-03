@@ -8,6 +8,7 @@ import {
   requestIntegration,
   showPullRequest,
   syncRepository,
+  updateQueueEntry,
 } from '@crewyard/integration';
 import { addTask, showTask, submitWork } from '@crewyard/tasks';
 import { commitWorkspaceChanges } from '@crewyard/workspaces';
@@ -17,7 +18,10 @@ const operator = { kind: 'operator' as const, id: 'op' };
 let fx: GitHubFixture | undefined;
 afterEach(() => fx?.cleanup());
 
-async function queuedTask(f: GitHubFixture, env: IntegrationEnv): Promise<{ taskId: string; prId: string }> {
+async function queuedTask(
+  f: GitHubFixture,
+  env: IntegrationEnv,
+): Promise<{ taskId: string; prId: string; entryId: string }> {
   const task = addTask(f.ctx, {
     projectId: f.projectId,
     repositoryId: f.repositoryId,
@@ -53,9 +57,9 @@ async function queuedTask(f: GitHubFixture, env: IntegrationEnv): Promise<{ task
   const pr = published.pullRequest!;
   f.mock.passChecks(pr.number);
   await syncRepository(f.ctx, f.repositoryId, env);
-  await requestIntegration(f.ctx, { prId: pr.id, requestedBy: operator }, env);
+  const { entry } = await requestIntegration(f.ctx, { prId: pr.id, requestedBy: operator }, env);
   expect(showTask(f.ctx, task.id).task.state).toBe('QUEUED');
-  return { taskId: task.id, prId: pr.id };
+  return { taskId: task.id, prId: pr.id, entryId: entry.id };
 }
 
 describe('merged pull requests finish their task', () => {
@@ -113,6 +117,32 @@ describe('queue entries drive their task', () => {
     expect(showTask(f.ctx, taskId).task.state).toBe('BLOCKED');
     f.mock.passChecks(1, ['ci', 'security-scan']);
     await tick();
+    expect(showTask(f.ctx, taskId).task.state).toBe('QUEUED');
+  }, 60_000);
+
+  test('retrying an escalated entry requeues its task through to DONE', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    const env = { ...f.env, hooks: taskHooks(f.ctx) };
+    const { taskId, entryId } = await queuedTask(f, env);
+    await updateQueueEntry(f.ctx, { entryId, action: 'escalate', reason: 'hold' }, operator, env);
+    expect(showTask(f.ctx, taskId).task.state).toBe('ESCALATED');
+    await updateQueueEntry(f.ctx, { entryId, action: 'retry', reason: 'go' }, operator, env);
+    expect(showTask(f.ctx, taskId).task.state).toBe('QUEUED');
+    for (let i = 0; i < 4 && showTask(f.ctx, taskId).task.state !== 'DONE'; i++) {
+      await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env });
+    }
+    expect(showTask(f.ctx, taskId).task.state).toBe('DONE');
+  }, 60_000);
+
+  test('requesting integration again revives an escalated entry', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    const env = { ...f.env, hooks: taskHooks(f.ctx) };
+    const { taskId, prId, entryId } = await queuedTask(f, env);
+    await updateQueueEntry(f.ctx, { entryId, action: 'escalate', reason: 'hold' }, operator, env);
+    const again = await requestIntegration(f.ctx, { prId, requestedBy: operator }, env);
+    expect(again.entry).toMatchObject({ id: entryId, status: 'waiting', blockers: [] });
     expect(showTask(f.ctx, taskId).task.state).toBe('QUEUED');
   }, 60_000);
 });

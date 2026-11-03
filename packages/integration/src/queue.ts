@@ -54,6 +54,25 @@ export function ensureQueueInTx(
   return queueById(db, id)!;
 }
 
+const REVIVABLE: readonly QueueEntry['status'][] = ['quarantined', 'escalated'];
+
+function retryEntryInTx(
+  db: Database,
+  entry: QueueEntry,
+  pr: PullRequestRecord,
+  at: string,
+  hooks: PendingHook[],
+): void {
+  setEntryStatus(db, entry.id, 'waiting', at, { blockers: [] });
+  db.query(`DELETE FROM failure_records WHERE subject_kind = 'pr' AND subject_id = ?`).run(pr.id);
+  if (pr.taskId) {
+    hooks.push({
+      name: 'onQueued',
+      event: { taskId: pr.taskId, prId: pr.id, prNumber: pr.number, repositoryId: pr.repositoryId, entryId: entry.id },
+    });
+  }
+}
+
 export interface RequestIntegrationInput {
   prId?: string;
   repositoryId?: string;
@@ -108,6 +127,28 @@ export async function requestIntegration(
       at,
     );
     const existing = activeEntryForPr(db, pr.id);
+    if (existing && REVIVABLE.includes(existing.status)) {
+      retryEntryInTx(db, existing, pr, at, hooks);
+      recordTransition(
+        db,
+        {
+          type: 'queue.entry_retry',
+          actor: input.requestedBy,
+          prId: pr.id,
+          taskId: pr.taskId,
+          projectId: repository.projectId,
+          payload: {
+            entryId: existing.id,
+            from: existing.status,
+            to: 'waiting',
+            reason: 'integration requested again',
+          },
+        },
+        { action: 'queue.retry', input: { prId: pr.id }, decision: 'waiting' },
+        at,
+      );
+      return { created: false, queue, entry: entryById(db, existing.id)! };
+    }
     if (existing) return { created: false, queue, entry: existing };
     const id = newId('qe');
     const risk = classifyPullRequest(config, pr).risk;
@@ -197,12 +238,11 @@ export async function updateQueueEntry(
           : input.action === 'remove'
             ? 'removed'
             : 'waiting';
-    const blockers: Blocker[] =
-      input.action === 'retry' ? [] : [{ code: status.toUpperCase(), source: 'queue', message: input.reason }];
-    setEntryStatus(db, entry.id, status, at, { blockers });
     if (input.action === 'retry') {
-      db.query(`DELETE FROM failure_records WHERE subject_kind = 'pr' AND subject_id = ?`).run(pr.id);
+      retryEntryInTx(db, entry, pr, at, hooks);
     } else {
+      const blockers: Blocker[] = [{ code: status.toUpperCase(), source: 'queue', message: input.reason }];
+      setEntryStatus(db, entry.id, status, at, { blockers });
       invalidateCandidatesInTx(db, { prId: pr.id }, `entry_${status}`, actor, at);
     }
     if (input.action === 'escalate') {

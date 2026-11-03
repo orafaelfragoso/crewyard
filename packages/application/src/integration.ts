@@ -26,7 +26,7 @@ import { sessionTooling } from './session-tooling.ts';
 
 export const INTEGRATION_ACTOR: Actor = { kind: 'service', id: 'crew-integration' };
 
-const REQUEUEABLE: ReadonlySet<TaskState> = new Set(['SUBMITTED', 'REVIEWING', 'BLOCKED', 'REVISION']);
+const REQUEUEABLE: ReadonlySet<TaskState> = new Set(['SUBMITTED', 'REVIEWING', 'BLOCKED', 'REVISION', 'ESCALATED']);
 const MERGE_PENDING: readonly TaskState[] = [...REQUEUEABLE, 'QUEUED', 'VALIDATING', 'MERGED'];
 
 function advance(
