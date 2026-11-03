@@ -131,7 +131,7 @@ jobs:
           PLATFORM_PACKAGE: ${{ matrix.npm }}
         run: |
           tarball() { node -p "require('./packages.json').find((p) => p.name === process.argv[1]).tarball" "$1"; }
-          sha() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
+          sha() { if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi < "$1" | cut -d' ' -f1; }
           prefix="$RUNNER_TEMP/npm-global"
           npm install --global --prefix "$prefix" "./$(tarball "$PLATFORM_PACKAGE")" "./$(tarball crewyard)"
           installed=$(find "$prefix" -type f -path "*${PLATFORM_PACKAGE}/bin/crew*")
