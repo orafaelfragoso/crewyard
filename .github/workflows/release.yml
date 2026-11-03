@@ -221,8 +221,14 @@ jobs:
               echo "$name@$version is already on npm; skipping."
             elif [ "$DRY_RUN" = true ]; then
               npm publish "./$tarball" --tag "$dist_tag" --dry-run
+            elif output=$(npm publish "./$tarball" --tag "$dist_tag" 2>&1); then
+              echo "$output"
+            elif grep -q 'previously staged version' <<< "$output"; then
+              echo "$output"
+              echo "::notice::$name@$version was already uploaded and npm is still processing it; skipping."
             else
-              npm publish "./$tarball" --tag "$dist_tag"
+              echo "$output"
+              exit 1
             fi
           done
 
@@ -231,7 +237,7 @@ jobs:
     needs: [release-please, npm]
     if: ${{ !cancelled() && needs.npm.result == 'success' && needs.release-please.outputs.release_created == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 40
     env:
       TAG: ${{ needs.release-please.outputs.tag_name }}
     steps:
@@ -244,17 +250,17 @@ jobs:
           version="${TAG#v}"
           served() { [ "$(npm view "$1@$version" version --prefer-online 2>/dev/null)" = "$version" ]; }
           pending=crewyard
-          for attempt in $(seq 1 40); do
+          for attempt in $(seq 1 120); do
             if served crewyard; then
               platforms=$(npm view "crewyard@$version" optionalDependencies --json --prefer-online | jq -r 'if type == "array" then .[0] else . end | keys[]')
               pending=""
               for name in $platforms; do served "$name" || pending="$pending $name"; done
               if [ -z "$pending" ]; then exit 0; fi
             fi
-            echo "Attempt $attempt: not served yet: $pending; retrying in 15 s."
+            echo "Attempt $attempt: not served yet: ${pending# }; retrying in 15 s."
             sleep 15
           done
-          echo "::error::Version $version of $pending did not appear on the registry within 10 minutes."
+          echo "::error::Version $version of ${pending# } did not appear on the registry within 30 minutes."
           exit 1
       - name: Install the published version and run crew
         run: |
