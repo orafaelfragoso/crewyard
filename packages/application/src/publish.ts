@@ -11,8 +11,9 @@ import {
   syncRepository,
 } from '@crewyard/integration';
 import { getProject, loadProjectConfig, primaryRepository } from '@crewyard/projects';
+import { requestInterventionInTx } from '@crewyard/reviews';
 import { type CrewContext, one, recordRemoteOperation, recordTransition } from '@crewyard/storage';
-import { listApprovals, requestApprovalInTx, showTask, transitionTask } from '@crewyard/tasks';
+import { applyTransition, listApprovals, requestApprovalInTx, showTask, transitionTask } from '@crewyard/tasks';
 import { collectCommits, getWorkspace, listWorkspaces, setExpectedRemoteHead } from '@crewyard/workspaces';
 import { contextFingerprints, integrationEnv, reviewersFor } from './integration.ts';
 
@@ -270,6 +271,36 @@ export async function publishTask(
     queued,
     notes,
   };
+}
+
+export function blockDivergedPublication(ctx: CrewContext, taskId: string, error: CrewError, actor: Actor): void {
+  const task = showTask(ctx, taskId).task;
+  const pr = listPullRequests(ctx, { taskId, state: 'open' })[0] ?? null;
+  const at = nowIso(ctx.clock);
+  ctx.store.immediate((db) => {
+    applyTransition(
+      db,
+      { taskId, to: 'BLOCKED', actor, reason: 'remote branch moved outside Crewyard', blockerReason: error.message },
+      at,
+    );
+    requestInterventionInTx(
+      db,
+      {
+        projectId: task.projectId,
+        title: `${taskId} cannot publish: its branch moved outside Crewyard`,
+        reasons: [
+          error.message,
+          pr
+            ? `Inspect the change, then run \`crew pr acknowledge ${pr.number}\` and \`crew task retry ${taskId} --reason "<why>"\``
+            : `Inspect the change, then run \`crew task retry ${taskId} --reason "<why>"\``,
+        ],
+        prId: pr?.id ?? null,
+        taskId,
+      },
+      actor,
+      at,
+    );
+  });
 }
 
 export function tasksAwaitingPublication(ctx: CrewContext, projectId: string): string[] {

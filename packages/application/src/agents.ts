@@ -23,8 +23,9 @@ import {
   showTask,
   startTask,
 } from '@crewyard/tasks';
-import { collectCommits, commitWorkspaceChanges } from '@crewyard/workspaces';
+import { collectCommits, commitWorkspaceChanges, mergeRemoteBranch } from '@crewyard/workspaces';
 import { contextPack } from './retrieval.ts';
+import { clearSessionFailures, type RetryState, recordSessionFailure } from './session-retries.ts';
 import { sessionTooling } from './session-tooling.ts';
 import { claimAndPrepare, type PreparedClaim } from './work.ts';
 
@@ -238,7 +239,7 @@ export function executionPrompt(
 export type DispatchOutcome =
   | { kind: 'handed_off'; taskState: string }
   | { kind: 'auto_submitted'; commits: string[] }
-  | { kind: 'blocked'; reason: string }
+  | { kind: 'blocked'; reason: string; retry: boolean }
   | { kind: 'lease_lost'; reason: string }
   | { kind: 'interrupted'; reason: string; commits: string[] };
 
@@ -255,6 +256,7 @@ async function superviseLease(
   sessionId: string,
   actor: Actor,
   interruption: { reason: string | null },
+  origin: { projectId: string; resumeTo: RetryState },
 ): Promise<DispatchOutcome> {
   const credentials = { taskId: claim.taskId, generation: claim.leaseGeneration, token: claim.claimToken };
   let lost: string | null = null;
@@ -288,6 +290,7 @@ async function superviseLease(
     releaseLease(ctx, { ...credentials, reason: interruption.reason });
     return { kind: 'interrupted', reason: interruption.reason, commits };
   }
+  if (record.state === 'completed') clearSessionFailures(ctx, claim.taskId);
   if (claim.workspaceId && record.state === 'completed') {
     await commitWorkspaceChanges(ctx, claim.workspaceId, {
       message: `${claim.taskId}: changes left by session ${sessionId}`,
@@ -321,8 +324,34 @@ async function superviseLease(
       commits,
       remainingIssues: [reason],
     },
+    policy: { interventionOnBlock: false },
   });
-  return { kind: 'blocked', reason };
+  const failure = recordSessionFailure(ctx, {
+    taskId: claim.taskId,
+    projectId: origin.projectId,
+    session: record,
+    reason,
+    resumeTo: origin.resumeTo,
+    maxRetries: loadProjectConfig(ctx, origin.projectId).config.agents.max_retries_per_failure,
+    actor,
+  });
+  return { kind: 'blocked', reason, retry: failure.retry };
+}
+
+async function updateRevisionWorkspace(ctx: CrewContext, claim: PreparedClaim, actor: Actor): Promise<string | null> {
+  if (!claim.workspaceId) return null;
+  const update = await mergeRemoteBranch(ctx, claim.workspaceId, { actor }).catch((error: unknown) => {
+    ctx.logger.warn('could not update the revision worktree from origin', {
+      taskId: claim.taskId,
+      error: (error as Error).message,
+    });
+    return null;
+  });
+  if (update?.status !== 'diverged') return null;
+  return [
+    '### Remote branch changes',
+    `origin/${claim.branch} has commits this worktree lacks and Crewyard could not merge them automatically (${update.reason}). Merge origin/${claim.branch} into the task branch and resolve the conflicts before other changes. Do not rebase or force-push.`,
+  ].join('\n');
 }
 
 export async function dispatchTask(
@@ -343,6 +372,10 @@ export async function dispatchTask(
     actor: input.actor,
   });
   try {
+    const remote =
+      listPullRequests(ctx, { taskId: task.id, state: 'open' }).length > 0
+        ? await updateRevisionWorkspace(ctx, claim, input.actor)
+        : null;
     const pack = await contextPack(ctx, {
       projectId: task.projectId,
       query: `${task.title}\n${task.objective}`,
@@ -358,7 +391,7 @@ export async function dispatchTask(
         taskId: task.id,
         projectId: task.projectId,
         cwd: claim.worktreePath ?? primaryRepository(ctx, task.projectId).canonicalPath,
-        prompt: executionPrompt(task, claim, packText, revision),
+        prompt: executionPrompt(task, claim, packText, [revision, remote].filter(Boolean).join('\n\n') || null),
         mode: 'execute',
         ...(input.model ? { model: input.model } : {}),
         leaseBinding: { projectId: task.projectId, taskId: task.id, leaseGeneration: claim.leaseGeneration },
@@ -380,7 +413,10 @@ export async function dispatchTask(
       ctx.logger.warn('could not mark task running', { taskId: claim.taskId, error: (error as Error).message });
     }
     const interruption: { reason: string | null } = { reason: null };
-    const done = superviseLease(ctx, claim, session.sessionId, input.actor, interruption);
+    const done = superviseLease(ctx, claim, session.sessionId, input.actor, interruption, {
+      projectId: task.projectId,
+      resumeTo: task.state === 'REVISION' ? 'REVISION' : 'READY',
+    });
     const interrupt = async (reason: string) => {
       interruption.reason = reason;
       await stopSession(ctx, session.sessionId, { actor: input.actor, reason });

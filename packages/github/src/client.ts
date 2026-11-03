@@ -27,6 +27,7 @@ import type {
   BranchInfo,
   BranchRequirements,
   CheckResult,
+  CommitInfo,
   CompareStatus,
   CreatePullRequestInput,
   GitHubPullRequest,
@@ -513,6 +514,18 @@ export class GitHubClient {
     };
   }
 
+  async getCommit(sha: string): Promise<CommitInfo> {
+    await this.ensureVerified();
+    const response = await this.request('GET', this.repoPath(`/commits/${sha}`), { conditional: true });
+    const data = asRecord(response.data);
+    return {
+      sha: asString(data.sha) ?? sha,
+      parents: asArray(data.parents)
+        .map((p) => asString(asRecord(p).sha))
+        .filter((p): p is string => p !== null),
+    };
+  }
+
   async getPullRequestState(number: number): Promise<PullRequestGraphState> {
     await this.ensureVerified();
     const data = await this.graphql(
@@ -583,6 +596,14 @@ export class GitHubClient {
     await this.ensureVerified();
     const response = await this.request('PATCH', this.repoPath(`/pulls/${number}`), { body: input, idempotent: true });
     return toPullRequest(response.data);
+  }
+
+  async updatePullRequestBranch(number: number, expectedHeadSha: string): Promise<void> {
+    await this.ensureVerified();
+    await this.request('PUT', this.repoPath(`/pulls/${number}/update-branch`), {
+      body: { expected_head_sha: expectedHeadSha },
+      statusErrors: { 422: 'CONFLICT' },
+    });
   }
 
   async mergePullRequest(

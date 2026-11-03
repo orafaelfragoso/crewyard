@@ -11,7 +11,7 @@ import {
   LATEST_SCHEMA_VERSION,
   recordTransition,
 } from '@crewyard/storage';
-import { type CleanupPreview, previewCleanup } from '@crewyard/workspaces';
+import { applyCleanup, type CleanupPreview, previewCleanup, type RemoveResult } from '@crewyard/workspaces';
 import { exportEvents } from './events.ts';
 import { serviceStatus } from './service-control.ts';
 
@@ -74,6 +74,20 @@ export function restoreBackup(ctx: CrewContext, file: string): { restored: strin
   for (const suffix of ['-wal', '-shm']) rmSync(`${target}${suffix}`, { force: true });
   copyFileSync(file, target);
   return { restored: target, safetyBackup: safety };
+}
+
+export async function cleanFinishedWorkspaces(
+  ctx: CrewContext,
+  input: { repositoryId: string; actor: Actor },
+): Promise<RemoveResult[]> {
+  const preview = await previewCleanup(ctx, { repositoryId: input.repositoryId });
+  if (!preview.items.some((i) => i.eligible && !i.requiresAuthorization)) return [];
+  const result = await applyCleanup(ctx, {
+    previewFingerprint: preview.fingerprint,
+    repositoryId: input.repositoryId,
+    actor: input.actor,
+  });
+  return result.removed;
 }
 
 export interface GcPlan {

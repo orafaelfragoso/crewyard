@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import { type Actor, CrewError, newId, nowIso } from '@crewyard/core';
+import { type Actor, CrewError, git, newId, nowIso } from '@crewyard/core';
 import type {
   BranchRequirements,
   CheckResult,
@@ -12,6 +12,7 @@ import type {
 } from '@crewyard/github';
 import { invalidateReviewsInTx } from '@crewyard/reviews';
 import { all, type CrewContext, one, recordTransition, toJson } from '@crewyard/storage';
+import { fetchIntegrationRefs } from './candidates.ts';
 import { clientFor, type PendingHook, repositoryFor, runHooks } from './env.ts';
 import {
   activeEntryForPr,
@@ -43,6 +44,7 @@ export interface ObservedPullRequest {
   requirements: BranchRequirements | null;
   integrationBase: string;
   forcePushed: boolean | null;
+  baseMergeParent: string | null;
 }
 
 export interface PullRequestChange {
@@ -71,6 +73,38 @@ export function aggregateChecks(checks: readonly CheckResult[]): ChecksState {
   return 'success';
 }
 
+async function isCleanMerge(
+  repoPath: string,
+  pr: GitHubPullRequest,
+  parents: readonly [string, string],
+): Promise<boolean> {
+  try {
+    await fetchIntegrationRefs(repoPath, pr.baseRef, [pr]);
+  } catch {
+    return false;
+  }
+  const merged = await git(repoPath, ['merge-tree', '--write-tree', ...parents], { allowFailure: true });
+  if (merged.exitCode !== 0) return false;
+  const tree = await git(repoPath, ['rev-parse', '--verify', '--quiet', `${pr.headSha}^{tree}`], {
+    allowFailure: true,
+  });
+  return tree.exitCode === 0 && merged.stdout.split('\n')[0]!.trim() === tree.stdout.trim();
+}
+
+async function detectBaseMerge(client: GitHubClient, pr: GitHubPullRequest, repoPath: string): Promise<string | null> {
+  try {
+    const commit = await client.getCommit(pr.headSha);
+    if (commit.parents.length !== 2) return null;
+    const parents = commit.parents as [string, string];
+    const result = await client.compareCommits(parents[1], pr.baseRef);
+    if (result.status !== 'ahead' && result.status !== 'identical') return null;
+    return (await isCleanMerge(repoPath, pr, parents)) ? parents[0] : null;
+  } catch (error) {
+    if (error instanceof CrewError && (error.code === 'OFFLINE' || error.code === 'RATE_LIMITED')) throw error;
+    return null;
+  }
+}
+
 async function detectForcePush(client: GitHubClient, previous: string, next: string): Promise<boolean | null> {
   try {
     const result = await client.compareCommits(previous, next);
@@ -88,6 +122,7 @@ export async function observePullRequest(
   integrationBase: string,
   requirementsCache: Map<string, BranchRequirements>,
   previousHead: string | null,
+  repoPath: string | null = null,
 ): Promise<ObservedPullRequest> {
   if (pr.state !== 'open') {
     return {
@@ -100,6 +135,7 @@ export async function observePullRequest(
       requirements: requirementsCache.get(integrationBase) ?? null,
       integrationBase,
       forcePushed: null,
+      baseMergeParent: null,
     };
   }
   let requirements = requirementsCache.get(integrationBase) ?? null;
@@ -114,9 +150,22 @@ export async function observePullRequest(
     client.listWorkflowRuns(pr.headSha),
     client.getPullRequestState(pr.number),
   ]);
-  const forcePushed =
-    previousHead && previousHead !== pr.headSha ? await detectForcePush(client, previousHead, pr.headSha) : null;
-  return { pr, files, reviews, checks, workflowRuns, graph, requirements, integrationBase, forcePushed };
+  const moved = previousHead !== null && previousHead !== pr.headSha;
+  const forcePushed = moved ? await detectForcePush(client, previousHead, pr.headSha) : null;
+  const baseMergeParent =
+    moved && forcePushed === false && repoPath ? await detectBaseMerge(client, pr, repoPath) : null;
+  return {
+    pr,
+    files,
+    reviews,
+    checks,
+    workflowRuns,
+    graph,
+    requirements,
+    integrationBase,
+    forcePushed,
+    baseMergeParent,
+  };
 }
 
 function crewMergeRecorded(db: Database, prId: string): boolean {
@@ -181,12 +230,18 @@ export function applyObservation(
   const expected = options.expectedRemoteHead ?? previous?.expectedRemoteHead ?? null;
   const mergeable = pr.mergeable === 'UNKNOWN' && obs.graph ? obs.graph.mergeable : pr.mergeable;
 
+  let acceptedHead: string | null = null;
   if (previous && previous.headSha !== pr.headSha && previous.state === 'open') {
     changes.push('head_changed');
     if (obs.forcePushed === true) kinds.push('force_push');
     if (expected !== null && pr.headSha !== expected) {
-      blocking = true;
-      if (obs.forcePushed !== true) kinds.push('external_push');
+      if (obs.baseMergeParent === expected) {
+        acceptedHead = pr.headSha;
+        changes.push('base_merged');
+      } else {
+        blocking = true;
+        if (obs.forcePushed !== true) kinds.push('external_push');
+      }
     }
   }
   if (previous && previous.baseRef !== pr.baseRef) {
@@ -197,7 +252,6 @@ export function applyObservation(
   const nextRules = governance?.requirements?.fingerprint ?? null;
   if (previous && pr.state === 'open' && prevRules !== null && nextRules !== null && prevRules !== nextRules) {
     changes.push('rules_changed');
-    kinds.push('rules_changed');
   }
   if (previous && obs.reviews && reviewKey(previous.reviews) !== reviewKey(obs.reviews)) {
     changes.push('reviews_changed');
@@ -268,7 +322,7 @@ export function applyObservation(
          mergeable = ?, merge_state_status = ?, review_decision = ?, checks_state = ?, checks = ?, reviews = ?, rules = ?, changed_files = ?,
          merge_commit_sha = ?, merged_at = ?, external_divergence = ?, remote_updated_at = ?, last_synced_at = ?,
          task_id = COALESCE(?, task_id), expected_remote_head = COALESCE(?, expected_remote_head), updated_at = ? WHERE id = ?`,
-    ).run(...Object.values(values), options.taskId ?? null, options.expectedRemoteHead ?? null, at, prId);
+    ).run(...Object.values(values), options.taskId ?? null, options.expectedRemoteHead ?? acceptedHead, at, prId);
   } else {
     prId = newId('pr');
     db.query(
@@ -297,6 +351,12 @@ export function applyObservation(
     if (entry && ['eligible', 'candidate', 'validating'].includes(entry.status)) {
       setEntryStatus(db, entry.id, 'waiting', at, { validatedBase: null, validatedHead: null });
     }
+  }
+  if (acceptedHead && record.taskId) {
+    hooks.push({
+      name: 'onRemoteHeadAccepted',
+      event: { taskId: record.taskId, prId, prNumber: record.number, repositoryId, headSha: acceptedHead },
+    });
   }
   if (changes.includes('base_retargeted')) invalidateCandidatesInTx(db, { prId }, 'base_retargeted', actor, at);
   if (changes.includes('rules_changed') && nextRules) {
@@ -493,6 +553,7 @@ export async function syncRepository(
           bases.get(pr.number) ?? pr.baseRef,
           requirementsCache,
           previous?.state === 'open' ? previous.headSha : null,
+          repository.canonicalPath,
         ),
       );
     }

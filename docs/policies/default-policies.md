@@ -28,7 +28,7 @@ security:
 | `project.autonomy` | `guarded` | Autonomous execution and merge for eligible low/medium-risk work |
 | `integration.mode` | `auto` | GitHub merge queue when the repository has one, otherwise Crewyard-managed serialized integration |
 | `integration.require_github_checks` | `true` | Required GitHub checks must pass on the exact head; AI review never substitutes |
-| `integration.rebasing` | `only_when_required` | No blanket rebases after the base advances |
+| `integration.rebasing` | `only_when_required` | No blanket rebases; when strict branch protection requires an up-to-date branch, Crewyard asks GitHub to update it (`never` leaves it to a revision) |
 | `integration.auto_merge_eligible` | `true` | Must be `false` for `observe`/`assisted` |
 | `review.require_review_for_high_risk` | `true` | High-risk tasks need a review before integration |
 | `review.cache_enabled` | `true` | Reuse review evidence only for an identical fingerprint |

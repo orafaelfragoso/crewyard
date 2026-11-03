@@ -1,3 +1,4 @@
+import { type Actor, isCrewError } from '@crewyard/core';
 import {
   type IntegrationEnv,
   processIntegrationOutbox,
@@ -10,8 +11,10 @@ import type { RemoteRecovery } from '@crewyard/recovery';
 import type { CrewContext } from '@crewyard/storage';
 import type { QueueActions } from './dashboard-actions.ts';
 import { INTEGRATION_ACTOR, integrationEnv, reconcileMergedTasks } from './integration.ts';
-import { publishTask, tasksAwaitingPublication } from './publish.ts';
+import { cleanFinishedWorkspaces } from './maintenance.ts';
+import { blockDivergedPublication, publishTask, tasksAwaitingPublication } from './publish.ts';
 import type { ProjectCycle, ServiceOptions } from './service-loop.ts';
+import { resumeSessionRetries } from './session-retries.ts';
 
 export function hasGitHubRemote(repo: Repository): boolean {
   return repo.remoteOwner !== null && (repo.remoteHost === 'github.com' || Boolean(process.env.CREW_GITHUB_API_URL));
@@ -51,6 +54,9 @@ export function integrationCycles(envFor: EnvFactory = integrationEnv): ProjectC
           const r = await publishTask(ctx, { taskId, actor: INTEGRATION_ACTOR, leaderId, env: envFor(ctx) });
           published.push({ taskId, pr: r.pullRequest?.number ?? null, queued: r.queued });
         } catch (error) {
+          if (isCrewError(error) && error.code === 'HEAD_MISMATCH') {
+            blockDivergedPublication(ctx, taskId, error, INTEGRATION_ACTOR);
+          }
           published.push({ taskId, error: (error as Error).message });
         }
       }
@@ -66,6 +72,30 @@ export function integrationCycles(envFor: EnvFactory = integrationEnv): ProjectC
       const reconciled = await reconcileMergedTasks(ctx, repo.id, env);
       return { queue: result as unknown as Record<string, unknown>, ...(reconciled.length ? { reconciled } : {}) };
     }),
+  ];
+}
+
+const MAINTENANCE_ACTOR: Actor = { kind: 'service', id: 'crew-maintenance' };
+
+export function maintenanceCycles(): ProjectCycle[] {
+  return [
+    {
+      name: 'retry',
+      intervalSeconds: () => 30,
+      async run(ctx, input) {
+        const resumed = resumeSessionRetries(ctx, input.projectId, MAINTENANCE_ACTOR);
+        return resumed.length ? { resumed } : {};
+      },
+    },
+    {
+      name: 'workspace-cleanup',
+      intervalSeconds: () => 3_600,
+      async run(ctx, input) {
+        const repo = primaryRepository(ctx, input.projectId);
+        const removed = await cleanFinishedWorkspaces(ctx, { repositoryId: repo.id, actor: MAINTENANCE_ACTOR });
+        return removed.length ? { removed: removed.map((r) => r.workspace.id) } : {};
+      },
+    },
   ];
 }
 
@@ -92,7 +122,7 @@ export function githubRecovery(envFor: EnvFactory = integrationEnv): RemoteRecov
 }
 
 export function defaultServiceOptions(envFor: EnvFactory = integrationEnv): ServiceOptions {
-  return { cycles: integrationCycles(envFor), remoteRecovery: [githubRecovery(envFor)] };
+  return { cycles: [...integrationCycles(envFor), ...maintenanceCycles()], remoteRecovery: [githubRecovery(envFor)] };
 }
 
 export function defaultQueueActions(): QueueActions {

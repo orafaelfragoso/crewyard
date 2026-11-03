@@ -89,7 +89,7 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityResult 
     add(
       'EXTERNAL_DIVERGENCE',
       'github',
-      `Branch changed outside Crewyard (${pr.externalDivergence.detail}); acknowledge to continue`,
+      `Branch changed outside Crewyard (${pr.externalDivergence.detail}); run \`crew pr acknowledge ${pr.number}\` to continue`,
       {
         divergence: pr.externalDivergence,
       },
@@ -175,11 +175,7 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityResult 
       }
     }
     if (input.mode === 'crew-managed' && requirements.strictChecks && pr.mergeStateStatus === 'BEHIND') {
-      add(
-        'BRANCH_BEHIND_BASE',
-        'github',
-        'Branch protection requires the branch to be up to date; a revision is needed',
-      );
+      add('BRANCH_BEHIND_BASE', 'github', 'Branch protection requires the branch to be up to date with its base');
     }
     if (
       input.mode === 'crew-managed' &&

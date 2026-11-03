@@ -167,6 +167,11 @@ export interface BranchInfo {
   protected: boolean;
 }
 
+export interface CommitInfo {
+  sha: string;
+  parents: string[];
+}
+
 export interface CreatePullRequestInput {
   title: string;
   head: string;

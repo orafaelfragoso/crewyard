@@ -7,6 +7,7 @@ import {
 } from '@crewyard/application';
 import { CrewError } from '@crewyard/core';
 import {
+  acknowledgeDivergence,
   decideMergeApproval,
   explainPullRequest,
   getCandidate,
@@ -177,6 +178,22 @@ export function registerIntegrationCommands(program: Command): void {
         (c) => decideMergeApproval(c, { prId: id, approved: !opts.reject }, operatorActor()),
       );
       emitChange(opts, result, (d) => `${d.subjectId}: ${d.status}`);
+    }),
+  );
+  withMutationOptions(
+    pr
+      .command('acknowledge <number>')
+      .description('accept a branch change made outside Crewyard so the PR can integrate at its current head'),
+  ).action(
+    action(async (ctx, opts, number: string) => {
+      const id = await prId(ctx, opts, number);
+      const result = await mutate(
+        ctx,
+        opts,
+        `Accept the current head of PR #${number} as changed outside Crewyard?`,
+        (c) => acknowledgeDivergence(c, id, operatorActor(), integrationEnv(c)),
+      );
+      emitChange(opts, result, (d) => `PR #${d.number}: acknowledged at ${d.headSha}`);
     }),
   );
 

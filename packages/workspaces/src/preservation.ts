@@ -139,6 +139,15 @@ export interface CommittedChanges {
 
 const AGENT_COMMIT_IDENTITY = { name: 'Crewyard agent', email: 'agent@crewyard.invalid' };
 
+async function commitIdentity(path: string): Promise<string[]> {
+  const configured = (key: string) => git(path, ['config', '--get', key], { allowFailure: true });
+  const [name, email] = await Promise.all([configured('user.name'), configured('user.email')]);
+  return [
+    ...(name.exitCode === 0 && name.stdout.trim() ? [] : ['-c', `user.name=${AGENT_COMMIT_IDENTITY.name}`]),
+    ...(email.exitCode === 0 && email.stdout.trim() ? [] : ['-c', `user.email=${AGENT_COMMIT_IDENTITY.email}`]),
+  ];
+}
+
 export async function commitWorkspaceChanges(
   ctx: CrewContext,
   workspaceId: string,
@@ -158,12 +167,7 @@ export async function commitWorkspaceChanges(
   ).map((f) => f.path);
   if (files.length === 0) return { workspaceId, committed: false, sha: null, files };
   const noHooks = ['-c', `core.hooksPath=${ensureDir(safeJoin(ctx.dirs.run, 'empty-hooks'))}`];
-  const configured = (key: string) => git(path, ['config', '--get', key], { allowFailure: true });
-  const [name, email] = await Promise.all([configured('user.name'), configured('user.email')]);
-  const identity = [
-    ...(name.exitCode === 0 && name.stdout.trim() ? [] : ['-c', `user.name=${AGENT_COMMIT_IDENTITY.name}`]),
-    ...(email.exitCode === 0 && email.stdout.trim() ? [] : ['-c', `user.email=${AGENT_COMMIT_IDENTITY.email}`]),
-  ];
+  const identity = await commitIdentity(path);
   await git(path, [...noHooks, 'add', '--all']);
   await git(path, [...noHooks, ...identity, 'commit', '--no-verify', '--quiet', '-m', input.message]);
   const sha = await gitText(path, ['rev-parse', 'HEAD']);
@@ -184,6 +188,108 @@ export async function commitWorkspaceChanges(
     );
   });
   return { workspaceId, committed: true, sha, files };
+}
+
+export interface RemoteBranchUpdate {
+  workspaceId: string;
+  status: 'current' | 'fast_forward' | 'merged' | 'diverged';
+  remoteHead: string | null;
+  headSha: string;
+  reason: string | null;
+}
+
+async function isAncestor(path: string, ancestor: string, descendant: string): Promise<boolean> {
+  return (
+    (await git(path, ['merge-base', '--is-ancestor', ancestor, descendant], { allowFailure: true })).exitCode === 0
+  );
+}
+
+export async function mergeRemoteBranch(
+  ctx: CrewContext,
+  workspaceId: string,
+  input: { actor: Actor },
+): Promise<RemoteBranchUpdate> {
+  const ws = requireWorkspace(ctx, workspaceId);
+  const repo = requireRepository(ctx, ws.repositoryId);
+  const path = assertManagedWorkspacePath(ctx, ws, repo);
+  const previous = await gitText(path, ['rev-parse', 'HEAD']);
+  const listed = await git(path, ['ls-remote', '--heads', 'origin', `refs/heads/${ws.branch}`], {
+    allowFailure: true,
+    timeoutMs: 60_000,
+  });
+  if (listed.exitCode !== 0) {
+    throw new CrewError('OFFLINE', `Cannot reach origin: ${listed.stderr.trim().slice(0, 300)}`, { retryable: true });
+  }
+  const remoteHead = listed.stdout.trim().split(/\s+/)[0] || null;
+  const result = (status: RemoteBranchUpdate['status'], headSha: string, reason: string | null = null) => ({
+    workspaceId,
+    status,
+    remoteHead,
+    headSha,
+    reason,
+  });
+  if (!remoteHead) return result('current', previous);
+  const noHooks = hooksDisabledArgs(ctx, repo);
+  await git(
+    path,
+    [
+      ...noHooks,
+      'fetch',
+      '--no-tags',
+      '--quiet',
+      'origin',
+      `+refs/heads/${ws.branch}:refs/remotes/origin/${ws.branch}`,
+    ],
+    {
+      timeoutMs: 180_000,
+    },
+  );
+  if (await isAncestor(path, remoteHead, previous)) return result('current', previous);
+  const dirty = parsePorcelain(
+    (await git(path, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])).stdout,
+  ).length;
+  if (dirty > 0) return result('diverged', previous, `${dirty} uncommitted file(s) in the worktree`);
+  const fastForward = await isAncestor(path, previous, remoteHead);
+  const merge = await git(
+    path,
+    fastForward
+      ? [...noHooks, 'merge', '--ff-only', '--quiet', remoteHead]
+      : [
+          ...noHooks,
+          ...(await commitIdentity(path)),
+          'merge',
+          '--no-ff',
+          '--no-edit',
+          '--quiet',
+          '-m',
+          `Merge origin/${ws.branch} into ${ws.branch}`,
+          remoteHead,
+        ],
+    { allowFailure: true },
+  );
+  if (merge.exitCode !== 0) {
+    await git(path, ['merge', '--abort'], { allowFailure: true });
+    return result('diverged', previous, `merging origin/${ws.branch} conflicts: ${merge.stderr.trim().slice(0, 300)}`);
+  }
+  const headSha = await gitText(path, ['rev-parse', 'HEAD']);
+  const status = fastForward ? 'fast_forward' : 'merged';
+  ctx.store.immediate((db) => {
+    const at = nowIso(ctx.clock);
+    exec(db, 'UPDATE workspaces SET head_sha = ?, updated_at = ? WHERE id = ?', headSha, at, workspaceId);
+    recordTransition(
+      db,
+      {
+        type: 'workspace.remote_merged',
+        actor: input.actor,
+        projectId: repo.projectId,
+        ...(ws.taskId ? { taskId: ws.taskId } : {}),
+        payload: { workspaceId, previous, remoteHead, headSha, status },
+      },
+      { action: 'workspace.merge_remote', input: { workspaceId, remoteHead }, decision: status },
+      at,
+    );
+  });
+  return result(status, headSha);
 }
 
 export interface BackupResult {
