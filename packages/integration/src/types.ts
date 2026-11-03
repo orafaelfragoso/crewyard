@@ -28,6 +28,9 @@ export interface TaskHooks {
     event: TaskHookEvent & { reason: string; details: Record<string, unknown> },
   ): void | Promise<void>;
   onRemoteHeadAccepted?(event: TaskHookEvent & { headSha: string }): void | Promise<void>;
+  onReviewRequired?(
+    event: Omit<TaskHookEvent, 'taskId'> & { taskId: string | null; headSha: string },
+  ): void | Promise<void>;
 }
 
 export type GitHubClientFactory = (repository: Repository) => GitHubClient;

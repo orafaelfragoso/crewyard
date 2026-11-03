@@ -47,6 +47,7 @@ function recordingHooks(calls: HookCall[]): TaskHooks {
     onEscalated: record('onEscalated'),
     onRevisionRequired: record('onRevisionRequired'),
     onRemoteHeadAccepted: record('onRemoteHeadAccepted'),
+    onReviewRequired: record('onReviewRequired'),
   };
 }
 

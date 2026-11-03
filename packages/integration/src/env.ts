@@ -13,7 +13,7 @@ import {
 } from '@crewyard/github';
 import { getProject, getRepository, projectConfig, type Repository } from '@crewyard/projects';
 import { type CrewContext, one, recordTransition } from '@crewyard/storage';
-import type { GitHubClientFactory, IntegrationEnv, TaskHookEvent, TaskHooks } from './types.ts';
+import type { GitHubClientFactory, IntegrationEnv, TaskHooks } from './types.ts';
 
 export const CREW_INTEGRATION_ACTOR: Actor = { kind: 'service', id: 'integration' };
 
@@ -118,7 +118,7 @@ export type PendingHook = {
 export async function runHooks(ctx: CrewContext, hooks: TaskHooks | undefined, pending: PendingHook[]): Promise<void> {
   if (!hooks) return;
   for (const call of pending) {
-    const fn = hooks[call.name] as ((event: TaskHookEvent) => void | Promise<void>) | undefined;
+    const fn = hooks[call.name] as ((event: PendingHook['event']) => void | Promise<void>) | undefined;
     if (!fn) continue;
     try {
       await fn.call(hooks, call.event);

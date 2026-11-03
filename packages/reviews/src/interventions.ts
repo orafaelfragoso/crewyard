@@ -13,6 +13,7 @@ export interface InterventionInput {
   prId?: string | null;
   taskId?: string | null;
   approval?: { subjectKind: ApprovalSubject; subjectId: string } | null;
+  once?: boolean;
 }
 
 export interface InterventionRecord {
@@ -27,6 +28,18 @@ export function requestInterventionInTx(
   actor: Actor,
   at: string,
 ): InterventionRecord {
+  const body = input.reasons.map((r) => `- ${r}`).join('\n');
+  if (input.once) {
+    const sent = one<{ id: string }>(
+      db,
+      'SELECT id FROM notifications WHERE project_id = ? AND pr_id IS ? AND title = ? AND body = ? ORDER BY created_at DESC LIMIT 1',
+      input.projectId,
+      input.prId ?? null,
+      input.title,
+      body,
+    );
+    if (sent) return { notificationId: sent.id, approvalId: null, created: false };
+  }
   let approvalId: string | null = null;
   let created = true;
   if (input.approval) {
@@ -71,7 +84,7 @@ export function requestInterventionInTx(
     input.projectId,
     input.level ?? 'action_required',
     input.title,
-    input.reasons.map((r) => `- ${r}`).join('\n'),
+    body,
     input.taskId ?? null,
     input.prId ?? null,
     at,
