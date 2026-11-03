@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.2](https://github.com/orafaelfragoso/crewyard/compare/v0.3.1...v0.3.2) (2026-11-03)
+
+
+### Bug Fixes
+
+* **agents:** parse fenced JSON from agent output in linear time ([8deb19a](https://github.com/orafaelfragoso/crewyard/commit/8deb19affb8b4e7a15288b0ed2b381410ae36f06))
+* **config:** reject `__proto__`, `constructor` and `prototype` in configuration paths ([8deb19a](https://github.com/orafaelfragoso/crewyard/commit/8deb19affb8b4e7a15288b0ed2b381410ae36f06))
+* **config:** write `crew config set` and the service unit atomically ([8deb19a](https://github.com/orafaelfragoso/crewyard/commit/8deb19affb8b4e7a15288b0ed2b381410ae36f06))
+* **redaction:** redact private keys in linear time on hostile agent output ([8deb19a](https://github.com/orafaelfragoso/crewyard/commit/8deb19affb8b4e7a15288b0ed2b381410ae36f06))
+* **security:** close code scanning alerts ([8deb19a](https://github.com/orafaelfragoso/crewyard/commit/8deb19affb8b4e7a15288b0ed2b381410ae36f06))
+
+
+### Documentation
+
+* ask pull requests to list changelog entries ([#15](https://github.com/orafaelfragoso/crewyard/issues/15)) ([00c583a](https://github.com/orafaelfragoso/crewyard/commit/00c583a9b0cea6c04982af6aceddaedc75c50d85))
+* separate changelog entries with blank lines ([#17](https://github.com/orafaelfragoso/crewyard/issues/17)) ([7969ae5](https://github.com/orafaelfragoso/crewyard/commit/7969ae51e5da966dd86ca1806faf8e140de31b60))
+
 ## [0.3.1](https://github.com/orafaelfragoso/crewyard/compare/v0.3.0...v0.3.1) (2026-11-03)
 
 
