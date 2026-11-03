@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.4](https://github.com/orafaelfragoso/crewyard/compare/v0.3.3...v0.3.4) (2026-11-03)
+
+
+### Bug Fixes
+
+* **reviews:** check callers and contracts with crew context tools ([#22](https://github.com/orafaelfragoso/crewyard/issues/22)) ([bec643c](https://github.com/orafaelfragoso/crewyard/commit/bec643c7c80dda7e53a530086d8c7aebb79b7339))
+
 ## [0.3.3](https://github.com/orafaelfragoso/crewyard/compare/v0.3.2...v0.3.3) (2026-11-03)
 
 
