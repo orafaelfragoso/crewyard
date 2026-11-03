@@ -440,6 +440,32 @@ describe('github-managed integration queue', () => {
       { attempts: 2 },
     ]);
   }, 60_000);
+
+  test('a conflict that briefly reads as unknown mergeability stays one pending revision', async () => {
+    fx = await createGitHubFixture({ config: { agents: { max_retries_per_failure: 2 } } });
+    const f = fx;
+    await f.pushBranch('fix', { 'src/a.ts': 'export const a = 1;\n' });
+    const pr = f.mock.addPull({ headRef: 'fix', baseRef: 'main', mergeable: false });
+    await queueAll(f, [pr.number]);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+
+    f.mock.unknownMergeability.add(pr.number);
+    await syncRepository(f.ctx, f.repositoryId, f.env);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    f.mock.unknownMergeability.delete(pr.number);
+    await syncRepository(f.ctx, f.repositoryId, f.env);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+
+    const record = showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: pr.number });
+    const entry = getQueueStatus(f.ctx, { repositoryId: f.repositoryId }, f.env).entries.find(
+      (e) => e.pr.id === record.id,
+    )!.entry;
+    expect(entry.blockers.map((b) => b.code)).toEqual(['REVISION_REQUIRED']);
+    expect(f.hookCalls.filter((h) => h.name === 'onBlocked')).toEqual([]);
+    expect(all(f.ctx.store.db, 'SELECT attempts FROM failure_records WHERE subject_id = ?', record.id)).toEqual([
+      { attempts: 1 },
+    ]);
+  }, 60_000);
 });
 
 describe('branches behind a strict base', () => {
@@ -507,6 +533,27 @@ describe('queue routing', () => {
     expect(
       all(f.ctx.store.db, 'SELECT body FROM notifications WHERE title = ?', `PR #${n} needs operator action`),
     ).toEqual([{ body: '- 0/1 required approvals' }]);
+  }, 30_000);
+
+  test('a required check from a workflow that is still running does not ask an operator', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    f.mock.requireChecks('main', ['CI result']);
+    const sha = await f.pushBranch('feature', { 'src/feature.ts': 'export const f = 1;\n' });
+    const n = f.mock.addPull({ headRef: 'feature', baseRef: 'main' }).number;
+    f.mock.setCheck(sha, 'fmt', 'success');
+    f.mock.runningWorkflows.push({ sha, name: 'CI' });
+    await queueAll(f, [n]);
+    await tick(f);
+    const asked = () =>
+      all(f.ctx.store.db, 'SELECT title FROM notifications WHERE title = ?', `PR #${n} needs operator action`);
+    expect(entryFor(f, n).blockers.map((b) => b.code)).toContain('REQUIRED_CHECK_MISSING');
+    expect(asked()).toEqual([]);
+
+    f.mock.runningWorkflows = [];
+    await syncRepository(f.ctx, f.repositoryId, f.env);
+    await tick(f);
+    expect(asked()).toHaveLength(1);
   }, 30_000);
 
   test('a failing check that turns green on the same head leaves revision without a new failure', async () => {

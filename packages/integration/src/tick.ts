@@ -125,7 +125,10 @@ export function revisionFor(
 }
 
 function operatorBlockers(pr: PullRequestRecord, hard: readonly Blocker[]): Blocker[] {
-  const checksSettled = pr.checks.length > 0 && pr.checks.every((c) => c.state !== 'pending');
+  const checksSettled =
+    pr.checks.length > 0 &&
+    pr.checks.every((c) => c.state !== 'pending') &&
+    (pr.governance?.workflowRuns ?? []).every((r) => r.status === 'completed');
   return hard.filter((b) => OPERATOR_CODES.has(b.code) && (b.code !== 'REQUIRED_CHECK_MISSING' || checksSettled));
 }
 
@@ -258,7 +261,7 @@ function evaluateQueue(
     });
     const evaluation = evaluateEligibility(input);
     const hard = evaluation.blockers.filter((b) => !b.soft);
-    if (revisionPending && hard.some((b) => REVISABLE_CODES.has(b.code))) {
+    if (revisionPending && hard.some((b) => REVISABLE_CODES.has(b.code) || WAITING_CODES.has(b.code))) {
       result.blocked.push(pr.id);
       continue;
     }
