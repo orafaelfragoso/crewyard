@@ -43,6 +43,7 @@ export interface ObservedPullRequest {
   requirements: BranchRequirements | null;
   integrationBase: string;
   forcePushed: boolean | null;
+  baseMergeParent: string | null;
 }
 
 export interface PullRequestChange {
@@ -69,6 +70,19 @@ export function aggregateChecks(checks: readonly CheckResult[]): ChecksState {
   if (checks.some((c) => c.state === 'failure')) return 'failure';
   if (checks.some((c) => c.state === 'pending')) return 'pending';
   return 'success';
+}
+
+async function detectBaseMerge(client: GitHubClient, pr: GitHubPullRequest): Promise<string | null> {
+  try {
+    const commit = await client.getCommit(pr.headSha);
+    if (commit.parents.length !== 2) return null;
+    const [head, base] = commit.parents as [string, string];
+    const result = await client.compareCommits(base, pr.baseRef);
+    return result.status === 'ahead' || result.status === 'identical' ? head : null;
+  } catch (error) {
+    if (error instanceof CrewError && (error.code === 'OFFLINE' || error.code === 'RATE_LIMITED')) throw error;
+    return null;
+  }
 }
 
 async function detectForcePush(client: GitHubClient, previous: string, next: string): Promise<boolean | null> {
@@ -100,6 +114,7 @@ export async function observePullRequest(
       requirements: requirementsCache.get(integrationBase) ?? null,
       integrationBase,
       forcePushed: null,
+      baseMergeParent: null,
     };
   }
   let requirements = requirementsCache.get(integrationBase) ?? null;
@@ -114,9 +129,21 @@ export async function observePullRequest(
     client.listWorkflowRuns(pr.headSha),
     client.getPullRequestState(pr.number),
   ]);
-  const forcePushed =
-    previousHead && previousHead !== pr.headSha ? await detectForcePush(client, previousHead, pr.headSha) : null;
-  return { pr, files, reviews, checks, workflowRuns, graph, requirements, integrationBase, forcePushed };
+  const moved = previousHead !== null && previousHead !== pr.headSha;
+  const forcePushed = moved ? await detectForcePush(client, previousHead, pr.headSha) : null;
+  const baseMergeParent = moved && forcePushed === false ? await detectBaseMerge(client, pr) : null;
+  return {
+    pr,
+    files,
+    reviews,
+    checks,
+    workflowRuns,
+    graph,
+    requirements,
+    integrationBase,
+    forcePushed,
+    baseMergeParent,
+  };
 }
 
 function crewMergeRecorded(db: Database, prId: string): boolean {
@@ -181,12 +208,18 @@ export function applyObservation(
   const expected = options.expectedRemoteHead ?? previous?.expectedRemoteHead ?? null;
   const mergeable = pr.mergeable === 'UNKNOWN' && obs.graph ? obs.graph.mergeable : pr.mergeable;
 
+  let acceptedHead: string | null = null;
   if (previous && previous.headSha !== pr.headSha && previous.state === 'open') {
     changes.push('head_changed');
     if (obs.forcePushed === true) kinds.push('force_push');
     if (expected !== null && pr.headSha !== expected) {
-      blocking = true;
-      if (obs.forcePushed !== true) kinds.push('external_push');
+      if (obs.baseMergeParent === expected) {
+        acceptedHead = pr.headSha;
+        changes.push('base_merged');
+      } else {
+        blocking = true;
+        if (obs.forcePushed !== true) kinds.push('external_push');
+      }
     }
   }
   if (previous && previous.baseRef !== pr.baseRef) {
@@ -197,7 +230,6 @@ export function applyObservation(
   const nextRules = governance?.requirements?.fingerprint ?? null;
   if (previous && pr.state === 'open' && prevRules !== null && nextRules !== null && prevRules !== nextRules) {
     changes.push('rules_changed');
-    kinds.push('rules_changed');
   }
   if (previous && obs.reviews && reviewKey(previous.reviews) !== reviewKey(obs.reviews)) {
     changes.push('reviews_changed');
@@ -268,7 +300,7 @@ export function applyObservation(
          mergeable = ?, merge_state_status = ?, review_decision = ?, checks_state = ?, checks = ?, reviews = ?, rules = ?, changed_files = ?,
          merge_commit_sha = ?, merged_at = ?, external_divergence = ?, remote_updated_at = ?, last_synced_at = ?,
          task_id = COALESCE(?, task_id), expected_remote_head = COALESCE(?, expected_remote_head), updated_at = ? WHERE id = ?`,
-    ).run(...Object.values(values), options.taskId ?? null, options.expectedRemoteHead ?? null, at, prId);
+    ).run(...Object.values(values), options.taskId ?? null, options.expectedRemoteHead ?? acceptedHead, at, prId);
   } else {
     prId = newId('pr');
     db.query(
@@ -297,6 +329,12 @@ export function applyObservation(
     if (entry && ['eligible', 'candidate', 'validating'].includes(entry.status)) {
       setEntryStatus(db, entry.id, 'waiting', at, { validatedBase: null, validatedHead: null });
     }
+  }
+  if (acceptedHead && record.taskId) {
+    hooks.push({
+      name: 'onRemoteHeadAccepted',
+      event: { taskId: record.taskId, prId, prNumber: record.number, repositoryId, headSha: acceptedHead },
+    });
   }
   if (changes.includes('base_retargeted')) invalidateCandidatesInTx(db, { prId }, 'base_retargeted', actor, at);
   if (changes.includes('rules_changed') && nextRules) {

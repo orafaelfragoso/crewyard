@@ -694,6 +694,36 @@ export class MockGitHub {
       const sha = this.mergeLocally(pr, String(payload.merge_method ?? 'merge'));
       return json(200, { sha, merged: true, message: 'Pull Request successfully merged' });
     }
+    match = m(/^\/pulls\/(\d+)\/update-branch$/);
+    if (match && req.method === 'PUT') {
+      const pr = this.pulls.get(Number(match[1]));
+      if (!pr || !this.gitDir) return json(404, { message: 'Not Found' });
+      const head = this.headSha(pr);
+      if (payload.expected_head_sha && payload.expected_head_sha !== head) {
+        return json(422, { message: 'expected head sha didn’t match current head ref.' });
+      }
+      const base = this.branchSha(pr.baseRef)!;
+      const tree = gitSync(this.gitDir, ['merge-tree', '--write-tree', head, base]);
+      if (tree.code !== 0) return json(422, { message: 'merge conflict between base and head' });
+      const now = this.tick();
+      const sha = gitSync(
+        this.gitDir,
+        [
+          'commit-tree',
+          tree.out.split('\n')[0]!,
+          '-p',
+          head,
+          '-p',
+          base,
+          '-m',
+          `Merge ${pr.baseRef} into ${pr.headRef}`,
+        ],
+        { GIT_AUTHOR_DATE: now, GIT_COMMITTER_DATE: now },
+      ).out;
+      this.setBranch(pr.headRef, sha);
+      pr.updatedAt = now;
+      return json(202, { message: 'Updating pull request branch.', url: `${this.url}/pulls/${pr.number}` });
+    }
     match = m(/^\/pulls\/(\d+)\/merge-async$/);
     if (match && req.method === 'PUT') {
       const pr = this.pulls.get(Number(match[1]));
@@ -747,6 +777,14 @@ export class MockGitHub {
     if (match) {
       const result = this.asyncMerges.get(match[2]!);
       return result ? json(200, result) : json(404, { message: 'Not Found' });
+    }
+    match = m(/^\/commits\/([0-9a-f]+)$/);
+    if (match) {
+      if (!this.gitDir) return json(404, { message: 'Not Found' });
+      const parents = gitSync(this.gitDir, ['rev-list', '--parents', '-n', '1', match[1]!]);
+      if (parents.code !== 0) return json(404, { message: 'Not Found' });
+      const [sha, ...rest] = parents.out.split(' ');
+      return this.respond(req, 200, { sha, parents: rest.map((p) => ({ sha: p })) });
     }
     match = m(/^\/commits\/([0-9a-f]+)\/check-runs$/);
     if (match) {
@@ -802,7 +840,7 @@ export class MockGitHub {
       const { body, link } = this.page(this.rules.get(decodeURIComponent(match[1]!)) ?? [], url);
       return this.respond(req, 200, body, link ? { link } : {});
     }
-    match = m(/^\/compare\/([0-9a-f]+)\.\.\.([0-9a-f]+)$/);
+    match = m(/^\/compare\/(.+?)\.\.\.(.+)$/);
     if (match) {
       const [, base, head] = match;
       if (!this.gitDir) return this.respond(req, 200, { status: 'diverged', ahead_by: 1, behind_by: 1 });

@@ -13,6 +13,7 @@ import {
   submitPullRequest,
   syncRepository,
 } from '@crewyard/integration';
+import { getRepository } from '@crewyard/projects';
 import { listReviews, requestReview, StaticAnalysisReviewer } from '@crewyard/reviews';
 import { all } from '@crewyard/storage';
 import { createGitHubFixture, type GitHubFixture } from './github-fixture.ts';
@@ -55,9 +56,37 @@ describe('GitHub synchronization', () => {
     expect(listReviews(f.ctx, { prId: pr.id })).toHaveLength(0);
     expect(listReviews(f.ctx, { prId: pr.id, includeInvalidated: true })[0]!.invalidatedReason).toBe('head_changed');
     expect(explainPullRequest(f.ctx, pr.id, f.env).blockers.map((b) => b.code)).toContain('EXTERNAL_DIVERGENCE');
-    acknowledgeDivergence(f.ctx, pr.id, operator);
+    await acknowledgeDivergence(f.ctx, pr.id, operator);
     expect(explainPullRequest(f.ctx, pr.id, f.env).blockers.map((b) => b.code)).not.toContain('EXTERNAL_DIVERGENCE');
     expect(f.mock.countCalls('PATCH', /pulls/)).toBe(0);
+  }, 30_000);
+
+  test('a GitHub update-branch merge is accepted as the expected head instead of an external push', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    const head = await f.pushBranch('feature', { 'src/feature.ts': 'export const f = 1;\n' });
+    const n = f.mock.addPull({ headRef: 'feature' }).number;
+    await syncRepository(f.ctx, f.repositoryId, f.env);
+    const pr = showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: n });
+    setExpectedRemoteHead(f.ctx, pr.id, head, agent);
+    await f.advanceBase({ 'docs/base.md': 'base moved\n' });
+    const repository = getRepository(f.ctx, f.repositoryId);
+    await f.env.github!(repository).updatePullRequestBranch(n, head);
+    const merged = f.mock.branchSha('feature')!;
+
+    const result = await syncRepository(f.ctx, f.repositoryId, f.env);
+    expect(result.changed[0]).toMatchObject({ changes: expect.arrayContaining(['head_changed', 'base_merged']) });
+    expect(result.changed[0]!.divergence).toEqual([]);
+    const after = showPullRequest(f.ctx, { prId: pr.id });
+    expect(after).toMatchObject({ headSha: merged, expectedRemoteHead: merged, externalDivergence: null });
+
+    const outside = await f.pushBranch('feature', { 'src/outside.ts': 'export const o = 1;\n' }, 'feature');
+    await syncRepository(f.ctx, f.repositoryId, f.env);
+    expect(showPullRequest(f.ctx, { prId: pr.id })).toMatchObject({
+      headSha: outside,
+      expectedRemoteHead: merged,
+      externalDivergence: { blocking: true, kinds: ['external_push'] },
+    });
   }, 30_000);
 
   test('merges outside Crewyard are adopted with the actual merge commit', async () => {

@@ -21,6 +21,7 @@ import {
 } from '@crewyard/reviews';
 import { all, appendEvent, type CrewContext } from '@crewyard/storage';
 import { showTask, transitionTask } from '@crewyard/tasks';
+import { listWorkspaces, setExpectedRemoteHead } from '@crewyard/workspaces';
 import { extractJson, sessionResultText } from './agents.ts';
 import { sessionTooling } from './session-tooling.ts';
 
@@ -28,6 +29,16 @@ export const INTEGRATION_ACTOR: Actor = { kind: 'service', id: 'crew-integration
 
 const REQUEUEABLE: ReadonlySet<TaskState> = new Set(['SUBMITTED', 'REVIEWING', 'BLOCKED', 'REVISION']);
 const MERGE_PENDING: readonly TaskState[] = [...REQUEUEABLE, 'ESCALATED', 'QUEUED', 'VALIDATING', 'MERGED'];
+
+function acceptRemoteHead(ctx: CrewContext, taskId: string, headSha: string): void {
+  const workspace = listWorkspaces(ctx, { taskId }).find((w) => w.state !== 'cleaned');
+  if (!workspace || workspace.expectedRemoteHead === headSha) return;
+  setExpectedRemoteHead(ctx, workspace.id, {
+    sha: headSha,
+    expectedPrevious: workspace.expectedRemoteHead,
+    actor: INTEGRATION_ACTOR,
+  });
+}
 
 function advance(
   ctx: CrewContext,
@@ -75,6 +86,7 @@ export function taskHooks(ctx: CrewContext): TaskHooks {
     onBlocked: (e) => advance(ctx, e.taskId, ['BLOCKED'], `PR #${e.prNumber} blocked`, e.reason),
     onEscalated: (e) => advance(ctx, e.taskId, ['ESCALATED'], `PR #${e.prNumber} escalated`, e.reason),
     onRevisionRequired: (e) => advance(ctx, e.taskId, ['REVISION'], `PR #${e.prNumber} needs revision: ${e.reason}`),
+    onRemoteHeadAccepted: (e) => acceptRemoteHead(ctx, e.taskId, e.headSha),
   };
 }
 
