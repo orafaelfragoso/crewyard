@@ -89,7 +89,7 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityResult 
     add(
       'EXTERNAL_DIVERGENCE',
       'github',
-      `Branch changed outside Crewyard (${pr.externalDivergence.detail}); acknowledge to continue`,
+      `Branch changed outside Crewyard (${pr.externalDivergence.detail}); run \`crew pr acknowledge ${pr.number}\` to continue`,
       {
         divergence: pr.externalDivergence,
       },

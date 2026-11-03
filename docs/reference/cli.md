@@ -890,6 +890,15 @@ authorize Crewyard to merge this PR head (assisted mode)
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
+#### `crew pr acknowledge <number>`
+
+accept a branch change made outside Crewyard so the PR can integrate at its current head
+
+| Option | Description |
+|---|---|
+| `--dry-run` | preview the change without applying it |
+| `-y, --yes` | confirm destructive or authorization-gated actions |
+
 ### `crew review`
 
 evidence-fingerprinted reviews and findings
