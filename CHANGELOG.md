@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/orafaelfragoso/crewyard/compare/v0.1.0...v0.1.1) (2026-11-03)
+
+
+### Bug Fixes
+
+* stop binaries from loading project .env files and shrink release binaries ([#4](https://github.com/orafaelfragoso/crewyard/issues/4)) ([0c45cdb](https://github.com/orafaelfragoso/crewyard/commit/0c45cdba68c44af7bcdef9ca13d99f2359d11dfa))
+
 ## 0.1.0 (2026-11-03)
 
 
