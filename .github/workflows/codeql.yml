@@ -19,7 +19,7 @@ concurrency:
 jobs:
   analyze:
     name: Analyze
-    if: ${{ !github.event.repository.private }}
+    if: "${{ !github.event.repository.private && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

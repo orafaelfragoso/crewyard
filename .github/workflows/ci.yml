@@ -27,6 +27,7 @@ env:
 jobs:
   checks:
     name: Checks
+    if: "${{ !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -65,6 +66,7 @@ jobs:
 
   test-linux:
     name: Test (Linux)
+    if: "${{ !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -79,7 +81,7 @@ jobs:
 
   test-macos:
     name: Test (macOS)
-    if: github.event_name == 'push'
+    if: "${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: macos-15
     timeout-minutes: 15
     steps:
