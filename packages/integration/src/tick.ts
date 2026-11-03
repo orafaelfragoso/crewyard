@@ -77,6 +77,7 @@ const WAITING_CODES = new Set([
   'REMOTE_STATE_STALE',
   'RATE_LIMITED',
   'RULES_UNKNOWN',
+  'HIGH_RISK_REVIEW_REQUIRED',
 ]);
 
 export function revisionFor(

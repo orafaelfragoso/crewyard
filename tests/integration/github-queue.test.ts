@@ -388,6 +388,21 @@ describe('github-managed integration queue', () => {
     expect(showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: pr.number }).state).toBe('merged');
   }, 60_000);
 
+  test('failing checks on a high-risk PR without a review still send it back for revision', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    const sha = await f.pushBranch('deps', { 'pkg/Cargo.toml': '[package]\nname = "pkg"\n' });
+    const pr = f.mock.addPull({ headRef: 'deps', baseRef: 'main' });
+    f.mock.setCheck(sha, 'ci', 'failure');
+    await queueAll(f, [pr.number]);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    const record = showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: pr.number });
+    const entry = getQueueStatus(f.ctx, { repositoryId: f.repositoryId }, f.env).entries.find(
+      (e) => e.pr.id === record.id,
+    )!.entry;
+    expect(entry.blockers.map((b) => b.code)).toEqual(['REVISION_REQUIRED']);
+  }, 60_000);
+
   test('the same failing checks on a revised head quarantine the PR after the retry limit', async () => {
     fx = await createGitHubFixture({ config: { agents: { max_retries_per_failure: 2 } } });
     const f = fx;
