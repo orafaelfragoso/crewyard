@@ -179,6 +179,7 @@ export function applyObservation(
   const checks = obs.checks ?? previous?.checks ?? [];
   const reviews = obs.reviews ?? previous?.reviews ?? [];
   const expected = options.expectedRemoteHead ?? previous?.expectedRemoteHead ?? null;
+  const mergeable = pr.mergeable === 'UNKNOWN' && obs.graph ? obs.graph.mergeable : pr.mergeable;
 
   if (previous && previous.headSha !== pr.headSha && previous.state === 'open') {
     changes.push('head_changed');
@@ -207,7 +208,7 @@ export function applyObservation(
   if (previous && obs.checks && aggregateChecks(previous.checks) !== aggregateChecks(obs.checks)) {
     changes.push('checks_changed');
   }
-  if (previous && previous.mergeable !== pr.mergeable) changes.push('mergeability_changed');
+  if (previous && previous.mergeable !== mergeable) changes.push('mergeability_changed');
   const becameMerged = pr.state === 'merged' && previous?.state !== 'merged';
   const becameClosed = pr.state === 'closed' && previous?.state === 'open';
   let outsideCrew = false;
@@ -245,7 +246,7 @@ export function applyObservation(
     base_sha: pr.baseSha,
     state: pr.state,
     is_draft: pr.isDraft ? 1 : 0,
-    mergeable: pr.mergeable,
+    mergeable,
     merge_state_status: obs.graph?.mergeStateStatus ?? pr.mergeStateStatus,
     review_decision: obs.graph ? obs.graph.reviewDecision : (previous?.reviewDecision ?? null),
     checks_state: aggregateChecks(checks),

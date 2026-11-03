@@ -125,7 +125,7 @@ function isOfflineError(error: unknown): boolean {
   return OFFLINE_CODES.has(errorCodeOf(error));
 }
 
-const PR_STATE_FIELDS = `id reviewDecision mergeStateStatus isInMergeQueue isMergeQueueEnabled
+const PR_STATE_FIELDS = `id reviewDecision mergeable mergeStateStatus isInMergeQueue isMergeQueueEnabled
   mergeQueueEntry { id position state enqueuedAt headCommit { oid } baseCommit { oid } pullRequest { number } }`;
 
 const ENTRY_FIELDS = 'id position state enqueuedAt headCommit { oid } baseCommit { oid } pullRequest { number }';

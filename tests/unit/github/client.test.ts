@@ -43,8 +43,10 @@ describe('GitHub client', () => {
       headRef: 'feature',
       headSha: 'a'.repeat(40),
       state: 'open',
-      mergeable: 'MERGEABLE',
+      mergeable: 'UNKNOWN',
     });
+    expect((await c.getPullRequest(1)).mergeable).toBe('MERGEABLE');
+    expect((await c.getPullRequestState(1)).mergeable).toBe('MERGEABLE');
     expect(await c.listChecks(pr.headSha)).toEqual([
       expect.objectContaining({ name: 'ci', state: 'success', kind: 'check_run' }),
       expect.objectContaining({ name: 'legacy', state: 'failure', kind: 'status' }),

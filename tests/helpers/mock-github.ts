@@ -621,7 +621,10 @@ export class MockGitHub {
         .filter((p) => state === 'all' || (state === 'open' ? p.state === 'open' : p.state === 'closed'))
         .filter((p) => !head || `${this.owner}:${p.headRef}` === head)
         .sort((a, b) => a.number - b.number)
-        .map((p) => this.pullJson(p));
+        .map((p) => {
+          const { mergeable: _m, mergeable_state: _s, ...listed } = this.pullJson(p) as Record<string, unknown>;
+          return listed as Json;
+        });
       const { body, link } = this.page(items, url);
       return this.respond(req, 200, body, link ? { link } : {});
     }
@@ -844,6 +847,7 @@ export class MockGitHub {
             pullRequest: {
               id: pr.nodeId,
               reviewDecision: this.reviewDecision(pr),
+              mergeable: pr.state === 'open' ? (this.conflicts(pr) ? 'CONFLICTING' : 'MERGEABLE') : 'UNKNOWN',
               mergeStateStatus: this.mergeableState(pr).toUpperCase(),
               isInMergeQueue: index >= 0,
               isMergeQueueEnabled: this.requirements(pr.baseRef).mergeQueue,
