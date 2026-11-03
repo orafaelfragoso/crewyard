@@ -6,6 +6,7 @@ import type {
   GitHubClient,
   GitHubPullRequest,
   MergeMethod,
+  MergeResult,
   UpdatePullRequestInput,
 } from '@crewyard/github';
 import {
@@ -217,6 +218,17 @@ function defer(hc: HandlerContext, op: OutboxOperation, error: unknown, untilIso
   settle(hc, op, { status: 'retry', error: message, attempts: op.attempts });
 }
 
+function acceptedMergeSha(db: Database, operationId: string): string | null {
+  return (
+    one<{ remote_id: string }>(
+      db,
+      `SELECT remote_id FROM remote_operations WHERE operation_id = ? AND method = 'PUT' AND remote_id IS NOT NULL
+         AND json_extract(result, '$.merged') = 1 ORDER BY at DESC LIMIT 1`,
+      operationId,
+    )?.remote_id ?? null
+  );
+}
+
 function finalizeMergedInTx(
   db: Database,
   hc: HandlerContext,
@@ -232,20 +244,18 @@ function finalizeMergedInTx(
     `UPDATE pull_requests SET state = 'merged', merge_commit_sha = ?, merged_at = ?, head_sha = ?, updated_at = ? WHERE id = ?`,
   ).run(observed.mergeCommitSha, observed.mergedAt ?? at, observed.headSha, at, prId);
   const entry = activeEntryForPr(db, prId);
-  if (entry) {
-    setEntryStatus(db, entry.id, 'merged', at, { blockers: [] });
-    if (pr.taskId) {
-      hc.hooks.push({
-        name: 'onMerged',
-        event: {
-          taskId: pr.taskId,
-          prId,
-          prNumber: pr.number,
-          repositoryId: pr.repositoryId,
-          mergeCommitSha: observed.mergeCommitSha,
-        },
-      });
-    }
+  if (entry) setEntryStatus(db, entry.id, 'merged', at, { blockers: [] });
+  if (pr.taskId && !pr.mergeCommitSha) {
+    hc.hooks.push({
+      name: 'onMerged',
+      event: {
+        taskId: pr.taskId,
+        prId,
+        prNumber: pr.number,
+        repositoryId: pr.repositoryId,
+        mergeCommitSha: observed.mergeCommitSha,
+      },
+    });
   }
   if (candidateId) {
     const candidate = candidateById(db, candidateId);
@@ -404,15 +414,14 @@ async function handleMerge(hc: HandlerContext, op: OutboxOperation): Promise<voi
       },
     );
     if (observed.state === 'merged') {
-      if (!observed.mergeCommitSha) {
+      const mergeCommitSha = observed.mergeCommitSha ?? acceptedMergeSha(hc.ctx.store.db, op.operationId);
+      if (!mergeCommitSha) {
         settle(hc, op, { status: 'ambiguous', error: 'merged without observable merge commit yet' });
         return;
       }
-      settle(
-        hc,
-        op,
-        { status: 'succeeded', remoteCorrelation: { mergeCommitSha: observed.mergeCommitSha, reconciled: true } },
-        (db, at) => finalizeMergedInTx(db, hc, op, observed, intent.prId, intent.candidateId, at),
+      const merged = { ...observed, mergeCommitSha };
+      settle(hc, op, { status: 'succeeded', remoteCorrelation: { mergeCommitSha, reconciled: true } }, (db, at) =>
+        finalizeMergedInTx(db, hc, op, merged, intent.prId, intent.candidateId, at),
       );
       return;
     }
@@ -445,8 +454,9 @@ async function handleMerge(hc: HandlerContext, op: OutboxOperation): Promise<voi
       );
     }
     if (!stillLeader(hc, guard)) return defer(hc, op, new CrewError('LEASE_CONFLICT', 'leadership lost'));
+    let result: MergeResult;
     try {
-      const result = await client.mergePullRequest(intent.number, {
+      result = await client.mergePullRequest(intent.number, {
         sha: intent.headSha,
         mergeMethod: intent.mergeMethod,
       });
@@ -479,12 +489,15 @@ async function handleMerge(hc: HandlerContext, op: OutboxOperation): Promise<voi
       throw error;
     }
     const confirmed = await client.getPullRequest(intent.number).catch(() => null);
-    if (confirmed?.state !== 'merged' || !confirmed.mergeCommitSha) {
+    const mergeCommitSha =
+      (confirmed?.state === 'merged' ? confirmed.mergeCommitSha : null) ?? (result.merged ? result.sha : null);
+    if (!mergeCommitSha) {
       settle(hc, op, { status: 'ambiguous', error: 'merge accepted but not yet observed as merged' });
       return;
     }
-    settle(hc, op, { status: 'succeeded', remoteCorrelation: { mergeCommitSha: confirmed.mergeCommitSha } }, (db, at) =>
-      finalizeMergedInTx(db, hc, op, confirmed, intent.prId, intent.candidateId, at),
+    const merged: GitHubPullRequest = { ...(confirmed ?? observed), state: 'merged', mergeCommitSha };
+    settle(hc, op, { status: 'succeeded', remoteCorrelation: { mergeCommitSha } }, (db, at) =>
+      finalizeMergedInTx(db, hc, op, merged, intent.prId, intent.candidateId, at),
     );
   } catch (error) {
     handleError(hc, op, client, error, (db, at) => failMergeInTx(db, hc, op, intent.prId, error, at));

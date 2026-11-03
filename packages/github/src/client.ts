@@ -74,6 +74,7 @@ type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 interface RequestOptions {
   body?: unknown;
   conditional?: boolean;
+  cacheable?: (data: unknown) => boolean;
   idempotent?: boolean;
   statusErrors?: Partial<Record<number, ErrorCode>>;
   allowStatuses?: number[];
@@ -123,6 +124,11 @@ function isTimeout(error: unknown): boolean {
 
 function isOfflineError(error: unknown): boolean {
   return OFFLINE_CODES.has(errorCodeOf(error));
+}
+
+function settledMerge(data: unknown): boolean {
+  const pr = asRecord(data);
+  return !asString(pr.merged_at) || asString(pr.merge_commit_sha) !== null;
 }
 
 const PR_STATE_FIELDS = `id reviewDecision mergeable mergeStateStatus isInMergeQueue isMergeQueueEnabled
@@ -242,7 +248,8 @@ export class GitHubClient {
     const idempotent = options.idempotent ?? method === 'GET';
     const maxRetries = idempotent ? (this.options.maxRetries ?? 3) : 0;
     const cacheKey = `${method} ${url}`;
-    const cached = options.conditional && this.options.cache ? this.options.cache.get(cacheKey) : null;
+    const stored = options.conditional && this.options.cache ? this.options.cache.get(cacheKey) : null;
+    const cached = stored && (options.cacheable?.(stored.body) ?? true) ? stored : null;
     for (let attempt = 0; ; attempt++) {
       if (this.rateLimitedUntil !== null) {
         if (this.rateLimitedUntil > this.now().getTime()) {
@@ -306,7 +313,13 @@ export class GitHubClient {
       }
       if ((response.status >= 200 && response.status < 300) || options.allowStatuses?.includes(response.status)) {
         const etag = response.headers.get('etag');
-        if (options.conditional && this.options.cache && etag && response.status === 200) {
+        if (
+          options.conditional &&
+          this.options.cache &&
+          etag &&
+          response.status === 200 &&
+          (options.cacheable?.(data) ?? true)
+        ) {
           this.options.cache.set(cacheKey, { etag, body: data });
         }
         return { status: response.status, data, headers: response.headers, notModified: false };
@@ -412,7 +425,11 @@ export class GitHubClient {
 
   async getPullRequest(number: number): Promise<GitHubPullRequest> {
     await this.ensureVerified();
-    return toPullRequest((await this.request('GET', this.repoPath(`/pulls/${number}`), { conditional: true })).data);
+    const response = await this.request('GET', this.repoPath(`/pulls/${number}`), {
+      conditional: true,
+      cacheable: settledMerge,
+    });
+    return toPullRequest(response.data);
   }
 
   async findPullRequestsForHead(headRef: string): Promise<GitHubPullRequest[]> {

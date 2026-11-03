@@ -181,6 +181,10 @@ function evaluateQueue(
     if (!pr) continue;
     if (pr.state === 'merged') {
       setEntryStatus(db, entry.id, 'merged', at);
+      const base = hookBase(pr);
+      if (base && pr.mergeCommitSha) {
+        scope.hooks.push({ name: 'onMerged', event: { ...base, mergeCommitSha: pr.mergeCommitSha } });
+      }
       continue;
     }
     if (FROZEN.includes(entry.status)) continue;

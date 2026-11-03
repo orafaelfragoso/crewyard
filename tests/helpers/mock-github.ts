@@ -143,6 +143,7 @@ export class MockGitHub {
   calls: MockCall[] = [];
   rateLimit: MockRateLimit | null = null;
   movedTo: string | null = null;
+  pendingMergeCommits = new Set<number>();
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port = 0;
   private nextId = 1000;
@@ -429,7 +430,7 @@ export class MockGitHub {
       head: { ref: pr.headRef, sha: head, repo: { full_name: `${this.owner}/${this.name}` } },
       base: { ref: pr.baseRef, sha: baseSha },
       merged_at: pr.mergedAt,
-      merge_commit_sha: pr.mergeCommitSha,
+      merge_commit_sha: this.pendingMergeCommits.has(pr.number) ? null : pr.mergeCommitSha,
       mergeable: pr.state === 'open' ? !conflict : null,
       mergeable_state: this.mergeableState(pr),
       updated_at: pr.updatedAt,
