@@ -10,4 +10,5 @@
 - Services take a `CrewContext` (`store`, `dirs`, `logger`, `clock`) as the first argument.
 - Never log, print or persist secrets; credentials are references to the OS secret store.
 - Code comments only when strictly necessary. Biome formats and lints (`bun run lint`), `bun run typecheck` must pass.
+- Pull requests follow [CONTRIBUTING.md](CONTRIBUTING.md#pull-requests): a Conventional Commit title, and a body that ends with `## Changelog`, which has one Conventional Commit line for each user-visible change beyond the title, or `none`. Never push to `main` directly.
 - Tests: `bun test`. Unit tests in `tests/unit/<package>`, contract/concurrency/integration/resilience/e2e under `tests/`. Use `tests/helpers` for temp contexts and Git repositories. Keep tests focused.
