@@ -93,6 +93,7 @@ export function applyEntryFailure(
     maxRetries: number;
     reason: string;
     actor: Actor;
+    revisable?: boolean;
   },
   at: string,
   hooks: PendingHook[],
@@ -101,7 +102,7 @@ export function applyEntryFailure(
   const attempts = recordFailureInTx(db, { ...failure, subjectKind: 'pr', subjectId: pr.id }, at);
   const transient = TRANSIENT_CLASSES.includes(failure.failureClass);
   const capped = !transient && attempts >= Math.max(1, input.maxRetries);
-  const revision = !capped && failure.failureClass === 'merge_conflict';
+  const revision = !capped && (input.revisable ?? failure.failureClass === 'merge_conflict');
   const status: QueueEntry['status'] = capped
     ? ESCALATE_CLASSES.includes(failure.failureClass)
       ? 'escalated'
@@ -175,7 +176,12 @@ export function applyEntryFailure(
       {
         projectId: input.projectId,
         title: `PR #${pr.number} needs a revision`,
-        reasons: [input.reason, 'Crewyard does not rebase proactively; the author must update the branch'],
+        reasons: [
+          input.reason,
+          ...(failure.failureClass === 'merge_conflict'
+            ? ['Crewyard does not rebase proactively; the author must update the branch']
+            : []),
+        ],
         level: 'warning',
         prId: pr.id,
         taskId: pr.taskId,

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { listAgents } from '@crewyard/agents';
 import {
   buildIndex,
   claimAndPrepare,
@@ -524,11 +525,19 @@ export function registerWorkCommands(program: Command): void {
           limit: Number(opts.limit),
           cursor: (opts.cursor as string | undefined) ?? null,
         });
+        const agentNames = new Map(listAgents(ctx).map((a) => [a.id, a.name]));
+        const owner = (t: (typeof page.items)[number]) =>
+          t.leaseHolder === null
+            ? null
+            : t.leaseHolder.kind === 'agent'
+              ? (agentNames.get(t.leaseHolder.id) ?? t.leaseHolder.id)
+              : `${t.leaseHolder.kind}:${t.leaseHolder.id}`;
         emit(opts, page, (pg) =>
           table(
             pg.items.map((t) => ({
               id: t.id,
               state: t.state,
+              owner: owner(t),
               priority: t.effectivePriority ?? t.priority,
               risk: t.risk,
               title: t.title,

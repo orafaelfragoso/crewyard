@@ -8,7 +8,9 @@ import {
 } from '@crewyard/agents';
 import { type Actor, CrewError, LEASED_TASK_STATES } from '@crewyard/core';
 import { repositoryProfile } from '@crewyard/indexing';
+import { explainPullRequest, listPullRequests } from '@crewyard/integration';
 import { loadProjectConfig, primaryRepository } from '@crewyard/projects';
+import { listFindings } from '@crewyard/reviews';
 import type { CrewContext } from '@crewyard/storage';
 import {
   getGoal,
@@ -168,10 +170,50 @@ export async function planGoalWithAgent(
   return { ...result, sessionId: session.sessionId };
 }
 
+const WAITING_BLOCKERS = new Set([
+  'MERGEABILITY_UNKNOWN',
+  'REQUIRED_CHECK_PENDING',
+  'NOT_SYNCED',
+  'REMOTE_STATE_STALE',
+]);
+
+export function revisionBrief(ctx: CrewContext, taskId: string): string | null {
+  const pr = listPullRequests(ctx, { taskId, state: 'open' })[0];
+  if (!pr) return null;
+  const failing = pr.checks.filter((c) => c.state === 'failure');
+  const findings = listFindings(ctx, { prId: pr.id, status: 'open' });
+  const blockers = explainPullRequest(ctx, pr.id).blockers.filter(
+    (b) => !b.soft && !WAITING_BLOCKERS.has(b.code) && b.code !== 'CHECK_FAILED' && b.code !== 'REVIEW_FINDINGS_OPEN',
+  );
+  const where = (f: (typeof findings)[number]) =>
+    f.path
+      ? `${f.path}${f.startLine ? `:${f.startLine}${f.endLine && f.endLine !== f.startLine ? `-${f.endLine}` : ''}` : ''}`
+      : '(no path)';
+  return [
+    '## Revision requested',
+    `Pull request #${pr.number}${pr.url ? ` (${pr.url})` : ''} at ${pr.headSha.slice(0, 12)} cannot merge yet. Fix the causes below on the same branch; crew_submit_work adds your commits to this pull request.`,
+    ...(failing.length
+      ? ['', '### Failing checks', ...failing.map((c) => `- ${c.name}${c.detailsUrl ? ` (${c.detailsUrl})` : ''}`)]
+      : []),
+    ...(findings.length
+      ? [
+          '',
+          '### Open review findings',
+          ...findings.map(
+            (f) =>
+              `- [${f.severity}] ${where(f)}: ${f.reason}${f.suggestedFix ? ` Suggested fix: ${f.suggestedFix}` : ''}`,
+          ),
+        ]
+      : []),
+    ...(blockers.length ? ['', '### Other blockers', ...blockers.map((b) => `- ${b.code}: ${b.message}`)] : []),
+  ].join('\n');
+}
+
 export function executionPrompt(
   task: ReturnType<typeof showTask>['task'],
   claim: PreparedClaim,
   packText: string | null,
+  revision: string | null = null,
 ): string {
   return [
     `You are working on ${task.id}: ${task.title}.`,
@@ -186,6 +228,7 @@ export function executionPrompt(
     '- Leave your changes in the worktree: crew_submit_work commits them on the task branch for you. Do not rebase, force-push, open or merge pull requests yourself.',
     '- When done, call crew_submit_work with a summary and test evidence (commands run, exit codes). If blocked, call crew_report_blocker with the reason instead of retrying indefinitely.',
     `- ${UNTRUSTED_NOTICE}`,
+    revision ? `\n${revision}` : '',
     packText ? `\n## Context\n${packText}` : '',
   ]
     .filter(Boolean)
@@ -293,6 +336,7 @@ export async function dispatchTask(
     });
   }
   const task = showTask(ctx, input.taskId).task;
+  const revision = task.state === 'REVISION' ? revisionBrief(ctx, task.id) : null;
   const claim = await claimAndPrepare(ctx, {
     taskId: task.id,
     holder: { kind: 'agent', id: agent.id },
@@ -314,7 +358,7 @@ export async function dispatchTask(
         taskId: task.id,
         projectId: task.projectId,
         cwd: claim.worktreePath ?? primaryRepository(ctx, task.projectId).canonicalPath,
-        prompt: executionPrompt(task, claim, packText),
+        prompt: executionPrompt(task, claim, packText, revision),
         mode: 'execute',
         ...(input.model ? { model: input.model } : {}),
         leaseBinding: { projectId: task.projectId, taskId: task.id, leaseGeneration: claim.leaseGeneration },

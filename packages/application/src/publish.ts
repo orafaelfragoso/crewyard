@@ -1,11 +1,13 @@
 import { type Actor, CrewError, git, nowIso } from '@crewyard/core';
 import {
+  setExpectedRemoteHead as expectPullRequestHead,
   type IntegrationEnv,
   listPullRequests,
   type PullRequestRecord,
   requestIntegration,
   requestPullRequestReview,
   submitPullRequest,
+  syncRepository,
 } from '@crewyard/integration';
 import { getProject, loadProjectConfig, primaryRepository } from '@crewyard/projects';
 import { type CrewContext, one, recordRemoteOperation, recordTransition } from '@crewyard/storage';
@@ -165,24 +167,36 @@ export async function publishTask(
   }
   setExpectedRemoteHead(ctx, workspace.id, { sha: headSha, expectedPrevious: expected, actor: input.actor });
 
-  const submitted = await submitPullRequest(
-    ctx,
-    {
-      repositoryId: repo.id,
-      taskId: task.id,
-      headRef: workspace.branch,
-      headSha,
-      baseRef: task.baseBranch ?? repo.defaultBase,
-      title: `${task.title} (${task.id})`,
-      body: prBody(task),
-      actor: input.actor,
-    },
-    { leaderId: input.leaderId, env },
-  );
-  const pr =
-    submitted.pullRequest ??
-    listPullRequests(ctx, { repositoryId: repo.id, taskId: task.id, state: 'open' })[0] ??
-    null;
+  const openPr = () => listPullRequests(ctx, { repositoryId: repo.id, taskId: task.id, state: 'open' })[0] ?? null;
+  const existing = openPr();
+  let pr: PullRequestRecord | null;
+  let operationStatus: string;
+  if (existing) {
+    if (pushed) {
+      expectPullRequestHead(ctx, existing.id, headSha, input.actor);
+      await syncRepository(ctx, repo.id, env);
+    }
+    pr = openPr() ?? existing;
+    operationStatus = 'reused';
+    notes.push(`pull request #${existing.number} already exists; its branch was updated`);
+  } else {
+    const submitted = await submitPullRequest(
+      ctx,
+      {
+        repositoryId: repo.id,
+        taskId: task.id,
+        headRef: workspace.branch,
+        headSha,
+        baseRef: task.baseBranch ?? repo.defaultBase,
+        title: `${task.title} (${task.id})`,
+        body: prBody(task),
+        actor: input.actor,
+      },
+      { leaderId: input.leaderId, env },
+    );
+    pr = submitted.pullRequest ?? openPr();
+    operationStatus = submitted.status;
+  }
   ctx.store.immediate((db) =>
     recordTransition(
       db,
@@ -193,7 +207,7 @@ export async function publishTask(
         taskId: task.id,
         payload: { branch: workspace.branch, headSha, pushed, pr: pr?.number ?? null },
       },
-      { action: 'task.publish', input: { taskId: task.id, headSha }, decision: submitted.status },
+      { action: 'task.publish', input: { taskId: task.id, headSha }, decision: operationStatus },
     ),
   );
   if (!pr) {
@@ -203,7 +217,7 @@ export async function publishTask(
       headSha,
       pushed,
       pullRequest: null,
-      operationStatus: submitted.status,
+      operationStatus,
       review: [],
       queued: false,
       notes: [...notes, 'pull request creation is pending in the outbox'],
@@ -250,7 +264,7 @@ export async function publishTask(
     headSha,
     pushed,
     pullRequest: pr,
-    operationStatus: submitted.status,
+    operationStatus,
     review,
     queued,
     notes,
@@ -262,8 +276,9 @@ export function tasksAwaitingPublication(ctx: CrewContext, projectId: string): s
     ctx.store.db
       .query(
         `SELECT t.id FROM tasks t WHERE t.project_id = ? AND t.state = 'SUBMITTED' AND t.repository_id IS NOT NULL
-         AND NOT EXISTS (SELECT 1 FROM pull_requests p WHERE p.task_id = t.id AND p.state = 'open')
-         AND EXISTS (SELECT 1 FROM workspaces w WHERE w.task_id = t.id AND w.state <> 'cleaned') ORDER BY t.id`,
+         AND EXISTS (SELECT 1 FROM workspaces w WHERE w.task_id = t.id AND w.state <> 'cleaned'
+           AND NOT EXISTS (SELECT 1 FROM pull_requests p WHERE p.task_id = t.id AND p.state = 'open' AND p.head_sha = w.head_sha))
+         ORDER BY t.id`,
       )
       .all(projectId) as { id: string }[]
   ).map((r) => r.id);

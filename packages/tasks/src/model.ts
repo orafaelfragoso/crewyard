@@ -98,6 +98,7 @@ export interface Task {
 export interface TaskView extends Task {
   dependencies: string[];
   blockedByDependencies: string[];
+  leaseHolder: LeaseHolder | null;
 }
 
 export interface TaskRow {

@@ -34,6 +34,7 @@ export interface ServiceOptions {
 }
 
 const SERVICE_ACTOR: Actor = { kind: 'service', id: `crew-service@${hostname()}` };
+const HEARTBEAT_MS = 30_000;
 
 export function selectAgentForTask(ctx: CrewContext, taskId: string): AgentDefinition | null {
   const task = showTask(ctx, taskId).task;
@@ -81,18 +82,25 @@ export class CrewService {
   async start(): Promise<void> {
     const recovery = await runRecovery(this.ctx, { actor: SERVICE_ACTOR, remote: this.options.remoteRecovery ?? [] });
     this.log('service.started', { workerId: this.workerId, recoveryOk: recovery.ok });
-    while (!this.stopping) {
-      const started = Date.now();
-      await this.tick().catch((error: unknown) =>
-        this.log('service.tick_failed', { error: toCrewError(error).message }),
-      );
+    const beat = () =>
       heartbeatWorker(this.ctx.store, this.workerId, 'running', {
         inflight: this.inflight.size,
         at: nowIso(this.ctx.clock),
       });
-      const wait = (this.options.tickSeconds ?? 15) * 1000 - (Date.now() - started);
-      for (let waited = 0; waited < wait && !this.stopping; waited += 250)
-        await Bun.sleep(Math.min(250, wait - waited));
+    const pulse = setInterval(beat, HEARTBEAT_MS);
+    try {
+      while (!this.stopping) {
+        const started = Date.now();
+        await this.tick().catch((error: unknown) =>
+          this.log('service.tick_failed', { error: toCrewError(error).message }),
+        );
+        beat();
+        const wait = (this.options.tickSeconds ?? 15) * 1000 - (Date.now() - started);
+        for (let waited = 0; waited < wait && !this.stopping; waited += 250)
+          await Bun.sleep(Math.min(250, wait - waited));
+      }
+    } finally {
+      clearInterval(pulse);
     }
     await this.stopped;
   }

@@ -147,6 +147,7 @@ export type FailureClass =
   | 'rate_limited'
   | 'compilation'
   | 'test_failure'
+  | 'review_findings'
   | 'merge_conflict'
   | 'authentication'
   | 'policy_violation'
