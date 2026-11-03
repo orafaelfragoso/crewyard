@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import { type Actor, CrewError, newId, nowIso } from '@crewyard/core';
+import { type Actor, CrewError, git, newId, nowIso } from '@crewyard/core';
 import type {
   BranchRequirements,
   CheckResult,
@@ -12,6 +12,7 @@ import type {
 } from '@crewyard/github';
 import { invalidateReviewsInTx } from '@crewyard/reviews';
 import { all, type CrewContext, one, recordTransition, toJson } from '@crewyard/storage';
+import { fetchIntegrationRefs } from './candidates.ts';
 import { clientFor, type PendingHook, repositoryFor, runHooks } from './env.ts';
 import {
   activeEntryForPr,
@@ -72,13 +73,32 @@ export function aggregateChecks(checks: readonly CheckResult[]): ChecksState {
   return 'success';
 }
 
-async function detectBaseMerge(client: GitHubClient, pr: GitHubPullRequest): Promise<string | null> {
+async function isCleanMerge(
+  repoPath: string,
+  pr: GitHubPullRequest,
+  parents: readonly [string, string],
+): Promise<boolean> {
+  try {
+    await fetchIntegrationRefs(repoPath, pr.baseRef, [pr]);
+  } catch {
+    return false;
+  }
+  const merged = await git(repoPath, ['merge-tree', '--write-tree', ...parents], { allowFailure: true });
+  if (merged.exitCode !== 0) return false;
+  const tree = await git(repoPath, ['rev-parse', '--verify', '--quiet', `${pr.headSha}^{tree}`], {
+    allowFailure: true,
+  });
+  return tree.exitCode === 0 && merged.stdout.split('\n')[0]!.trim() === tree.stdout.trim();
+}
+
+async function detectBaseMerge(client: GitHubClient, pr: GitHubPullRequest, repoPath: string): Promise<string | null> {
   try {
     const commit = await client.getCommit(pr.headSha);
     if (commit.parents.length !== 2) return null;
-    const [head, base] = commit.parents as [string, string];
-    const result = await client.compareCommits(base, pr.baseRef);
-    return result.status === 'ahead' || result.status === 'identical' ? head : null;
+    const parents = commit.parents as [string, string];
+    const result = await client.compareCommits(parents[1], pr.baseRef);
+    if (result.status !== 'ahead' && result.status !== 'identical') return null;
+    return (await isCleanMerge(repoPath, pr, parents)) ? parents[0] : null;
   } catch (error) {
     if (error instanceof CrewError && (error.code === 'OFFLINE' || error.code === 'RATE_LIMITED')) throw error;
     return null;
@@ -102,6 +122,7 @@ export async function observePullRequest(
   integrationBase: string,
   requirementsCache: Map<string, BranchRequirements>,
   previousHead: string | null,
+  repoPath: string | null = null,
 ): Promise<ObservedPullRequest> {
   if (pr.state !== 'open') {
     return {
@@ -131,7 +152,8 @@ export async function observePullRequest(
   ]);
   const moved = previousHead !== null && previousHead !== pr.headSha;
   const forcePushed = moved ? await detectForcePush(client, previousHead, pr.headSha) : null;
-  const baseMergeParent = moved && forcePushed === false ? await detectBaseMerge(client, pr) : null;
+  const baseMergeParent =
+    moved && forcePushed === false && repoPath ? await detectBaseMerge(client, pr, repoPath) : null;
   return {
     pr,
     files,
@@ -531,6 +553,7 @@ export async function syncRepository(
           bases.get(pr.number) ?? pr.baseRef,
           requirementsCache,
           previous?.state === 'open' ? previous.headSha : null,
+          repository.canonicalPath,
         ),
       );
     }

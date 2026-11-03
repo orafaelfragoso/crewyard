@@ -16,6 +16,7 @@ import {
 import { getRepository } from '@crewyard/projects';
 import { listReviews, requestReview, StaticAnalysisReviewer } from '@crewyard/reviews';
 import { all } from '@crewyard/storage';
+import { writeFiles } from '../helpers/index.ts';
 import { createGitHubFixture, type GitHubFixture } from './github-fixture.ts';
 
 let fx: GitHubFixture | undefined;
@@ -85,6 +86,32 @@ describe('GitHub synchronization', () => {
     expect(showPullRequest(f.ctx, { prId: pr.id })).toMatchObject({
       headSha: outside,
       expectedRemoteHead: merged,
+      externalDivergence: { blocking: true, kinds: ['external_push'] },
+    });
+  }, 30_000);
+
+  test('a base merge that carries extra changes is still an external push', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    const head = await f.pushBranch('feature', { 'src/feature.ts': 'export const f = 1;\n' });
+    const n = f.mock.addPull({ headRef: 'feature' }).number;
+    await syncRepository(f.ctx, f.repositoryId, f.env);
+    const pr = showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: n });
+    setExpectedRemoteHead(f.ctx, pr.id, head, agent);
+    await f.advanceBase({ 'docs/base.md': 'base moved\n' });
+    await git(f.repo, ['fetch', '-q', 'origin']);
+    await git(f.repo, ['checkout', '-q', '-B', 'evil', 'origin/feature']);
+    await git(f.repo, ['merge', '-q', '--no-ff', '--no-commit', 'origin/main']);
+    writeFiles(f.repo, { 'src/extra.ts': 'export const extra = 1;\n' });
+    await git(f.repo, ['add', '-A']);
+    await git(f.repo, ['commit', '-q', '-m', 'Merge main into feature']);
+    await git(f.repo, ['push', '-q', 'origin', 'evil:feature']);
+    await git(f.repo, ['checkout', '-q', 'main']);
+
+    const result = await syncRepository(f.ctx, f.repositoryId, f.env);
+    expect(result.changed[0]!.changes).not.toContain('base_merged');
+    expect(showPullRequest(f.ctx, { prId: pr.id })).toMatchObject({
+      expectedRemoteHead: head,
       externalDivergence: { blocking: true, kinds: ['external_push'] },
     });
   }, 30_000);
