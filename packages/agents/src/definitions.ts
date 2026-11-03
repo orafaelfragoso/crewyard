@@ -1,7 +1,8 @@
 import type { Database } from 'bun:sqlite';
 import { type Actor, CrewError, newId, nowIso, type ProviderId, SYSTEM_ACTOR } from '@crewyard/core';
 import { all, type CrewContext, one, parseJson, recordTransition } from '@crewyard/storage';
-import { findPolicy } from './policies.ts';
+import { agentsUsingPolicy, findPolicy, insertAccountPolicyInTx, requirePolicy } from './policies.ts';
+import { requireProfileRow } from './profiles.ts';
 import { isProviderId } from './registry.ts';
 
 export type ReviewAuthority = 'none' | 'advisory' | 'required';
@@ -186,6 +187,7 @@ export interface CreateAgentInput {
   allowedMcpTools?: string[] | null;
   providerPreferences?: ProviderPreference[];
   accountPolicy?: string | null;
+  account?: string;
   budget?: AgentBudget;
   fsPolicy?: FsPolicy | null;
   networkPolicy?: NetworkPolicy;
@@ -203,6 +205,7 @@ interface InsertAgent {
   allowedMcpTools: string[] | null;
   providerPreferences: ProviderPreference[];
   accountPolicyId: string | null;
+  account?: string;
   budget: AgentBudget | null;
   fsPolicy: FsPolicy | null;
   networkPolicy: NetworkPolicy;
@@ -213,28 +216,60 @@ interface InsertAgent {
   actor: Actor;
 }
 
+function validateAgentFields(input: {
+  reviewAuthority?: ReviewAuthority;
+  networkPolicy?: NetworkPolicy;
+  maxParallel?: number;
+  providerPreferences?: ProviderPreference[];
+}): void {
+  if (input.reviewAuthority !== undefined && !REVIEW_AUTHORITIES.includes(input.reviewAuthority)) {
+    throw new CrewError('INVALID_INPUT', `reviewAuthority must be one of ${REVIEW_AUTHORITIES.join(', ')}`);
+  }
+  if (input.networkPolicy !== undefined && !NETWORK_POLICIES.includes(input.networkPolicy)) {
+    throw new CrewError('INVALID_INPUT', `networkPolicy must be one of ${NETWORK_POLICIES.join(', ')}`);
+  }
+  if (
+    input.maxParallel !== undefined &&
+    (!Number.isInteger(input.maxParallel) || input.maxParallel < 1 || input.maxParallel > 64)
+  ) {
+    throw new CrewError('INVALID_INPUT', 'maxParallel must be an integer between 1 and 64');
+  }
+  for (const pref of input.providerPreferences ?? []) {
+    if (!isProviderId(pref.provider)) throw new CrewError('INVALID_INPUT', `Unknown provider ${pref.provider}`);
+  }
+}
+
+export function agentAccountPolicyName(agentName: string, profileName: string): string {
+  return `${agentName}-${profileName}`;
+}
+
+function singleAccountPolicyInTx(db: Database, agentName: string, account: string, actor: Actor, at: string): string {
+  const profile = requireProfileRow(db, account);
+  const name = agentAccountPolicyName(agentName, profile.name);
+  const existing = findPolicy(db, name);
+  if (existing) {
+    const reusable =
+      existing.profileIds.length === 1 &&
+      existing.profileIds[0] === profile.id &&
+      agentsUsingPolicy(db, existing.id).every((a) => a === agentName);
+    if (!reusable) throw new CrewError('CONFLICT', `Account policy ${name} already exists with other settings`);
+    return existing.id;
+  }
+  return insertAccountPolicyInTx(db, { name, profiles: [profile.id], allowFallback: false, actor }, at).id;
+}
+
 function insertAgent(ctx: CrewContext, input: InsertAgent): AgentDefinition {
   if (!AGENT_NAME_PATTERN.test(input.name)) {
     throw new CrewError('INVALID_INPUT', `Invalid agent name ${input.name}`, {
       suggestion: 'Use letters, digits, dot, underscore or dash (max 63 characters).',
     });
   }
-  if (!REVIEW_AUTHORITIES.includes(input.reviewAuthority)) {
-    throw new CrewError('INVALID_INPUT', `reviewAuthority must be one of ${REVIEW_AUTHORITIES.join(', ')}`);
-  }
-  if (!NETWORK_POLICIES.includes(input.networkPolicy)) {
-    throw new CrewError('INVALID_INPUT', `networkPolicy must be one of ${NETWORK_POLICIES.join(', ')}`);
-  }
-  if (!Number.isInteger(input.maxParallel) || input.maxParallel < 1 || input.maxParallel > 64) {
-    throw new CrewError('INVALID_INPUT', 'maxParallel must be an integer between 1 and 64');
-  }
-  for (const pref of input.providerPreferences) {
-    if (!isProviderId(pref.provider)) throw new CrewError('INVALID_INPUT', `Unknown provider ${pref.provider}`);
-  }
+  validateAgentFields(input);
   const at = nowIso(ctx.clock);
   return ctx.store.immediate((db) => {
     if (findAgent(db, input.name)) throw new CrewError('CONFLICT', `Agent ${input.name} already exists`);
     const projectIds = resolveProjectIds(db, input.projectRefs);
+    if (input.account) input.accountPolicyId = singleAccountPolicyInTx(db, input.name, input.account, input.actor, at);
     const id = newId('agt');
     db.query(
       `INSERT INTO agents (id, name, role, system_instructions, skills, allowed_mcp_tools, provider_preferences, account_policy_id, budget, fs_policy, network_policy, review_authority, managed, max_parallel, created_at, updated_at)
@@ -288,14 +323,14 @@ function insertAgent(ctx: CrewContext, input: InsertAgent): AgentDefinition {
 }
 
 export function createAgent(ctx: CrewContext, input: CreateAgentInput): AgentDefinition {
+  if (input.account && input.accountPolicy) {
+    throw new CrewError('INVALID_INPUT', 'Pass either an account or an account policy, not both');
+  }
   const accountPolicyId = input.accountPolicy
-    ? ctx.store.read((db) => {
-        const policy = findPolicy(db, input.accountPolicy!);
-        if (!policy) throw new CrewError('NOT_FOUND', `Account policy not found: ${input.accountPolicy}`);
-        return policy.id;
-      })
+    ? ctx.store.read((db) => requirePolicy(db, input.accountPolicy!).id)
     : null;
   return insertAgent(ctx, {
+    ...(input.account ? { account: input.account } : {}),
     name: input.name,
     role: input.role ?? 'engineer',
     systemInstructions: input.systemInstructions ?? null,
@@ -342,6 +377,184 @@ export function registerUnmanagedAgent(ctx: CrewContext, input: RegisterUnmanage
     maxParallel: 1,
     projectRefs: input.projects ?? [],
     actor: input.actor ?? SYSTEM_ACTOR,
+  });
+}
+
+export interface UpdateAgentInput {
+  role?: string;
+  systemInstructions?: string | null;
+  skills?: string[];
+  allowedMcpTools?: string[] | null;
+  providerPreferences?: ProviderPreference[];
+  accountPolicy?: string;
+  account?: string;
+  reviewAuthority?: ReviewAuthority;
+  maxParallel?: number;
+  projects?: string[] | null;
+  actor?: Actor;
+}
+
+export interface AgentChange {
+  agent: AgentDefinition;
+  unusedPolicies: string[];
+}
+
+function unusedPolicyNames(db: Database, policyIds: readonly (string | null)[]): string[] {
+  return policyIds
+    .filter((id): id is string => id !== null)
+    .filter((id) => agentsUsingPolicy(db, id).length === 0)
+    .map((id) => findPolicy(db, id)?.name)
+    .filter((name): name is string => name !== undefined);
+}
+
+export function updateAgent(ctx: CrewContext, idOrName: string, input: UpdateAgentInput): AgentChange {
+  if (input.account && input.accountPolicy) {
+    throw new CrewError('INVALID_INPUT', 'Pass either an account or an account policy, not both');
+  }
+  validateAgentFields(input);
+  const actor = input.actor ?? SYSTEM_ACTOR;
+  const at = nowIso(ctx.clock);
+  return ctx.store.immediate((db) => {
+    const agent = requireAgent(db, idOrName);
+    if (!agent.managed && (input.account || input.accountPolicy || input.providerPreferences)) {
+      throw new CrewError('INVALID_INPUT', `${agent.name} is unmanaged; Crewyard does not choose its account`);
+    }
+    const accountPolicyId = input.account
+      ? singleAccountPolicyInTx(db, agent.name, input.account, actor, at)
+      : input.accountPolicy
+        ? requirePolicy(db, input.accountPolicy).id
+        : agent.accountPolicyId;
+    const next = {
+      role: input.role?.trim() || agent.role,
+      skills: input.skills ? stringList(input.skills, 'skills') : agent.skills,
+      allowedMcpTools:
+        input.allowedMcpTools === undefined
+          ? agent.allowedMcpTools
+          : input.allowedMcpTools === null
+            ? null
+            : stringList(input.allowedMcpTools, 'allowedMcpTools'),
+      providerPreferences: input.providerPreferences ?? agent.providerPreferences,
+      accountPolicyId,
+      reviewAuthority: input.reviewAuthority ?? agent.reviewAuthority,
+      maxParallel: input.maxParallel ?? agent.maxParallel,
+    };
+    const systemInstructions =
+      input.systemInstructions === undefined ? agent.systemInstructions : input.systemInstructions;
+    db.query(
+      `UPDATE agents SET role = ?, system_instructions = ?, skills = ?, allowed_mcp_tools = ?, provider_preferences = ?,
+         account_policy_id = ?, review_authority = ?, max_parallel = ?, updated_at = ? WHERE id = ?`,
+    ).run(
+      next.role,
+      systemInstructions,
+      JSON.stringify(next.skills),
+      next.allowedMcpTools === null ? null : JSON.stringify(next.allowedMcpTools),
+      JSON.stringify(next.providerPreferences),
+      next.accountPolicyId,
+      next.reviewAuthority,
+      next.maxParallel,
+      at,
+      agent.id,
+    );
+    const projectIds =
+      input.projects === undefined
+        ? agent.projectIds
+        : input.projects === null
+          ? []
+          : resolveProjectIds(db, input.projects);
+    if (input.projects !== undefined) {
+      db.query('DELETE FROM agent_projects WHERE agent_id = ?').run(agent.id);
+      for (const projectId of projectIds) {
+        db.query('INSERT INTO agent_projects (agent_id, project_id) VALUES (?, ?)').run(agent.id, projectId);
+      }
+    }
+    recordTransition(
+      db,
+      {
+        type: 'agent.updated',
+        actor,
+        payload: {
+          agentId: agent.id,
+          name: agent.name,
+          before: {
+            role: agent.role,
+            skills: agent.skills,
+            allowedMcpTools: agent.allowedMcpTools,
+            providerPreferences: agent.providerPreferences,
+            accountPolicyId: agent.accountPolicyId,
+            reviewAuthority: agent.reviewAuthority,
+            maxParallel: agent.maxParallel,
+            projectIds: agent.projectIds,
+          },
+          after: { ...next, projectIds },
+          instructionsChanged: input.systemInstructions !== undefined,
+        },
+      },
+      { action: 'agent.update', input: { name: agent.name }, decision: 'accepted', agentId: agent.id },
+      at,
+    );
+    return {
+      agent: requireAgent(db, agent.id),
+      unusedPolicies: accountPolicyId === agent.accountPolicyId ? [] : unusedPolicyNames(db, [agent.accountPolicyId]),
+    };
+  });
+}
+
+const ACTIVE_SESSION_STATES = ['starting', 'running', 'stopping'] as const;
+
+export interface AgentRemoval extends AgentChange {
+  unassignedTasks: string[];
+}
+
+export function removeAgent(
+  ctx: CrewContext,
+  idOrName: string,
+  input: { actor?: Actor; dryRun?: boolean } = {},
+): AgentRemoval {
+  const at = nowIso(ctx.clock);
+  return (input.dryRun ? ctx.store.preview : ctx.store.immediate)((db) => {
+    const agent = requireAgent(db, idOrName);
+    const sessions = all<{ id: string }>(
+      db,
+      `SELECT id FROM sessions WHERE agent_id = ? AND state IN (${ACTIVE_SESSION_STATES.map(() => '?').join(', ')})`,
+      agent.id,
+      ...ACTIVE_SESSION_STATES,
+    ).map((r) => r.id);
+    if (sessions.length > 0) {
+      throw new CrewError('CONFLICT', `${agent.name} has running sessions: ${sessions.join(', ')}`, {
+        details: { sessions },
+        suggestion: `Stop them with \`crew agent stop <sessionId>\`, then remove ${agent.name} again.`,
+      });
+    }
+    const claimed = all<{ task_id: string }>(
+      db,
+      `SELECT task_id FROM leases WHERE released_at IS NULL AND holder_kind = 'agent' AND holder_id = ? ORDER BY task_id`,
+      agent.id,
+    ).map((r) => r.task_id);
+    if (claimed.length > 0) {
+      throw new CrewError('CONFLICT', `${agent.name} has claimed tasks: ${claimed.join(', ')}`, {
+        details: { tasks: claimed },
+        suggestion: 'Return each one to the queue with `crew task retry <taskId> --reason "agent removed"`.',
+      });
+    }
+    const unassignedTasks = all<{ id: string }>(
+      db,
+      'SELECT id FROM tasks WHERE assigned_agent_id = ? ORDER BY id',
+      agent.id,
+    ).map((r) => r.id);
+    db.query('UPDATE tasks SET assigned_agent_id = NULL WHERE assigned_agent_id = ?').run(agent.id);
+    db.query(`DELETE FROM budgets WHERE scope_kind = 'agent' AND scope_id = ?`).run(agent.id);
+    db.query('DELETE FROM agents WHERE id = ?').run(agent.id);
+    recordTransition(
+      db,
+      {
+        type: 'agent.removed',
+        actor: input.actor ?? SYSTEM_ACTOR,
+        payload: { agentId: agent.id, name: agent.name, unassignedTasks },
+      },
+      { action: 'agent.remove', input: { name: agent.name }, decision: 'accepted', agentId: agent.id },
+      at,
+    );
+    return { agent, unassignedTasks, unusedPolicies: unusedPolicyNames(db, [agent.accountPolicyId]) };
   });
 }
 

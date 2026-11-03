@@ -581,15 +581,47 @@ check CLI availability, authentication status and capabilities
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
-#### `crew account policy <name>`
+#### `crew account policy`
 
-create an ordered account policy for agents
+account policies: which accounts an agent may use, in order of preference
+
+##### `crew account policy create <name>`
+
+create a policy from accounts in order of preference
 
 | Option | Description |
 |---|---|
-| `--profiles <refs>` | ordered profile refs |
-| `--allow-fallback` | explicitly allow falling back to later profiles |
-| `--models <models>` | model allowlist |
+| `--accounts <refs>` | accounts in order of preference, e.g. claude/work,claude/work-2 |
+| `--allow-fallback` | move to the next account when one is rate limited or logged out |
+| `--models <models>` | models agents may use with these accounts |
+
+##### `crew account policy list`
+
+
+
+##### `crew account policy show <policy>`
+
+
+
+##### `crew account policy update <policy>`
+
+change the accounts, fallback or models of a policy; agents using it pick it up on their next task
+
+| Option | Description |
+|---|---|
+| `--accounts <refs>` | replace the accounts, in order of preference |
+| `--allow-fallback` | move to the next account when one is rate limited or logged out |
+| `--no-allow-fallback` | only ever use the first account |
+| `--models <models>` | replace the model allowlist (empty string clears it) |
+
+##### `crew account policy remove <policy>`
+
+remove a policy that no agent uses
+
+| Option | Description |
+|---|---|
+| `--dry-run` | preview the change without applying it |
+| `-y, --yes` | confirm destructive or authorization-gated actions |
 
 ### `crew agent`
 
@@ -605,8 +637,8 @@ reusable agent definitions and managed sessions
 | `--role <role>` | engineer | architect | reviewer | ... (default: `engineer`) |
 | `--provider <provider>` | preferred provider |
 | `--model <model>` | preferred model |
-| `--account <ref>` | account profile ref (creates a single-profile policy) |
-| `--policy <name>` | account policy name |
+| `--account <ref>` | the account this agent uses, e.g. claude/personal |
+| `--policy <name>` | an account policy, to use several accounts in order |
 | `--instructions <text>` | system instructions |
 | `--skills <names>` | skills |
 | `--tools <names>` | allowed MCP tools (default: all agent tools) |
@@ -621,6 +653,35 @@ reusable agent definitions and managed sessions
 #### `crew agent show <agent>`
 
 
+
+#### `crew agent update <agent>`
+
+change an agent; running sessions keep their settings, new tasks use the new ones
+
+| Option | Description |
+|---|---|
+| `--role <role>` | engineer | architect | reviewer | ... |
+| `--provider <provider>` | preferred provider |
+| `--model <model>` | preferred model |
+| `--account <ref>` | switch to a single account, e.g. claude/work |
+| `--policy <name>` | switch to an account policy |
+| `--instructions <text>` | system instructions (empty string clears them) |
+| `--skills <names>` | skills |
+| `--tools <names>` | allowed MCP tools |
+| `--all-tools` | allow all agent tools again |
+| `--review-authority <level>` | none | advisory | required |
+| `--max-parallel <n>` | max concurrent sessions |
+| `--projects <names>` | only work on these projects |
+| `--all-projects` | work on every registered project |
+
+#### `crew agent remove <agent>`
+
+remove an agent; refuses while it has running sessions or claimed tasks
+
+| Option | Description |
+|---|---|
+| `--dry-run` | preview the change without applying it |
+| `-y, --yes` | confirm destructive or authorization-gated actions |
 
 #### `crew agent run <agent>`
 

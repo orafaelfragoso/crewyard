@@ -17,6 +17,7 @@ export interface Store {
   readonly path: string;
   readonly clock: Clock;
   immediate<T>(fn: (db: Database) => T): T;
+  preview<T>(fn: (db: Database) => T): T;
   read<T>(fn: (db: Database) => T): T;
   close(): void;
 }
@@ -72,6 +73,20 @@ export function openStore(options: OpenOptions): Store {
     }
   };
 
+  const preview = <T>(fn: (db: Database) => T): T => {
+    const rollback = Symbol('preview');
+    let result: { value: T } | undefined;
+    try {
+      immediate((tx) => {
+        result = { value: fn(tx) };
+        throw rollback;
+      });
+    } catch (error) {
+      if (error !== rollback) throw error;
+    }
+    return result!.value;
+  };
+
   const read = <T>(fn: (db: Database) => T): T => fn(db);
 
   return {
@@ -79,6 +94,7 @@ export function openStore(options: OpenOptions): Store {
     path: options.path,
     clock,
     immediate,
+    preview,
     read,
     close: () => db.close(),
   };
