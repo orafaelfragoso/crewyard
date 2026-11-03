@@ -7,6 +7,7 @@ import {
   getQueueStatus,
   listPullRequests,
   queueTick,
+  repositorySyncKey,
   requestIntegration,
   setExpectedRemoteHead,
   showPullRequest,
@@ -319,6 +320,19 @@ describe('crew-managed integration queue', () => {
     expect(mergeCalls(f)).toBe(0);
     expect(listPullRequests(f.ctx, { repositoryId: f.repositoryId }).map((p) => p.state)).toEqual(['merged', 'merged']);
   }, 60_000);
+
+  test('a stored rate limit pauses remote mutations until it resets', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    const n = await openPull(f, 'feature', { 'src/feature.ts': 'export const f = 1;\n' });
+    await queueAll(f, [n]);
+    f.ctx.store.db
+      .query('UPDATE sync_state SET rate_limit_reset_at = ? WHERE key = ?')
+      .run(new Date(Date.now() + 3_600_000).toISOString(), repositorySyncKey(f.repositoryId));
+    const result = await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env, sync: false });
+    expect(result.offline).toBe(true);
+    expect(mergeCalls(f)).toBe(0);
+  }, 30_000);
 
   test('observe autonomy never merges', async () => {
     fx = await createGitHubFixture({ autonomy: 'observe', config: { integration: { auto_merge_eligible: false } } });

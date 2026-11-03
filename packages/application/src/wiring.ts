@@ -121,8 +121,18 @@ export function githubRecovery(envFor: EnvFactory = integrationEnv): RemoteRecov
   };
 }
 
+function onePerContext(envFor: EnvFactory): EnvFactory {
+  const envs = new WeakMap<CrewContext, IntegrationEnv>();
+  return (ctx) => {
+    const env = envs.get(ctx) ?? envFor(ctx);
+    envs.set(ctx, env);
+    return env;
+  };
+}
+
 export function defaultServiceOptions(envFor: EnvFactory = integrationEnv): ServiceOptions {
-  return { cycles: [...integrationCycles(envFor), ...maintenanceCycles()], remoteRecovery: [githubRecovery(envFor)] };
+  const env = onePerContext(envFor);
+  return { cycles: [...integrationCycles(env), ...maintenanceCycles()], remoteRecovery: [githubRecovery(env)] };
 }
 
 export function defaultQueueActions(): QueueActions {

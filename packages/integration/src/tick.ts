@@ -48,7 +48,7 @@ import {
   setEntryStatus,
 } from './records.ts';
 import { type SyncResult, syncRepository } from './sync.ts';
-import { readFreshness } from './sync-state.ts';
+import { readFreshness, remoteUnavailable } from './sync-state.ts';
 import type {
   Blocker,
   IntegrationCandidate,
@@ -756,7 +756,7 @@ export async function queueTick(
   };
   const sync = options.sync === false ? null : await syncRepository(ctx, repositoryId, env);
   const freshness = readFreshness(ctx.store.db, repositoryId);
-  const offline = freshness.offline || (sync !== null && !sync.ok);
+  const offline = remoteUnavailable(freshness, ctx.clock.now()) || (sync !== null && !sync.ok);
   const outbox = offline ? null : await processIntegrationOutbox(ctx, { leaderId: options.leaderId, env });
   const results: QueueTickQueueResult[] = [];
   for (const initial of queuesForRepository(ctx.store.db, repositoryId)) {
