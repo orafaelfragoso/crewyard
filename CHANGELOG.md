@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.3](https://github.com/orafaelfragoso/crewyard/compare/v0.3.2...v0.3.3) (2026-11-03)
+
+
+### Bug Fixes
+
+* **agents:** keep the full planning result and point the architect at crew context ([#19](https://github.com/orafaelfragoso/crewyard/issues/19)) ([3bb62ea](https://github.com/orafaelfragoso/crewyard/commit/3bb62ea688a92847b5e5581fedd28f322b72d5d3))
+* **agents:** store the full final result of agent sessions so long plans ([3bb62ea](https://github.com/orafaelfragoso/crewyard/commit/3bb62ea688a92847b5e5581fedd28f322b72d5d3))
+* **cli:** print the session log in `crew agent logs` ([3bb62ea](https://github.com/orafaelfragoso/crewyard/commit/3bb62ea688a92847b5e5581fedd28f322b72d5d3))
+* **planning:** ask the architect to use the crew-planning skill and crew ([3bb62ea](https://github.com/orafaelfragoso/crewyard/commit/3bb62ea688a92847b5e5581fedd28f322b72d5d3))
+
 ## [0.3.2](https://github.com/orafaelfragoso/crewyard/compare/v0.3.1...v0.3.2) (2026-11-03)
 
 
