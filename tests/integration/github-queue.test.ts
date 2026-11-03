@@ -125,6 +125,27 @@ describe('crew-managed integration queue', () => {
     expect(showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: b }).state).toBe('merged');
   }, 60_000);
 
+  test('an integration conflict GitHub has not noticed yet waits for one revision instead of quarantining', async () => {
+    fx = await createGitHubFixture({
+      files: { 'src/api.ts': 'export const api = 0;\n' },
+      config: { agents: { max_retries_per_failure: 2 } },
+    });
+    const f = fx;
+    const a = await openPull(f, 'one', { 'src/api.ts': 'export const api = 1;\n' });
+    const b = await openPull(f, 'two', { 'src/api.ts': 'export const api = 2;\n' });
+    await queueAll(f, [a, b]);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    f.mock.pulls.get(b)!.mergeable = true;
+    await syncRepository(f.ctx, f.repositoryId, f.env);
+    for (let i = 0; i < 3; i++) await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+
+    const prB = showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: b });
+    expect(explainPullRequest(f.ctx, prB.id, f.env).blockers.map((x) => x.code)).toContain('REVISION_REQUIRED');
+    expect(all(f.ctx.store.db, 'SELECT attempts FROM failure_records WHERE subject_id = ?', prB.id)).toEqual([
+      { attempts: 1 },
+    ]);
+  }, 60_000);
+
   test('AT-05: stacked PRs integrate bottom-up and inherit requirements', async () => {
     fx = await createGitHubFixture();
     const f = fx;

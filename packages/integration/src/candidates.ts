@@ -187,6 +187,7 @@ export async function buildAndValidateCandidate(
         `UPDATE integration_candidates SET status = 'failed', invalid_reason = ?, updated_at = ? WHERE id = ?`,
       ).run(`merge_conflict:#${conflict.number}`, at, candidateId);
       const step = candidate.entries.find((e) => e.prId === conflict.prId)!;
+      const pr = pullRequestById(db, conflict.prId)!;
       for (const other of candidate.entries) {
         if (other.prId !== conflict.prId) setEntryStatus(db, other.entryId, 'waiting', at);
       }
@@ -194,12 +195,12 @@ export async function buildAndValidateCandidate(
         db,
         {
           entry: entryById(db, step.entryId)!,
-          pr: pullRequestById(db, conflict.prId)!,
+          pr,
           projectId: repository.projectId,
           failure: {
             fingerprint: fingerprint({ kind: 'merge_conflict', files: conflict.files, base: 'integration' }),
             failureClass: 'merge_conflict',
-            evidence: { candidateId, baseSha: candidate.baseSha, files: conflict.files },
+            evidence: { candidateId, baseSha: candidate.baseSha, files: conflict.files, headSha: pr.headSha },
           },
           maxRetries: config.agents.max_retries_per_failure,
           reason: `Integration conflict with ${candidate.baseSha.slice(0, 12)} in ${conflict.files.join(', ') || 'unknown files'}`,

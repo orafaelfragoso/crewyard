@@ -261,7 +261,13 @@ function evaluateQueue(
     });
     const evaluation = evaluateEligibility(input);
     const hard = evaluation.blockers.filter((b) => !b.soft);
-    if (revisionPending && hard.some((b) => REVISABLE_CODES.has(b.code) || WAITING_CODES.has(b.code))) {
+    const rerunnable = entry.blockers.some(
+      (b) => b.code === REVISION_REQUIRED && b.details?.failureClass === 'test_failure',
+    );
+    if (
+      revisionPending &&
+      (!rerunnable || hard.some((b) => REVISABLE_CODES.has(b.code) || WAITING_CODES.has(b.code)))
+    ) {
       result.blocked.push(pr.id);
       continue;
     }
