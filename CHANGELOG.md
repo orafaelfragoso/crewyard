@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0](https://github.com/orafaelfragoso/crewyard/compare/v0.3.4...v0.4.0) (2026-11-03)
+
+
+### Features
+
+* **claude:** allow bypassPermissions when a profile opts in ([653b281](https://github.com/orafaelfragoso/crewyard/commit/653b281f2f229124e0a01d2bb3ac1c9d250bb2fe))
+* **cli:** add crew account set for permission mode and tools ([653b281](https://github.com/orafaelfragoso/crewyard/commit/653b281f2f229124e0a01d2bb3ac1c9d250bb2fe))
+
+
+### Bug Fixes
+
+* **agents:** let engineers run commands and report to Crewyard ([#24](https://github.com/orafaelfragoso/crewyard/issues/24)) ([653b281](https://github.com/orafaelfragoso/crewyard/commit/653b281f2f229124e0a01d2bb3ac1c9d250bb2fe))
+* **agents:** start the crew MCP server after crewyard is upgraded ([653b281](https://github.com/orafaelfragoso/crewyard/commit/653b281f2f229124e0a01d2bb3ac1c9d250bb2fe))
+* **claude:** run execution sessions in auto permission mode ([653b281](https://github.com/orafaelfragoso/crewyard/commit/653b281f2f229124e0a01d2bb3ac1c9d250bb2fe))
+* **cli:** drop --dry-run from commands that cannot preview ([653b281](https://github.com/orafaelfragoso/crewyard/commit/653b281f2f229124e0a01d2bb3ac1c9d250bb2fe))
+* **cli:** make --dry-run preview task, goal and PR approval changes ([653b281](https://github.com/orafaelfragoso/crewyard/commit/653b281f2f229124e0a01d2bb3ac1c9d250bb2fe))
+
 ## [0.3.4](https://github.com/orafaelfragoso/crewyard/compare/v0.3.3...v0.3.4) (2026-11-03)
 
 
