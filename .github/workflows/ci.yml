@@ -60,7 +60,7 @@ jobs:
         run: |
           bun run build:npm
           prefix="$RUNNER_TEMP/npm-global"
-          npm install --global --prefix "$prefix" dist-npm/crewyard-cli-linux-x64-*.tgz dist-npm/crewyard-[0-9]*.tgz
+          npm install --global --prefix "$prefix" ./dist-npm/crewyard-cli-linux-x64-*.tgz ./dist-npm/crewyard-[0-9]*.tgz
           "$prefix/bin/crew" version --json
 
   test-linux:
