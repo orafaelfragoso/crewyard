@@ -13,6 +13,7 @@ import {
   type IntegrationCandidate,
   type IntegrationEnv,
   type IntegrationQueue,
+  PROGRESSING_ENTRY_STATUSES,
   type PullRequestRecord,
   type QueueEntry,
   type QueueEntryStatus,
@@ -231,6 +232,7 @@ export function setEntryStatus(
     `UPDATE queue_entries SET status = ?, blockers = COALESCE(?, blockers), attempts = COALESCE(?, attempts),
        last_validated_base_sha = CASE WHEN ? THEN ? ELSE last_validated_base_sha END,
        last_validated_head_sha = CASE WHEN ? THEN ? ELSE last_validated_head_sha END,
+       progressing_since = CASE WHEN ? THEN COALESCE(progressing_since, ?) ELSE NULL END,
        updated_at = ? WHERE id = ?`,
   ).run(
     status,
@@ -240,6 +242,8 @@ export function setEntryStatus(
     extra.validatedBase ?? null,
     extra.validatedHead !== undefined ? 1 : 0,
     extra.validatedHead ?? null,
+    PROGRESSING_ENTRY_STATUSES.includes(status) ? 1 : 0,
+    at,
     at,
     entryId,
   );

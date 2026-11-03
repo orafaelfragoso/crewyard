@@ -139,6 +139,14 @@ export const ACTIVE_ENTRY_STATUSES: readonly QueueEntryStatus[] = [
   'escalated',
 ];
 
+export const PROGRESSING_ENTRY_STATUSES: readonly QueueEntryStatus[] = [
+  'waiting',
+  'eligible',
+  'candidate',
+  'validating',
+  'merging',
+];
+
 export interface IntegrationQueue {
   id: string;
   repositoryId: string;

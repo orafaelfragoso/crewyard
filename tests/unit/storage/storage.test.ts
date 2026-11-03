@@ -28,7 +28,7 @@ describe('storage', () => {
   test('dry-run reports pending migrations without applying them', () => {
     const store = openStore({ path: ':memory:' });
     const result = migrate(store, { dryRun: true });
-    expect(result.pending.map((p) => p.version)).toEqual([1]);
+    expect(result.pending.map((p) => p.version)).toEqual([1, 2]);
     expect(migrationStatus(store).currentVersion).toBe(0);
   });
 

@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { CrewError, ensureDir, nowIso, sha256 } from '@crewyard/core';
 import initialSql from '../migrations/0001_initial.sql' with { type: 'text' };
+import queueEntryProgressSql from '../migrations/0002_queue_entry_progress.sql' with { type: 'text' };
 import { all, type Store } from './db.ts';
 
 export interface Migration {
@@ -11,7 +12,10 @@ export interface Migration {
   sql: string;
 }
 
-export const MIGRATIONS: readonly Migration[] = [{ version: 1, name: '0001_initial', sql: initialSql }];
+export const MIGRATIONS: readonly Migration[] = [
+  { version: 1, name: '0001_initial', sql: initialSql },
+  { version: 2, name: '0002_queue_entry_progress', sql: queueEntryProgressSql },
+];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 

@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { admitTasks, explainDispatch, type SchedulerSnapshot, type SchedulerTask } from '@crewyard/scheduler';
+import { setEntryStatus } from '@crewyard/integration';
+import {
+  admitTasks,
+  buildSchedulerSnapshot,
+  explainDispatch,
+  type SchedulerSnapshot,
+  type SchedulerTask,
+} from '@crewyard/scheduler';
 import { addTask, claimTask, setTaskPaused } from '@crewyard/tasks';
 import { createTestContext, type TestContext } from '../../helpers/index.ts';
 import { agent, operator, seedProject, testConfig } from '../tasks/fixtures.ts';
@@ -157,5 +164,28 @@ describe('scheduler admission', () => {
     expect(code(child.id)).toBe('DEPENDENCIES_UNSATISFIED');
     expect(code(risky.id)).toBe('APPROVAL_PENDING');
     expect(code(paused.id)).toBe('TASK_PAUSED');
+  });
+
+  test('queue age only counts entries that are progressing, from when they last started progressing', () => {
+    ctx = createTestContext({ clock: { now: () => new Date(AT) } });
+    const c = ctx;
+    const { projectId, repositoryId } = seedProject(c);
+    const hoursAgo = (h: number) => new Date(Date.parse(AT) - h * 3_600_000).toISOString();
+    c.store.db.exec(`
+      INSERT INTO integration_queues (id, repository_id, base_branch, mode, created_at, updated_at)
+        VALUES ('q_1', '${repositoryId}', 'main', 'crew-managed', 'x', 'x');
+      INSERT INTO pull_requests (id, repository_id, number, title, head_ref, head_sha, base_ref, state, created_at, updated_at)
+        VALUES ('pr_1', '${repositoryId}', 1, 't', 'b', 'sha', 'main', 'open', 'x', 'x');
+      INSERT INTO queue_entries (id, queue_id, pr_id, status, requested_by, enqueued_at, progressing_since, updated_at)
+        VALUES ('qe_1', 'q_1', 'pr_1', 'waiting', 'agent:a', '${hoursAgo(5)}', '${hoursAgo(5)}', 'x');
+    `);
+    const age = () => buildSchedulerSnapshot(c, projectId).integration.oldestQueueAgeMinutes;
+    expect(age()).toBe(300);
+    setEntryStatus(c.store.db, 'qe_1', 'eligible', hoursAgo(1));
+    expect(age()).toBe(300);
+    setEntryStatus(c.store.db, 'qe_1', 'blocked', hoursAgo(1));
+    expect(age()).toBeNull();
+    setEntryStatus(c.store.db, 'qe_1', 'waiting', hoursAgo(0.5));
+    expect(age()).toBe(30);
   });
 });
