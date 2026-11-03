@@ -3,6 +3,13 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/CODEOWNERS'
+      - '.github/dependabot.yml'
   pull_request:
   workflow_dispatch:
 
@@ -10,56 +17,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   BUN_VERSION: 1.4.4
+  NODE_VERSION: 26
 
 jobs:
   checks:
-    name: Typecheck and lint
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-      - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun run lint
-
-  test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-      - run: bun install --frozen-lockfile
-      - name: Unit tests
-        run: bun run test:unit
-      - name: Contract tests
-        run: bun test tests/contract
-      - name: Concurrency tests
-        run: bun run test:concurrency
-      - name: Integration, resilience and end-to-end tests
-        run: bun test tests/integration tests/resilience tests/e2e
-
-  audit:
-    name: Dependency audit
-    runs-on: ubuntu-latest
+    name: Checks
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -68,13 +36,36 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
       - run: bun install --frozen-lockfile
-      - name: Audit production and development dependencies
+      - run: bun run typecheck
+      - run: bun run lint
+      - name: Audit dependencies
         run: bun audit --audit-level=high
+      - name: Build the Linux binary, SBOM and checksums
+        run: |
+          bun run build:binaries -- --targets bun-linux-x64 --strict
+          bun run sbom
+          bun scripts/checksums.ts dist
+          (cd dist && sha256sum -c SHA256SUMS)
+      - name: The binary ignores .env and bunfig.toml in the working directory
+        run: |
+          dir=$(mktemp -d)
+          printf 'CREW_DATA_DIR=%s/from-dotenv\n' "$dir" > "$dir/.env"
+          (cd "$dir" && "$GITHUB_WORKSPACE/dist/crew-linux-x64" doctor --json > /dev/null || true)
+          test ! -e "$dir/from-dotenv"
+      - name: Install the npm tarballs and run crew
+        run: |
+          bun run build:npm
+          prefix="$RUNNER_TEMP/npm-global"
+          npm install --global --prefix "$prefix" dist-npm/crewyard-cli-linux-x64-*.tgz dist-npm/crewyard-[0-9]*.tgz
+          "$prefix/bin/crew" version --json
 
-  package:
-    name: Package smoke test
-    runs-on: ubuntu-latest
+  test-linux:
+    name: Test (Linux)
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,18 +75,19 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
-      - run: bun run build:binaries -- --targets bun-linux-x64 --strict
-      - run: bun run sbom
-      - run: bun scripts/checksums.ts dist
-      - name: Verify checksums and run the binary
-        working-directory: dist
-        run: |
-          sha256sum -c SHA256SUMS
-          ./crew-linux-x64 version --json
-      - run: bun run build:npm
-      - name: Install the npm tarballs and run crew
-        working-directory: dist-npm
-        run: |
-          prefix="$RUNNER_TEMP/npm-global"
-          npm install --global --prefix "$prefix" ./crewyard-cli-linux-x64-*.tgz ./crewyard-[0-9]*.tgz
-          "$prefix/bin/crew" version --json
+      - run: bun test
+
+  test-macos:
+    name: Test (macOS)
+    if: github.event_name == 'push'
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun test

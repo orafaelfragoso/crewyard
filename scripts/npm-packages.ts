@@ -131,7 +131,7 @@ export function buildNpmPackages(options: BuildNpmPackagesOptions): NpmPackage[]
     ...shared(root),
     bin: { crew: 'bin/crew.js' },
     files: ['bin'],
-    engines: { node: '>=20' },
+    engines: { node: '>=22' },
     optionalDependencies: Object.fromEntries(packages.map((p) => [p.name, root.version])),
     publishConfig: { access: 'public' },
   });

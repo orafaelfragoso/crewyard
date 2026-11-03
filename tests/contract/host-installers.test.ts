@@ -82,7 +82,7 @@ describe('AT-16 install/uninstall round trip', () => {
       mcp_servers: Record<string, unknown>;
     };
     expect(codex.mcp_servers.docs).toEqual({ command: 'docs-mcp', args: ['--stdio'] });
-    expect(codex.mcp_servers['crewyard']).toEqual({ command: '/opt/crew/bin/crew', args: ['mcp'] });
+    expect(codex.mcp_servers.crewyard).toEqual({ command: '/opt/crew/bin/crew', args: ['mcp'] });
     const opencode = Bun.JSONC.parse(readFileSync(join(t.home, '.config/opencode/opencode.jsonc'), 'utf8')) as {
       mcp: Record<string, unknown>;
     };

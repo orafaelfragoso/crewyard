@@ -14,13 +14,13 @@ concurrency:
 
 env:
   BUN_VERSION: 1.4.4
-  NODE_VERSION: 24
+  NODE_VERSION: 26
 
 jobs:
   release-please:
     name: Release PR and changelog
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       actions: write
@@ -51,7 +51,7 @@ jobs:
     name: Build release artifacts
     needs: release-please
     if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.release-please.outputs.release_created == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -70,10 +70,6 @@ jobs:
         env:
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: test "v$(jq -r .version package.json)" = "$TAG"
-      - run: bun audit --audit-level=high
-      - run: bun run typecheck
-      - run: bun run test:unit
-      - run: bun test tests/contract
       - name: Cross-compile binaries
         run: bun run build:binaries -- --strict
       - name: Generate CycloneDX SBOM
@@ -107,11 +103,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, binary: crew-linux-x64, npm: '@crewyard/cli-linux-x64' }
+          - { os: ubuntu-24.04, binary: crew-linux-x64, npm: '@crewyard/cli-linux-x64' }
           - { os: ubuntu-24.04-arm, binary: crew-linux-arm64, npm: '@crewyard/cli-linux-arm64' }
-          - { os: macos-latest, binary: crew-darwin-arm64, npm: '@crewyard/cli-darwin-arm64' }
+          - { os: macos-15, binary: crew-darwin-arm64, npm: '@crewyard/cli-darwin-arm64' }
           - { os: macos-15-intel, binary: crew-darwin-x64, npm: '@crewyard/cli-darwin-x64' }
-          - { os: windows-latest, binary: crew-windows-x64.exe, npm: '@crewyard/cli-win32-x64' }
+          - { os: windows-2025, binary: crew-windows-x64.exe, npm: '@crewyard/cli-win32-x64' }
     defaults:
       run:
         shell: bash
@@ -153,7 +149,7 @@ jobs:
     name: Attach assets to the GitHub Release
     needs: [release-please, verify]
     if: ${{ !cancelled() && needs.verify.result == 'success' && needs.release-please.outputs.release_created == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
@@ -200,10 +196,10 @@ jobs:
           gh release edit "$TAG" --notes-file notes.md
 
   npm:
-    name: Publish to npm${{ needs.release-please.outputs.release_created != 'true' && ' (dry run)' || '' }}
+    name: Publish to npm
     needs: [release-please, verify]
     if: ${{ !cancelled() && needs.verify.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -242,33 +238,29 @@ jobs:
           done
 
   npm-smoke:
-    name: Install crewyard from npm (${{ matrix.os }})
+    name: Install crewyard from npm
     needs: [release-please, npm]
     if: ${{ !cancelled() && needs.npm.result == 'success' && needs.release-please.outputs.release_created == 'true' }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    defaults:
-      run:
-        shell: bash
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     env:
       TAG: ${{ needs.release-please.outputs.tag_name }}
     steps:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Install the published version
+      - name: Wait until the registry serves the version
         run: |
-          for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            npm install --global "crewyard@${TAG#v}" && exit 0
-            echo "Attempt $attempt: crewyard@${TAG#v} is not installable yet; retrying in 30 s."
-            sleep 30
+          version="${TAG#v}"
+          for attempt in $(seq 1 40); do
+            if [ "$(npm view "crewyard@$version" version --prefer-online 2>/dev/null)" = "$version" ]; then exit 0; fi
+            echo "Attempt $attempt: crewyard@$version is not served yet; retrying in 15 s."
+            sleep 15
           done
+          echo "::error::crewyard@$version did not appear on the registry within 10 minutes."
           exit 1
-      - name: Run crew
+      - name: Install the published version and run crew
         run: |
+          npm install --global --prefer-online "crewyard@${TAG#v}"
           actual=$(crew version --json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).data.version")
           test "$actual" = "${TAG#v}"

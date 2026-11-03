@@ -4,7 +4,7 @@
 
 | Package | When to use | Runtime needed |
 |---|---|---|
-| npm package `crewyard` | Default. Installs the prebuilt binary for your platform. | Node.js 20+ (only for the launcher) |
+| npm package `crewyard` | Default. Installs the prebuilt binary for your platform. | Node.js 22+ (only for the launcher) |
 | Release binary `crew-<os>-<arch>` | Machines without Node.js. Single file, no runtime. | None |
 | Source checkout | Development, or platforms without a binary | Bun 1.4.4+ |
 
