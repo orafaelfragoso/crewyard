@@ -117,6 +117,8 @@ describe('codex adapter contract', () => {
       '/work/repo',
       '--sandbox',
       'workspace-write',
+      '-c',
+      'sandbox_workspace_write.network_access=true',
       '--model',
       'model-x',
       '-',
@@ -139,6 +141,17 @@ describe('codex adapter contract', () => {
     expect(review.outputSchemaPath).toBe(join('/data/logs/ses_1', 'output-schema.json'));
     expect(review.env[CODEX_API_KEY_ENV]).toBe('sk-test-key-1234567890');
     expect(review.env[CODEX_HOME_ENV]).toBe('/home/u/.codex');
+    expect(review.argv).not.toContain('sandbox_workspace_write.network_access=true');
+  });
+
+  test('execute sandbox: network can be turned off and full access is an explicit opt-in', () => {
+    const build = (settings: Record<string, unknown>) =>
+      buildCodexInvocation(launch(profile({ settings })), { executable: '/bin/codex', apiKey: null }).argv;
+    expect(build({ networkAccess: false })).not.toContain('sandbox_workspace_write.network_access=true');
+    const full = build({ sandbox: 'danger-full-access' });
+    expect(full[full.indexOf('--sandbox') + 1]).toBe('danger-full-access');
+    expect(full).not.toContain('sandbox_workspace_write.network_access=true');
+    expect(() => build({ sandbox: 'anything' })).toThrow('not permitted');
   });
 });
 
@@ -357,7 +370,7 @@ describe('crew MCP server and Skills in managed sessions', () => {
 
   test('codex gets config overrides that forward the session variables by name', () => {
     const { argv } = buildCodexInvocation(launch(profile({}), tooling), { executable: '/bin/codex', apiKey: null });
-    const overrides = argv.filter((_, i) => argv[i - 1] === '-c');
+    const overrides = argv.filter((a, i) => argv[i - 1] === '-c' && a.startsWith('mcp_servers.'));
     expect(overrides).toEqual([
       'mcp_servers.crewyard.command="/usr/local/bin/crew"',
       'mcp_servers.crewyard.args=["mcp"]',
