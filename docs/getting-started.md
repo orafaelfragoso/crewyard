@@ -225,7 +225,7 @@ The service picks an agent for each ready task by role (`engineer` unless the ta
 | Show a session's output | `crew agent logs <sessionId>` |
 | Why isn't a PR merging? | `crew queue explain --pr <number>` |
 | Is the service up? | `crew service status` |
-| Stop it | `crew service stop` |
+| Stop it (running sessions are cancelled, their work is committed to the task branch, and the tasks return to `READY`) | `crew service stop` |
 
 ## Troubleshooting
 
