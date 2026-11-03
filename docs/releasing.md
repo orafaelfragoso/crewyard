@@ -36,8 +36,9 @@ Review the release PR, then squash-merge it. That creates the `v<version>` tag a
 1. builds and tests the tag, cross-compiles the five binaries, and writes the SBOM, checksums and npm tarballs
 2. runs every binary and npm-installs the exact tarballs on Linux x64 and arm64, macOS arm64 and x64, and Windows x64
 3. attaches the binaries, `manifest.json`, `sbom.cdx.json` and `SHA256SUMS` to the release
-4. publishes the five `@crewyard/cli-<os>-<arch>` packages, then `crewyard`, so `crewyard` never points at a missing binary; versions already on npm are skipped, so a failed run can be re-run
-5. installs `crewyard@<version>` from the registry on Linux, macOS and Windows and runs `crew version`
+4. publishes the five `@crewyard/cli-<os>-<arch>` packages, then `crewyard`, so `crewyard` never points at a missing binary; versions already on npm, or uploaded and still being processed by npm (`E409 … previously staged version`), are skipped, so a failed run can be re-run
+5. waits up to 30 minutes until npm serves `crewyard` and every platform package (npm can take that long to process a
+   large binary), then installs `crewyard@<version>` on Linux and runs `crew version`
 
 Versions with a pre-release suffix (`1.1.0-rc.1`) go to the `next` dist-tag, others to `latest`.
 
