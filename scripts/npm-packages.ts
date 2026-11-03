@@ -61,6 +61,21 @@ function shared(root: RootManifest) {
   };
 }
 
+export function absolutizeReadme(markdown: string, repositoryUrl: string, ref: string): string {
+  const repo = repositoryUrl.replace(/^git\+/, '').replace(/\.git$/, '');
+  const raw = repo.replace('https://github.com/', 'https://raw.githubusercontent.com/');
+  const isRelative = (target: string) => !/^([a-z][a-z0-9+.-]*:|#|\/\/)/i.test(target);
+  const toBlob = (target: string) =>
+    isRelative(target) ? `${repo}/blob/${ref}/${target.replace(/^\.\//, '')}` : target;
+  const toRaw = (target: string) => (isRelative(target) ? `${raw}/${ref}/${target.replace(/^\.\//, '')}` : target);
+  return markdown
+    .replace(/(<img\b[^>]*\bsrc=")([^"]+)"/g, (_, head: string, target: string) => `${head}${toRaw(target)}"`)
+    .replace(/(\bhref=")([^"]+)"/g, (_, head: string, target: string) => `${head}${toBlob(target)}"`)
+    .replace(/(!?\[[^\]]*\]\()([^)\s]+)\)/g, (_, head: string, target: string) =>
+      head.startsWith('!') ? `${head}${toRaw(target)})` : `${head}${toBlob(target)})`,
+    );
+}
+
 async function pack(dir: string, outDir: string): Promise<string> {
   const child = Bun.spawn(['npm', 'pack', '--json', '--pack-destination', outDir], {
     cwd: dir,
@@ -127,7 +142,10 @@ export async function buildNpmPackages(options: BuildNpmPackagesOptions): Promis
   copyFileSync(join(ROOT, 'scripts', 'npm-launcher.cjs'), join(mainDir, 'bin', 'crew.js'));
   chmodSync(join(mainDir, 'bin', 'crew.js'), 0o755);
   copyFileSync(license, join(mainDir, 'LICENSE'));
-  copyFileSync(join(ROOT, 'README.md'), join(mainDir, 'README.md'));
+  writeFileSync(
+    join(mainDir, 'README.md'),
+    absolutizeReadme(readFileSync(join(ROOT, 'README.md'), 'utf8'), root.repository.url, `v${root.version}`),
+  );
   writeJson(join(mainDir, 'package.json'), {
     name: MAIN_PACKAGE,
     version: root.version,

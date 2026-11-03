@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildNpmPackages, type RootManifest } from '../../../scripts/npm-packages.ts';
+import { absolutizeReadme, buildNpmPackages, type RootManifest } from '../../../scripts/npm-packages.ts';
 
 const ROOT: RootManifest = {
   version: '1.2.3',
@@ -75,5 +75,20 @@ describe('npm packages', () => {
     expect(() => buildNpmPackages({ distDir: fakeDist('1.2.2'), outDir: outDir(), root: ROOT, pack: false })).toThrow(
       /version 1\.2\.2/,
     );
+  });
+});
+
+describe('npm README', () => {
+  test('points relative images and links at the release tag on GitHub', () => {
+    const readme = [
+      '<img src="docs/assets/banner.jpg" alt="x" />',
+      '<a href="docs/install.md">Install</a> <a href="#quick-start">Start</a>',
+      '[License](LICENSE) [npm](https://www.npmjs.com/package/crewyard) ![ci](./docs/ci.svg)',
+    ].join('\n');
+    expect(absolutizeReadme(readme, 'git+https://github.com/o/r.git', 'v1.2.3').split('\n')).toEqual([
+      '<img src="https://raw.githubusercontent.com/o/r/v1.2.3/docs/assets/banner.jpg" alt="x" />',
+      '<a href="https://github.com/o/r/blob/v1.2.3/docs/install.md">Install</a> <a href="#quick-start">Start</a>',
+      '[License](https://github.com/o/r/blob/v1.2.3/LICENSE) [npm](https://www.npmjs.com/package/crewyard) ![ci](https://raw.githubusercontent.com/o/r/v1.2.3/docs/ci.svg)',
+    ]);
   });
 });
