@@ -12,7 +12,7 @@ import { syncRepository } from '@crewyard/integration';
 import { runRecovery } from '@crewyard/recovery';
 import type { Command } from 'commander';
 import { confirm, emit, table } from '../output.ts';
-import { action, operatorActor, withMutationOptions } from '../program.ts';
+import { action, operatorActor, withConfirmOption } from '../program.ts';
 
 export function registerMaintenanceCommands(program: Command): void {
   const project = program.commands.find((c) => c.name() === 'project');
@@ -48,7 +48,7 @@ export function registerMaintenanceCommands(program: Command): void {
         emit(opts, verifyBackup(file), (v) => `integrity ${v.integrity}, schema v${v.schemaVersion}`),
       ),
     );
-  withMutationOptions(
+  withConfirmOption(
     backup.command('restore <file>').description('replace local state with a backup (a safety backup is taken first)'),
   ).action(
     action(async (ctx, opts, file: string) => {
@@ -61,7 +61,7 @@ export function registerMaintenanceCommands(program: Command): void {
     }),
   );
 
-  withMutationOptions(
+  withConfirmOption(
     program
       .command('gc')
       .description(

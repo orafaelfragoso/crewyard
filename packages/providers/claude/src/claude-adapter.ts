@@ -42,7 +42,8 @@ export const CLAUDE_API_KEY_ENV = 'ANTHROPIC_API_KEY';
 export const CLAUDE_CONFIG_DIR_ENV = 'CLAUDE_CONFIG_DIR';
 export const CLAUDE_MIN_VERSION = '2.1.259';
 
-const EXECUTE_PERMISSION_MODES: ReadonlySet<string> = new Set(['acceptEdits', 'auto', 'dontAsk']);
+export const CLAUDE_EXECUTE_PERMISSION_MODES = ['auto', 'acceptEdits', 'dontAsk', 'bypassPermissions'] as const;
+const EXECUTE_PERMISSION_MODES: ReadonlySet<string> = new Set(CLAUDE_EXECUTE_PERMISSION_MODES);
 
 export function claudeBinary(profile: AccountProfile): string {
   return settingString(profile, 'binary') ?? 'claude';
@@ -58,10 +59,10 @@ export function claudeLoginCommand(profile: AccountProfile): { argv: string[]; e
 
 function permissionMode(launch: AgentLaunch): string {
   if (launch.mode !== 'execute') return 'plan';
-  const configured = settingString(launch.profile, 'permissionMode') ?? 'acceptEdits';
+  const configured = settingString(launch.profile, 'permissionMode') ?? 'auto';
   if (!EXECUTE_PERMISSION_MODES.has(configured)) {
     throw new CrewError('POLICY_DENIED', `Claude permission mode ${configured} is not permitted for managed sessions`, {
-      suggestion: 'Use acceptEdits, auto or dontAsk.',
+      suggestion: `Use ${CLAUDE_EXECUTE_PERMISSION_MODES.join(', ')}.`,
     });
   }
   return configured;

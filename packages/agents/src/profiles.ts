@@ -19,6 +19,7 @@ import {
   type ProviderId,
   SYSTEM_ACTOR,
 } from '@crewyard/core';
+import { CLAUDE_EXECUTE_PERMISSION_MODES } from '@crewyard/provider-claude';
 import { all, type CrewContext, one, parseJson, recordTransition } from '@crewyard/storage';
 import { createProviderRegistry, type LoginCommand, type ProviderRegistry, providerManifest } from './registry.ts';
 import { type SecretStore, systemSecretStore } from './secrets.ts';
@@ -287,6 +288,62 @@ export async function addProfile(
     if (authRef) await secrets.delete(authRef).catch(() => false);
     throw error;
   }
+}
+
+export interface UpdateProfileSettingsInput {
+  permissionMode?: string;
+  allowedTools?: string[];
+  actor?: Actor;
+  dryRun?: boolean;
+}
+
+export function updateProfileSettings(
+  ctx: CrewContext,
+  ref: string,
+  input: UpdateProfileSettingsInput,
+): { profile: ProfileView; previous: Record<string, unknown>; dryRun: boolean } {
+  const at = nowIso(ctx.clock);
+  return (input.dryRun ? ctx.store.preview : ctx.store.immediate)((db) => {
+    const row = requireProfileRow(db, ref);
+    const profile = mapProfile(row);
+    if (input.permissionMode !== undefined) {
+      if (profile.providerId !== 'claude') {
+        throw new CrewError('INVALID_INPUT', `--permission-mode applies to claude profiles, not ${profile.providerId}`);
+      }
+      if (!(CLAUDE_EXECUTE_PERMISSION_MODES as readonly string[]).includes(input.permissionMode)) {
+        throw new CrewError('INVALID_INPUT', `Unknown Claude permission mode ${input.permissionMode}`, {
+          details: { allowed: CLAUDE_EXECUTE_PERMISSION_MODES },
+        });
+      }
+    }
+    const next: Record<string, unknown> = {
+      ...profile.settings,
+      ...(input.permissionMode !== undefined ? { permissionMode: input.permissionMode } : {}),
+      ...(input.allowedTools !== undefined ? { allowedTools: input.allowedTools } : {}),
+    };
+    validateSettings(next);
+    db.query('UPDATE provider_profiles SET settings = ?, updated_at = ? WHERE id = ?').run(
+      JSON.stringify(next),
+      at,
+      row.id,
+    );
+    const changed = Object.keys(next).filter((k) => JSON.stringify(next[k]) !== JSON.stringify(profile.settings[k]));
+    recordTransition(
+      db,
+      {
+        type: 'profile.updated',
+        actor: input.actor ?? SYSTEM_ACTOR,
+        payload: { profileId: row.id, ref: profileRef(profile), changed },
+      },
+      { action: 'profile.update', input: { ref, changed }, decision: 'accepted', profileRef: profileRef(profile) },
+      at,
+    );
+    return {
+      profile: viewOf(db, requireProfileRow(db, row.id)),
+      previous: profile.settings,
+      dryRun: Boolean(input.dryRun),
+    };
+  });
 }
 
 export interface RemoveProfileInput {

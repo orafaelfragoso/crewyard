@@ -24,13 +24,14 @@ import {
   testProfile,
   updateAccountPolicy,
   updateAgent,
+  updateProfileSettings,
 } from '@crewyard/agents';
 import { dispatchTask } from '@crewyard/application';
 import { type AuthMechanism, CrewError, type ProviderId } from '@crewyard/core';
 import { listProjects, resolveProject } from '@crewyard/projects';
 import type { Command } from 'commander';
 import { confirm, emit, keyValues, table } from '../output.ts';
-import { action, operatorActor, withMutationOptions } from '../program.ts';
+import { action, operatorActor, withConfirmOption, withMutationOptions } from '../program.ts';
 import { watchSession } from '../session-progress.ts';
 
 const list = (value: string, previous: string[] = []) => [
@@ -149,6 +150,34 @@ export function registerAgentCommands(program: Command): void {
         emit(opts, getProfile(ctx, ref), (p) => keyValues(p as unknown as Record<string, unknown>)),
       ),
     );
+  withMutationOptions(
+    account
+      .command('set <ref>')
+      .description('change how execution sessions on this account may use tools')
+      .option('--permission-mode <mode>', 'claude: auto | acceptEdits | dontAsk | bypassPermissions')
+      .option('--allowed-tools <tools>', 'tools allowed without a prompt, e.g. "Bash(cargo test:*)"', list),
+  ).action(
+    action(async (ctx, opts, ref: string) => {
+      if (opts.permissionMode === undefined && opts.allowedTools === undefined) {
+        throw new CrewError('INVALID_INPUT', 'Nothing to change', {
+          suggestion: 'Pass --permission-mode or --allowed-tools.',
+        });
+      }
+      if (opts.permissionMode === 'bypassPermissions' && !opts.dryRun) {
+        await confirm(opts, `Let sessions on ${ref} run every tool without any permission check?`);
+      }
+      const result = updateProfileSettings(ctx, ref, {
+        ...(opts.permissionMode !== undefined ? { permissionMode: String(opts.permissionMode) } : {}),
+        ...(opts.allowedTools !== undefined ? { allowedTools: opts.allowedTools as string[] } : {}),
+        dryRun: Boolean(opts.dryRun),
+        actor: operatorActor(),
+      });
+      emit(opts, result, (r) => [
+        `${r.dryRun ? 'would update' : 'updated'} ${r.profile.ref}`,
+        ...Object.entries(r.profile.settings).map(([k, v]) => `  ${k}: ${JSON.stringify(v)}`),
+      ]);
+    }),
+  );
   account
     .command('test <ref>')
     .description('check CLI availability, authentication status and capabilities')
@@ -441,7 +470,7 @@ export function registerAgentCommands(program: Command): void {
         );
       }),
     );
-  withMutationOptions(agent.command('stop <sessionId>').option('--reason <text>')).action(
+  withConfirmOption(agent.command('stop <sessionId>').option('--reason <text>')).action(
     action(async (ctx, opts, sessionId: string) => {
       await confirm(opts, `Cancel session ${sessionId} and terminate its process tree?`);
       const record = await stopSession(ctx, sessionId, {

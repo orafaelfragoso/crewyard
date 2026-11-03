@@ -100,6 +100,10 @@ export function openStore(options: OpenOptions): Store {
   };
 }
 
+export function previewStore(store: Store): Store {
+  return { ...store, immediate: store.preview, close: () => {} };
+}
+
 export function parseJson<T>(text: string | null | undefined, fallback: T): T {
   if (text == null || text === '') return fallback;
   try {
