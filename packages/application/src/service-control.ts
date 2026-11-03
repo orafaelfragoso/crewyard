@@ -77,7 +77,7 @@ export function startService(
 
 export async function stopService(
   ctx: CrewContext,
-  graceMs = 15_000,
+  graceMs = 60_000,
 ): Promise<{ stopped: boolean; pid: number | null }> {
   const status = serviceStatus(ctx);
   const pids = new Set<number>([...(status.pid ? [status.pid] : []), ...status.workers.map((w) => w.pid)]);

@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { addProfile, createAccountPolicy, createAgent } from '@crewyard/agents';
+import { addProfile, createAccountPolicy, createAgent, getSession, listSessions } from '@crewyard/agents';
 import { CrewService, initRepository } from '@crewyard/application';
 import { git } from '@crewyard/core';
 import { listEvents } from '@crewyard/storage';
 import { addTask, showTask } from '@crewyard/tasks';
 import { createTempGitRepo, createTestContext, type TestContext } from '../helpers/index.ts';
+import { fakeAgentSettings } from '../unit/agents/setup.ts';
 
 const AGENT = join(import.meta.dir, '../../fixtures/providers/committing-agent.ts');
 let ctx: TestContext | undefined;
@@ -71,5 +72,49 @@ describe('service dispatch', () => {
     expect(new Set(dispatched.map((e) => e.payload.sessionId)).size).toBe(3);
     expect((await git(repo, ['rev-parse', 'HEAD'])).stdout.trim()).toBe(headBefore);
     expect((await git(repo, ['status', '--porcelain'])).stdout.trim()).toBe('?? .crewyard/');
+  }, 60_000);
+
+  test('stopping the service interrupts running sessions, saves their work and requeues the task', async () => {
+    ctx = createTestContext();
+    const c = ctx;
+    const repo = await createTempGitRepo({ 'a/x.ts': 'export const x = 1;\n' });
+    const { project, repository } = await initRepository(c, { repoPath: repo, actor: { kind: 'operator', id: 'op' } });
+    await addProfile(c, {
+      providerId: 'generic',
+      name: 'slow',
+      settings: {
+        ...fakeAgentSettings(['--write', 'a/wip.ts=export const wip = 1;\n', '--sleep', '60000']),
+        codingAgent: true,
+      },
+    });
+    createAccountPolicy(c, { name: 'slow-policy', profiles: ['generic/slow'] });
+    createAgent(c, { name: 'worker', role: 'engineer', accountPolicy: 'slow-policy', projects: [project.id] });
+    const { id } = addTask(c, {
+      projectId: project.id,
+      repositoryId: repository.id,
+      title: 'Change a',
+      objective: 'change a',
+      acceptanceCriteria: ['done'],
+      scopeHints: ['a/'],
+      risk: 'low',
+      initialState: 'READY',
+      origin: 'manual',
+      actor: { kind: 'operator', id: 'op' },
+    });
+    const service = new CrewService(c, { cycles: [], tickSeconds: 3600 });
+    const running = service.start();
+    await waitFor(() => showTask(c, id).task.state === 'RUNNING');
+    const [session] = listSessions(c, { taskId: id });
+    const wip = new Bun.Glob('*/a/wip.ts');
+    await waitFor(() => [...wip.scanSync({ cwd: join(c.dirs.data, 'worktrees'), onlyFiles: true })].length === 1);
+
+    await service.stop();
+    await running;
+
+    expect(showTask(c, id).task.state).toBe('READY');
+    expect(showTask(c, id).lease).toBeNull();
+    expect(getSession(c, session!.id).state).toBe('cancelled');
+    const finished = listEvents(c.store, { types: ['service.dispatch_finished'] });
+    expect(finished.at(-1)?.payload.outcome).toMatchObject({ kind: 'interrupted', commits: [expect.any(String)] });
   }, 60_000);
 });

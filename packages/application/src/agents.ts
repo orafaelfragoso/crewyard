@@ -196,12 +196,14 @@ export type DispatchOutcome =
   | { kind: 'handed_off'; taskState: string }
   | { kind: 'auto_submitted'; commits: string[] }
   | { kind: 'blocked'; reason: string }
-  | { kind: 'lease_lost'; reason: string };
+  | { kind: 'lease_lost'; reason: string }
+  | { kind: 'interrupted'; reason: string; commits: string[] };
 
 export interface Dispatch {
   claim: Omit<PreparedClaim, 'claimToken'>;
   session: StartedSession;
   done: Promise<DispatchOutcome>;
+  interrupt(reason: string): Promise<DispatchOutcome>;
 }
 
 async function superviseLease(
@@ -209,6 +211,7 @@ async function superviseLease(
   claim: PreparedClaim,
   sessionId: string,
   actor: Actor,
+  interruption: { reason: string | null },
 ): Promise<DispatchOutcome> {
   const credentials = { taskId: claim.taskId, generation: claim.leaseGeneration, token: claim.claimToken };
   let lost: string | null = null;
@@ -231,6 +234,17 @@ async function superviseLease(
   if (lost) return { kind: 'lease_lost', reason: lost };
   const state = showTask(ctx, claim.taskId).task.state;
   if (!LEASED_TASK_STATES.has(state)) return { kind: 'handed_off', taskState: state };
+  if (interruption.reason) {
+    if (claim.workspaceId) {
+      await commitWorkspaceChanges(ctx, claim.workspaceId, {
+        message: `${claim.taskId}: work in progress saved when session ${sessionId} was interrupted`,
+        actor,
+      });
+    }
+    const commits = claim.workspaceId ? (await collectCommits(ctx, claim.workspaceId)).commits.map((c) => c.sha) : [];
+    releaseLease(ctx, { ...credentials, reason: interruption.reason });
+    return { kind: 'interrupted', reason: interruption.reason, commits };
+  }
   if (claim.workspaceId && record.state === 'completed') {
     await commitWorkspaceChanges(ctx, claim.workspaceId, {
       message: `${claim.taskId}: changes left by session ${sessionId}`,
@@ -321,7 +335,14 @@ export async function dispatchTask(
     } catch (error) {
       ctx.logger.warn('could not mark task running', { taskId: claim.taskId, error: (error as Error).message });
     }
-    return { claim: publicClaim, session, done: superviseLease(ctx, claim, session.sessionId, input.actor) };
+    const interruption: { reason: string | null } = { reason: null };
+    const done = superviseLease(ctx, claim, session.sessionId, input.actor, interruption);
+    const interrupt = async (reason: string) => {
+      interruption.reason = reason;
+      await stopSession(ctx, session.sessionId, { actor: input.actor, reason });
+      return done;
+    };
+    return { claim: publicClaim, session, done, interrupt };
   } catch (error) {
     releaseLease(ctx, {
       taskId: task.id,

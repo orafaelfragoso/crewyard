@@ -14,7 +14,7 @@ import {
   unregisterWorker,
 } from '@crewyard/storage';
 import { showTask } from '@crewyard/tasks';
-import { dispatchTask } from './agents.ts';
+import { type Dispatch, dispatchTask } from './agents.ts';
 import { buildIndex, indexState } from './retrieval.ts';
 
 export interface ProjectCycle {
@@ -61,8 +61,10 @@ export function selectAgentForTask(ctx: CrewContext, taskId: string): AgentDefin
 export class CrewService {
   readonly workerId: string;
   private stopping = false;
+  private stopped: Promise<void> | null = null;
   private readonly lastRun = new Map<string, number>();
   private readonly inflight = new Set<Promise<unknown>>();
+  private readonly dispatches = new Set<Dispatch>();
   private readonly leaders = new Map<string, number>();
 
   constructor(
@@ -92,10 +94,17 @@ export class CrewService {
       for (let waited = 0; waited < wait && !this.stopping; waited += 250)
         await Bun.sleep(Math.min(250, wait - waited));
     }
+    await this.stopped;
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
+    this.stopped ??= this.shutdown();
+    return this.stopped;
+  }
+
+  private async shutdown(): Promise<void> {
     this.stopping = true;
+    await Promise.allSettled([...this.dispatches].map((d) => d.interrupt('the Crewyard service stopped')));
     await Promise.allSettled([...this.inflight]);
     for (const [scope, generation] of this.leaders) releaseLeadership(this.ctx.store, scope, this.workerId, generation);
     unregisterWorker(this.ctx.store, this.workerId);
@@ -164,6 +173,7 @@ export class CrewService {
     if (loaded.config.project.autonomy === 'observe') return;
     const plan = planDispatch(this.ctx, projectId, { config: loaded.config });
     for (const admission of plan.admitted) {
+      if (this.stopping) return;
       const agent = selectAgentForTask(this.ctx, admission.taskId);
       if (!agent) continue;
       try {
@@ -186,8 +196,13 @@ export class CrewService {
               projectId,
             ),
           )
-          .finally(() => this.inflight.delete(done));
+          .finally(() => {
+            this.inflight.delete(done);
+            this.dispatches.delete(dispatch);
+          });
         this.inflight.add(done);
+        this.dispatches.add(dispatch);
+        if (this.stopping) void dispatch.interrupt('the Crewyard service stopped');
       } catch (error) {
         this.log(
           'service.dispatch_failed',
