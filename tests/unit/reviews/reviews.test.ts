@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { type CrewConfig, crewConfigSchema } from '@crewyard/config';
+import { runRecovery } from '@crewyard/recovery';
 import {
   type ContextFingerprintProvider,
   classifyPaths,
@@ -208,6 +209,27 @@ describe('evidence fingerprint and cache', () => {
     expect(invalidateReviews(c, { prId: 'pr_1', reason: 'operator' })).toHaveLength(1);
     await requestReview(c, input, deps);
     expect(reviewer.calls).toHaveLength(2);
+  });
+
+  test('recovery fails a review interrupted mid-run so it can run again', async () => {
+    const { ctx: c, repositoryId, config } = setup();
+    const input = { repositoryId, prId: 'pr_1', commitSha: 'h1', baseSha: 'b', patch: PATCH, types: ['code' as const] };
+    const hanging: Reviewer = {
+      identity: 'llm-reviewer',
+      model: 'm',
+      promptVersion: 'p1',
+      review: () => new Promise(() => {}),
+    };
+    void requestReview(c, input, { reviewers: { code: hanging }, config, context: new Context() });
+    const status = () =>
+      all<{ status: string }>(c.store.db, 'SELECT status FROM review_artifacts ORDER BY created_at, id');
+    while (status().length === 0) await Bun.sleep(5);
+    expect(status()).toEqual([{ status: 'running' }]);
+    await runRecovery(c);
+    expect(status()).toEqual([{ status: 'failed' }]);
+    const reviewer = new CountingReviewer();
+    await requestReview(c, input, { reviewers: { code: reviewer }, config, context: new Context() });
+    expect(reviewer.calls).toHaveLength(1);
   });
 });
 

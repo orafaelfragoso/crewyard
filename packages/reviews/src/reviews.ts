@@ -716,6 +716,32 @@ export function invalidateReviews(
   return ctx.store.immediate((db) => invalidateReviewsInTx(db, input, actor, at));
 }
 
+export function failOrphanedReviews(ctx: CrewContext, actor: Actor = SYSTEM_ACTOR): string[] {
+  const at = nowIso(ctx.clock);
+  return ctx.store.immediate((db) => {
+    const rows = all<Pick<ReviewRow, 'id' | 'review_type' | 'pr_id' | 'task_id'>>(
+      db,
+      `SELECT id, review_type, pr_id, task_id FROM review_artifacts WHERE status = 'running'`,
+    );
+    for (const row of rows) {
+      db.query(`UPDATE review_artifacts SET status = 'failed', completed_at = ? WHERE id = ?`).run(at, row.id);
+      recordTransition(
+        db,
+        {
+          type: 'review.failed',
+          actor,
+          taskId: row.task_id,
+          prId: row.pr_id,
+          payload: { reviewId: row.id, reviewType: row.review_type, error: 'interrupted before completion' },
+        },
+        { action: 'review.complete', input: { reviewId: row.id }, decision: 'failed' },
+        at,
+      );
+    }
+    return rows.map((r) => r.id);
+  });
+}
+
 export function listFindings(
   ctx: CrewContext,
   query: { prId?: string; reviewId?: string; status?: FindingStatus },

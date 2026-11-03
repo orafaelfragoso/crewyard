@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { claimAndPrepare, publishTask, reconcileMergedTasks, taskHooks } from '@crewyard/application';
+import {
+  claimAndPrepare,
+  INTEGRATION_ACTOR,
+  publishTask,
+  reconcileMergedTasks,
+  taskHooks,
+  tasksAwaitingPublication,
+} from '@crewyard/application';
 import {
   type IntegrationEnv,
   queueTick,
@@ -10,7 +17,7 @@ import {
   syncRepository,
   updateQueueEntry,
 } from '@crewyard/integration';
-import { addTask, showTask, submitWork } from '@crewyard/tasks';
+import { addTask, showTask, submitWork, transitionTask } from '@crewyard/tasks';
 import { commitWorkspaceChanges } from '@crewyard/workspaces';
 import { createGitHubFixture, type GitHubFixture } from './github-fixture.ts';
 
@@ -18,10 +25,10 @@ const operator = { kind: 'operator' as const, id: 'op' };
 let fx: GitHubFixture | undefined;
 afterEach(() => fx?.cleanup());
 
-async function queuedTask(
-  f: GitHubFixture,
-  env: IntegrationEnv,
-): Promise<{ taskId: string; prId: string; entryId: string }> {
+const publish = (f: GitHubFixture, env: IntegrationEnv, taskId: string) =>
+  publishTask(f.ctx, { taskId, actor: operator, leaderId: 'leader-1', env, review: false, enqueue: false });
+
+async function publishedTask(f: GitHubFixture, env: IntegrationEnv): Promise<{ taskId: string; prId: string }> {
   const task = addTask(f.ctx, {
     projectId: f.projectId,
     repositoryId: f.repositoryId,
@@ -46,20 +53,20 @@ async function queuedTask(
     token: claim.claimToken,
     handoff: { summary: 'notes' },
   });
-  const published = await publishTask(f.ctx, {
-    taskId: task.id,
-    actor: operator,
-    leaderId: 'leader-1',
-    env,
-    review: false,
-    enqueue: false,
-  });
-  const pr = published.pullRequest!;
+  const pr = (await publish(f, env, task.id)).pullRequest!;
   f.mock.passChecks(pr.number);
   await syncRepository(f.ctx, f.repositoryId, env);
-  const { entry } = await requestIntegration(f.ctx, { prId: pr.id, requestedBy: operator }, env);
-  expect(showTask(f.ctx, task.id).task.state).toBe('QUEUED');
-  return { taskId: task.id, prId: pr.id, entryId: entry.id };
+  return { taskId: task.id, prId: pr.id };
+}
+
+async function queuedTask(
+  f: GitHubFixture,
+  env: IntegrationEnv,
+): Promise<{ taskId: string; prId: string; entryId: string }> {
+  const { taskId, prId } = await publishedTask(f, env);
+  const { entry } = await requestIntegration(f.ctx, { prId, requestedBy: operator }, env);
+  expect(showTask(f.ctx, taskId).task.state).toBe('QUEUED');
+  return { taskId, prId, entryId: entry.id };
 }
 
 describe('merged pull requests finish their task', () => {
@@ -144,5 +151,19 @@ describe('queue entries drive their task', () => {
     const again = await requestIntegration(f.ctx, { prId, requestedBy: operator }, env);
     expect(again.entry).toMatchObject({ id: entryId, status: 'waiting', blockers: [] });
     expect(showTask(f.ctx, taskId).task.state).toBe('QUEUED');
+  }, 60_000);
+});
+
+describe('publication resumes interrupted work', () => {
+  test('a task left REVIEWING without a queue entry is published again and queued', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    const env = { ...f.env, hooks: taskHooks(f.ctx) };
+    const { taskId } = await publishedTask(f, env);
+    transitionTask(f.ctx, { taskId, to: 'REVIEWING', actor: operator, reason: 'review interrupted' });
+    expect(tasksAwaitingPublication(f.ctx, f.projectId)).toEqual([taskId]);
+    await publishTask(f.ctx, { taskId, actor: INTEGRATION_ACTOR, leaderId: 'leader-1', env, review: false });
+    expect(showTask(f.ctx, taskId).task.state).toBe('QUEUED');
+    expect(tasksAwaitingPublication(f.ctx, f.projectId)).toEqual([]);
   }, 60_000);
 });

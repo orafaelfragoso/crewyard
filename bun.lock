@@ -217,6 +217,7 @@
         "@crewyard/config": "workspace:*",
         "@crewyard/core": "workspace:*",
         "@crewyard/integration": "workspace:*",
+        "@crewyard/reviews": "workspace:*",
         "@crewyard/storage": "workspace:*",
         "@crewyard/tasks": "workspace:*",
         "@crewyard/workspaces": "workspace:*",
