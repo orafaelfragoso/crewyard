@@ -101,6 +101,8 @@ describe('account profiles', () => {
       networkAccess: false,
     });
     expect(() => updateProfileSettings(ctx!, 'codex/work', { allowedTools: ['x'] })).toThrow('claude profiles');
+    expect(updateProfileSettings(ctx, 'claude/work', { maxConcurrency: 3 }).profile.maxConcurrency).toBe(3);
+    expect(() => updateProfileSettings(ctx!, 'claude/work', { maxConcurrency: 0 })).toThrow('between 1 and 64');
   });
 
   test('test validates through the adapter and keeps an active rate limit', async () => {

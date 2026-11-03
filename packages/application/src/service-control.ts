@@ -5,6 +5,7 @@ import {
   CrewError,
   ensureDir,
   isProcessAlive,
+  nowIso,
   readFileOrNull,
   run,
   terminateTree,
@@ -13,6 +14,7 @@ import {
 import { type CrewContext, listWorkers, type WorkerHeartbeat } from '@crewyard/storage';
 
 const SERVICE_LABEL = 'dev.crewyard.service';
+const STALE_WORKER_MS = 10 * 60_000;
 
 export function crewInvocation(
   options: { execPath?: string; main?: string; which?: (binary: string) => string | null } = {},
@@ -41,9 +43,12 @@ export function serviceStatus(ctx: CrewContext): ServiceStatus {
   const text = readFileOrNull(file);
   const pid = text === null ? null : Number.parseInt(text, 10);
   const running = pid !== null && isProcessAlive(pid);
-  const workers = listWorkers(ctx.store, 'service').filter((w) => w.status === 'running');
+  const now = Date.parse(nowIso(ctx.clock));
+  const workers = listWorkers(ctx.store, 'service').filter(
+    (w) => w.status === 'running' && now - Date.parse(w.lastHeartbeatAt) < STALE_WORKER_MS && isProcessAlive(w.pid),
+  );
   return {
-    running: running || workers.some((w) => isProcessAlive(w.pid)),
+    running: running || workers.length > 0,
     pid: running ? pid : null,
     logFile: join(ctx.dirs.logs, 'service.log'),
     workers,

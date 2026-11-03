@@ -576,6 +576,7 @@ change how execution sessions on this account may use tools
 | `--permission-mode <mode>` | claude: auto | acceptEdits | dontAsk | bypassPermissions; codex: workspace-write | read-only | danger-full-access; opencode: auto | ask |
 | `--allowed-tools <tools>` | claude: tools allowed without a prompt, e.g. "Bash(cargo test:*)" |
 | `--network <on\|off>` | codex: network access inside the workspace-write sandbox |
+| `--concurrency <n>` | max concurrent sessions on this account |
 | `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 

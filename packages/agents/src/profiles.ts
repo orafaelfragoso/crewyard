@@ -212,9 +212,7 @@ export async function addProfile(
     throw new CrewError('INVALID_INPUT', `An API key is only accepted for api-key profiles, not ${authMechanism}`);
   }
   const maxConcurrency = input.maxConcurrency ?? 1;
-  if (!Number.isInteger(maxConcurrency) || maxConcurrency < 1 || maxConcurrency > 64) {
-    throw new CrewError('INVALID_INPUT', 'maxConcurrency must be an integer between 1 and 64');
-  }
+  validateConcurrency(maxConcurrency);
   const settings = input.settings ?? {};
   validateSettings(settings);
   const permittedModels = [...new Set((input.permittedModels ?? []).map((m) => m.trim()).filter(Boolean))];
@@ -291,6 +289,12 @@ export async function addProfile(
   }
 }
 
+function validateConcurrency(value: number): void {
+  if (!Number.isInteger(value) || value < 1 || value > 64) {
+    throw new CrewError('INVALID_INPUT', 'maxConcurrency must be an integer between 1 and 64');
+  }
+}
+
 interface PermissionSetting {
   modes: readonly string[];
   unrestricted: string | null;
@@ -321,6 +325,7 @@ export interface UpdateProfileSettingsInput {
   permissionMode?: string;
   allowedTools?: string[];
   networkAccess?: boolean;
+  maxConcurrency?: number;
   actor?: Actor;
   dryRun?: boolean;
 }
@@ -347,6 +352,7 @@ export function updateProfileSettings(
     }
     if (input.allowedTools !== undefined) onlyFor(profile, 'claude', '--allowed-tools');
     if (input.networkAccess !== undefined) onlyFor(profile, 'codex', '--network');
+    if (input.maxConcurrency !== undefined) validateConcurrency(input.maxConcurrency);
     const next: Record<string, unknown> = {
       ...profile.settings,
       ...(input.permissionMode !== undefined && permission ? permission.apply(input.permissionMode) : {}),
@@ -354,12 +360,17 @@ export function updateProfileSettings(
       ...(input.networkAccess !== undefined ? { networkAccess: input.networkAccess } : {}),
     };
     validateSettings(next);
-    db.query('UPDATE provider_profiles SET settings = ?, updated_at = ? WHERE id = ?').run(
+    const maxConcurrency = input.maxConcurrency ?? profile.maxConcurrency;
+    db.query('UPDATE provider_profiles SET settings = ?, max_concurrency = ?, updated_at = ? WHERE id = ?').run(
       JSON.stringify(next),
+      maxConcurrency,
       at,
       row.id,
     );
-    const changed = Object.keys(next).filter((k) => JSON.stringify(next[k]) !== JSON.stringify(profile.settings[k]));
+    const changed = [
+      ...Object.keys(next).filter((k) => JSON.stringify(next[k]) !== JSON.stringify(profile.settings[k])),
+      ...(maxConcurrency !== profile.maxConcurrency ? ['maxConcurrency'] : []),
+    ];
     recordTransition(
       db,
       {

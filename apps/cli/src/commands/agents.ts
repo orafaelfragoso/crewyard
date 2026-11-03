@@ -160,12 +160,18 @@ export function registerAgentCommands(program: Command): void {
         'claude: auto | acceptEdits | dontAsk | bypassPermissions; codex: workspace-write | read-only | danger-full-access; opencode: auto | ask',
       )
       .option('--allowed-tools <tools>', 'claude: tools allowed without a prompt, e.g. "Bash(cargo test:*)"', list)
-      .option('--network <on|off>', 'codex: network access inside the workspace-write sandbox'),
+      .option('--network <on|off>', 'codex: network access inside the workspace-write sandbox')
+      .option('--concurrency <n>', 'max concurrent sessions on this account', Number),
   ).action(
     action(async (ctx, opts, ref: string) => {
-      if (opts.permissionMode === undefined && opts.allowedTools === undefined && opts.network === undefined) {
+      if (
+        opts.permissionMode === undefined &&
+        opts.allowedTools === undefined &&
+        opts.network === undefined &&
+        opts.concurrency === undefined
+      ) {
         throw new CrewError('INVALID_INPUT', 'Nothing to change', {
-          suggestion: 'Pass --permission-mode, --allowed-tools or --network.',
+          suggestion: 'Pass --permission-mode, --allowed-tools, --network or --concurrency.',
         });
       }
       if (opts.network !== undefined && opts.network !== 'on' && opts.network !== 'off') {
@@ -179,11 +185,13 @@ export function registerAgentCommands(program: Command): void {
         ...(mode !== undefined ? { permissionMode: mode } : {}),
         ...(opts.allowedTools !== undefined ? { allowedTools: opts.allowedTools as string[] } : {}),
         ...(opts.network !== undefined ? { networkAccess: opts.network === 'on' } : {}),
+        ...(opts.concurrency !== undefined ? { maxConcurrency: Number(opts.concurrency) } : {}),
         dryRun: Boolean(opts.dryRun),
         actor: operatorActor(),
       });
       emit(opts, result, (r) => [
         `${r.dryRun ? 'would update' : 'updated'} ${r.profile.ref}`,
+        `  maxConcurrency: ${r.profile.maxConcurrency}`,
         ...Object.entries(r.profile.settings).map(([k, v]) => `  ${k}: ${JSON.stringify(v)}`),
       ]);
     }),
