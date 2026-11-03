@@ -124,3 +124,24 @@ describe('agent projects', () => {
     expect(updateAgent(c, 'engineer', { projects: null }).agent.projectIds).toEqual([]);
   });
 });
+
+describe('agent update validation', () => {
+  test('rejects empty updates and providers the policy has no account for', async () => {
+    const c = await setup();
+    await addProfile(c, { providerId: 'codex', name: 'cx' });
+    createAgent(c, { name: 'engineer', account: 'claude/work', providerPreferences: [{ provider: 'claude' }] });
+    expect(() => updateAgent(c, 'engineer', {})).toThrow(/Nothing to change/);
+    expect(() => updateAgent(c, 'engineer', { providerPreferences: [{ provider: 'codex' }] })).toThrow(
+      /no account for codex/,
+    );
+    expect(() => updateAgent(c, 'engineer', { maxParallel: Number.NaN })).toThrow(/maxParallel/);
+    expect(
+      updateAgent(c, 'engineer', { account: 'codex/cx', providerPreferences: [{ provider: 'codex' }] }).agent,
+    ).toMatchObject({ providerPreferences: [{ provider: 'codex' }] });
+  });
+
+  test('explains when the generated policy name would be too long', async () => {
+    const c = await setup();
+    expect(() => createAgent(c, { name: 'a'.repeat(60), account: 'claude/work' })).toThrow(/longer than 63/);
+  });
+});

@@ -246,16 +246,47 @@ export function agentAccountPolicyName(agentName: string, profileName: string): 
 function singleAccountPolicyInTx(db: Database, agentName: string, account: string, actor: Actor, at: string): string {
   const profile = requireProfileRow(db, account);
   const name = agentAccountPolicyName(agentName, profile.name);
+  if (name.length > 63) {
+    throw new CrewError('INVALID_INPUT', `The policy name ${name} for --account is longer than 63 characters`, {
+      suggestion: `Use a shorter agent or account name, or create a policy with \`crew account policy create\` and pass --policy.`,
+    });
+  }
   const existing = findPolicy(db, name);
   if (existing) {
     const reusable =
       existing.profileIds.length === 1 &&
       existing.profileIds[0] === profile.id &&
+      !existing.allowFallback &&
+      existing.models.length === 0 &&
       agentsUsingPolicy(db, existing.id).every((a) => a === agentName);
     if (!reusable) throw new CrewError('CONFLICT', `Account policy ${name} already exists with other settings`);
     return existing.id;
   }
   return insertAccountPolicyInTx(db, { name, profiles: [profile.id], allowFallback: false, actor }, at).id;
+}
+
+function assertProvidersMatchPolicy(
+  db: Database,
+  preferences: readonly ProviderPreference[],
+  policyId: string | null,
+): void {
+  if (preferences.length === 0 || !policyId) return;
+  const policy = findPolicy(db, policyId);
+  if (!policy || policy.profileIds.length === 0) return;
+  const preferred = new Set(preferences.map((p) => p.provider));
+  const providers = policy.profileIds
+    .map((id) => one<{ provider_id: string }>(db, 'SELECT provider_id FROM provider_profiles WHERE id = ?', id))
+    .map((row) => row?.provider_id)
+    .filter((p): p is string => p !== undefined);
+  if (!providers.some((p) => preferred.has(p as ProviderId))) {
+    throw new CrewError(
+      'INVALID_INPUT',
+      `Policy ${policy.name} has no account for ${[...preferred].join(', ')} (it uses ${[...new Set(providers)].join(', ')})`,
+      {
+        suggestion: 'Pick a provider the policy has an account for, or use --account/--policy with a matching account.',
+      },
+    );
+  }
 }
 
 function insertAgent(ctx: CrewContext, input: InsertAgent): AgentDefinition {
@@ -270,6 +301,7 @@ function insertAgent(ctx: CrewContext, input: InsertAgent): AgentDefinition {
     if (findAgent(db, input.name)) throw new CrewError('CONFLICT', `Agent ${input.name} already exists`);
     const projectIds = resolveProjectIds(db, input.projectRefs);
     if (input.account) input.accountPolicyId = singleAccountPolicyInTx(db, input.name, input.account, input.actor, at);
+    assertProvidersMatchPolicy(db, input.providerPreferences, input.accountPolicyId);
     const id = newId('agt');
     db.query(
       `INSERT INTO agents (id, name, role, system_instructions, skills, allowed_mcp_tools, provider_preferences, account_policy_id, budget, fs_policy, network_policy, review_authority, managed, max_parallel, created_at, updated_at)
@@ -440,6 +472,26 @@ export function updateAgent(ctx: CrewContext, idOrName: string, input: UpdateAge
     };
     const systemInstructions =
       input.systemInstructions === undefined ? agent.systemInstructions : input.systemInstructions;
+    const current = {
+      role: agent.role,
+      skills: agent.skills,
+      allowedMcpTools: agent.allowedMcpTools,
+      providerPreferences: agent.providerPreferences,
+      accountPolicyId: agent.accountPolicyId,
+      reviewAuthority: agent.reviewAuthority,
+      maxParallel: agent.maxParallel,
+    };
+    const projectsChanged = input.projects !== undefined;
+    if (
+      !projectsChanged &&
+      systemInstructions === agent.systemInstructions &&
+      JSON.stringify(next) === JSON.stringify(current)
+    ) {
+      throw new CrewError('INVALID_INPUT', `Nothing to change for ${agent.name}`, {
+        suggestion: 'Pass at least one option, such as --account, --policy, --model or --max-parallel.',
+      });
+    }
+    assertProvidersMatchPolicy(db, next.providerPreferences, next.accountPolicyId);
     db.query(
       `UPDATE agents SET role = ?, system_instructions = ?, skills = ?, allowed_mcp_tools = ?, provider_preferences = ?,
          account_policy_id = ?, review_authority = ?, max_parallel = ?, updated_at = ? WHERE id = ?`,

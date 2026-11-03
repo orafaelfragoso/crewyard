@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import {
   buildIndex,
   claimAndPrepare,
+  commitTaskWorkspace,
   contextPack,
   contextPackPage,
   getSymbol,
@@ -617,13 +618,23 @@ export function registerWorkCommands(program: Command): void {
         kind,
       ),
     ).action(
-      action((ctx, opts, taskId: string) =>
+      action(async (ctx, opts, taskId: string) => {
+        const handoff = handoffFrom(opts);
+        const commits =
+          opts.kind === 'blocked'
+            ? null
+            : await commitTaskWorkspace(ctx, taskId, { summary: handoff.summary, actor: operatorActor() });
+        const merged = commits ? [...new Set([...(handoff.commits ?? []), ...commits])] : handoff.commits;
         emit(
           opts,
-          report(ctx, { ...credentials(taskId, opts), kind: opts.kind as HandoffKind, handoff: handoffFrom(opts) }),
+          report(ctx, {
+            ...credentials(taskId, opts),
+            kind: opts.kind as HandoffKind,
+            handoff: { ...handoff, ...(merged ? { commits: merged } : {}) },
+          }),
           (r) => `${r.taskId}: ${r.transitions.map((t) => `${t.from} → ${t.to}`).join(', ')}`,
-        ),
-      ),
+        );
+      }),
     );
   }
   withMutationOptions(task.command('retry <taskId>').requiredOption('--reason <text>')).action(

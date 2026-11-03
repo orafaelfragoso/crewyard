@@ -168,7 +168,7 @@ export function contradictions(config: CrewConfig): ConfigIssue[] {
     add('integration.branch_name_format', 'must contain {task_id} to keep branches unique per task');
   }
   for (const cls of config.security.require_approval_for) {
-    if (cls !== 'high-risk' && !config.security.sensitive_paths[cls]) {
+    if (cls !== 'high-risk' && cls !== 'crew-policy' && !config.security.sensitive_paths[cls]) {
       add(`security.require_approval_for`, `class '${cls}' has no security.sensitive_paths entry`);
     }
   }

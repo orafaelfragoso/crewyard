@@ -8,6 +8,7 @@ Paths are matched as globs against repository-relative paths. A change touching 
 
 | Class | Default globs | Requires approval by default |
 |---|---|---|
+| `crew-policy` | `.crewyard/**` (built in, not configurable) | Always |
 | `security-sensitive` | `**/auth/**`, `**/authentication/**`, `**/security/**`, `**/permissions/**`, `**/rbac/**`, `**/*secret*`, `**/*credential*`, `**/payments/**`, `**/billing/**`, `**/.env*` | Yes |
 | `database-migration` | `**/migrations/**`, `**/migrate/**`, `**/*.sql`, `**/schema.prisma`, `**/alembic/**` | Yes |
 | `deployment-config` | `.github/workflows/**`, `**/Dockerfile`, `**/docker-compose*.yml`, `**/k8s/**`, `**/helm/**`, `**/terraform/**`, `**/*.tf`, `**/deploy/**`, `**/infra/**` | Yes |

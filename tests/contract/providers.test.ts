@@ -382,23 +382,33 @@ describe('crew MCP server and Skills in managed sessions', () => {
   });
 });
 
-describe('codex git worktrees', () => {
-  test('workspace-write sessions may write the repository git directory, read-only ones may not', () => {
-    const p = profile({});
-    const exec = buildCodexInvocation(launch(p), {
-      executable: '/bin/codex',
-      apiKey: null,
-      writableDirs: ['/repo/.git'],
-    });
-    expect(exec.argv.slice(exec.argv.indexOf('--add-dir'), exec.argv.indexOf('--add-dir') + 2)).toEqual([
-      '--add-dir',
-      '/repo/.git',
+describe('managed session isolation', () => {
+  test('codex never gets extra writable directories', () => {
+    const { argv } = buildCodexInvocation(launch(profile({})), { executable: '/bin/codex', apiKey: null });
+    expect(argv).not.toContain('--add-dir');
+  });
+
+  test('claude loads only user settings and only the crew MCP server', () => {
+    const { argv } = buildClaudeInvocation(
+      launch(profile({ providerId: 'claude' }), {
+        crewMcp: { command: '/bin/crew', args: ['mcp'], env: {}, forwardEnv: [] },
+      }),
+      { executable: '/bin/claude', apiKey: null },
+    );
+    expect(argv.slice(argv.indexOf('--setting-sources'), argv.indexOf('--setting-sources') + 2)).toEqual([
+      '--setting-sources',
+      'user',
     ]);
-    const review = buildCodexInvocation(launch(p, { mode: 'review' }), {
-      executable: '/bin/codex',
+    expect(argv).toContain('--strict-mcp-config');
+    const allowed = argv[argv.indexOf('--allowedTools') + 1]!.split(',');
+    expect(allowed).toEqual(['mcp__crewyard', 'Bash(git status:*)']);
+  });
+
+  test('opencode ignores the repository project config', () => {
+    const { env } = buildOpencodeInvocation(launch(profile({ providerId: 'opencode' })), {
+      executable: '/bin/opencode',
       apiKey: null,
-      writableDirs: ['/repo/.git'],
     });
-    expect(review.argv).not.toContain('--add-dir');
+    expect(env.OPENCODE_DISABLE_PROJECT_CONFIG).toBe('1');
   });
 });

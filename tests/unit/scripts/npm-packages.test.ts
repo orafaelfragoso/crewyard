@@ -92,3 +92,20 @@ describe('npm README', () => {
     ]);
   });
 });
+
+describe('npm README edge cases', () => {
+  test('rewrites linked badges, root-relative and reference links but not code', () => {
+    const readme = [
+      '[![CI](docs/ci.svg)](https://ci.example)',
+      '[abs](/docs/a.md) [top](#x) [mail](mailto:a@b)',
+      '[guide]: docs/guide.md',
+      '`[x](docs/y.md)`',
+    ].join('\n');
+    expect(absolutizeReadme(readme, 'git+https://github.com/o/r.git', 'v1').split('\n')).toEqual([
+      '[![CI](https://raw.githubusercontent.com/o/r/v1/docs/ci.svg)](https://ci.example)',
+      '[abs](https://github.com/o/r/blob/v1/docs/a.md) [top](#x) [mail](mailto:a@b)',
+      '[guide]: https://github.com/o/r/blob/v1/docs/guide.md',
+      '`[x](docs/y.md)`',
+    ]);
+  });
+});

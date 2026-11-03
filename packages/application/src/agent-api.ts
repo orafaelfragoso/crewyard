@@ -1,4 +1,4 @@
-import { CrewError, type HandoffKind, type TaskState } from '@crewyard/core';
+import { type Actor, CrewError, type HandoffKind, type TaskState } from '@crewyard/core';
 import {
   explainPullRequest,
   getQueueStatus,
@@ -20,6 +20,7 @@ import {
   type TestEvidence,
 } from '@crewyard/tasks';
 import { overviewProjection } from '@crewyard/telemetry';
+import { collectCommits, commitWorkspaceChanges, listWorkspaces } from '@crewyard/workspaces';
 import {
   type AgentTool,
   assertToolAllowed,
@@ -245,12 +246,31 @@ export function agentReportBlocker(ctx: CrewContext, caller: Caller, input: Hand
   return handoff(ctx, caller, 'blocked', 'crew_report_blocker', input);
 }
 
-export function agentSubmitWork(
+export async function commitTaskWorkspace(
+  ctx: CrewContext,
+  taskId: string,
+  input: { summary: string; actor: Actor },
+): Promise<string[] | null> {
+  const [workspace] = listWorkspaces(ctx, { taskId, states: ['in_use', 'ready'] });
+  if (!workspace) return null;
+  const subject = input.summary.split('\n')[0]!.trim().slice(0, 72) || `${taskId} changes`;
+  await commitWorkspaceChanges(ctx, workspace.id, { message: `${taskId}: ${subject}`, actor: input.actor });
+  return (await collectCommits(ctx, workspace.id)).commits.map((c) => c.sha);
+}
+
+export async function agentSubmitWork(
   ctx: CrewContext,
   caller: Caller,
   input: HandoffArgs & { kind?: 'ready_for_pr' | 'needs_review' | 'completed' },
 ) {
-  return handoff(ctx, caller, input.kind ?? 'ready_for_pr', 'crew_submit_work', input);
+  assertToolAllowed(caller, 'crew_submit_work');
+  taskProject(ctx, caller, input.taskId);
+  const commits = await commitTaskWorkspace(ctx, input.taskId, { summary: input.summary, actor: callerActor(caller) });
+  const merged = commits ? [...new Set([...(input.commits ?? []), ...commits])] : input.commits;
+  return handoff(ctx, caller, input.kind ?? 'ready_for_pr', 'crew_submit_work', {
+    ...input,
+    ...(merged ? { commits: merged } : {}),
+  });
 }
 
 function ownedTask(ctx: CrewContext, caller: Caller, taskId: string) {

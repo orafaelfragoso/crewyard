@@ -171,7 +171,9 @@ export function registerAgentCommands(program: Command): void {
       emit(opts, removed, (r) => [
         `${r.dryRun ? 'would remove' : 'removed'} ${r.ref}`,
         ...(r.removedFromPolicies.length ? [`  dropped from policies: ${r.removedFromPolicies.join(', ')}`] : []),
-        ...(r.configRootPurged ? ['  configuration directory deleted'] : []),
+        ...(r.configRootPurged
+          ? [r.dryRun ? '  would delete the configuration directory' : '  configuration directory deleted']
+          : []),
       ]);
     }),
   );
@@ -297,7 +299,7 @@ export function registerAgentCommands(program: Command): void {
           ...(opts.policy ? { accountPolicy: String(opts.policy) } : {}),
           ...(opts.account ? { account: String(opts.account) } : {}),
           ...(opts.reviewAuthority ? { reviewAuthority: opts.reviewAuthority as never } : {}),
-          ...(opts.maxParallel ? { maxParallel: Number(opts.maxParallel) } : {}),
+          ...(opts.maxParallel !== undefined ? { maxParallel: Number(opts.maxParallel) } : {}),
           ...(project ? { projects: [project.id] } : {}),
           actor: operatorActor(),
         });
@@ -377,7 +379,7 @@ export function registerAgentCommands(program: Command): void {
               ? { allowedMcpTools: opts.tools as string[] }
               : {}),
           ...(opts.reviewAuthority ? { reviewAuthority: opts.reviewAuthority as never } : {}),
-          ...(opts.maxParallel ? { maxParallel: Number(opts.maxParallel) } : {}),
+          ...(opts.maxParallel !== undefined ? { maxParallel: Number(opts.maxParallel) } : {}),
           ...(opts.allProjects ? { projects: null } : opts.projects ? { projects: opts.projects as string[] } : {}),
           actor: operatorActor(),
         });

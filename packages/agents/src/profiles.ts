@@ -514,6 +514,11 @@ export async function loginProfile(
   }
   const before = await testProfile(ctx, ref, options);
   if (before.health.status === 'healthy') return before;
+  if (!options.runLogin && !Bun.which(login.argv[0]!)) {
+    throw new CrewError('UNAVAILABLE', `${login.argv[0]} is not installed or not on PATH`, {
+      suggestion: `Install the ${profile.providerId} CLI, then run \`crew account login ${profile.ref}\` again.`,
+    });
+  }
   if (profile.configRoot) ensureDir(profile.configRoot);
   const exitCode = await (options.runLogin ?? runInteractive)(login);
   if (exitCode !== 0) {
