@@ -163,43 +163,40 @@ See [installation and upgrades](docs/installation.md) for supported platforms, d
 
 ## Quick start
 
-### 1. Initialize your repository
+New to Crewyard? The [getting-started guide](docs/getting-started.md) walks through every step and what each one does.
 
 ```bash
+# 1. Register your repository
+cd ~/src/my-repo
 crew doctor
-crew init --repo /path/to/your/project
-```
+crew init --repo .
 
-Crewyard creates repository configuration at `.crewyard/config.yaml` and manages coordination state locally.
+# 2. Add an account: reuse the Claude Code login you already have
+crew account add --provider claude --name personal --use-default-config
+crew account test claude/personal
 
-### 2. Connect your agents
+# 3. Create agents that use it
+crew agent create --name architect --role architect --provider claude --account claude/personal
+crew agent create --name engineer  --role engineer  --provider claude --account claude/personal
 
-```bash
-crew account add --provider codex --name personal
-crew agent create --name engineer --provider codex --account personal
-crew install --target codex,claude,opencode --dry-run
-crew install --target codex,claude,opencode
-```
-
-The installer registers `crew mcp` and adds portable Agent Skills to supported agent hosts. Inspect the dry-run output before allowing changes to host configuration.
-
-### 3. Plan and supervise a goal
-
-Review the plan before approving it, and watch the first runs before leaving the service unattended:
-
-```bash
+# 4. Give it a goal, review the plan, approve it
 crew goal create --title "Add JWT authentication" --description-file goal.md
 crew goal plan GOAL-1 --agent architect
-crew goal approve GOAL-1
+crew goal status GOAL-1
+crew goal approve GOAL-1 --yes
+
+# 5. Let it work, and watch
 crew service start
 crew dashboard
 ```
 
-Create an agent with `--role architect` before using `--agent architect`. `GOAL-1` is illustrative; use the ID returned by the create command.
+`GOAL-1` is the ID that `goal create` prints. Codex and OpenCode work the same way with `--provider codex` or `--provider opencode`. For separate logins, several accounts or API keys, see [Accounts](docs/accounts.md).
 
-The background service is required for continuous dispatch and reconciliation; the MCP server alone does not keep autonomous work running after the host exits.
+To let Claude Code, Codex and OpenCode sessions you start yourself use Crewyard's tasks and tools, run `crew install --target codex,claude,opencode` (add `--dry-run` first to see the changes).
 
-<p><a href="docs/installation.md"><strong>Installation guide →</strong></a> &nbsp;·&nbsp; <a href="docs/reference/cli.md"><strong>CLI reference →</strong></a></p>
+The background service keeps dispatching ready tasks; the MCP server alone does not keep work running after its host exits.
+
+<p><a href="docs/getting-started.md"><strong>Getting started →</strong></a> &nbsp;·&nbsp; <a href="docs/accounts.md"><strong>Accounts →</strong></a> &nbsp;·&nbsp; <a href="docs/reference/cli.md"><strong>CLI reference →</strong></a></p>
 
 ## How it works
 
@@ -261,6 +258,8 @@ Security properties depend on configuration and implementation maturity. Read th
 
 | Start here | Learn more |
 | :--- | :--- |
+| [Getting started](docs/getting-started.md) | From install to your first agent-run task, step by step |
+| [Accounts](docs/accounts.md) | Logging agents in: existing logins, separate logins, API keys, several accounts |
 | [Installation](docs/installation.md) | Supported setups, local data, upgrades, and backups |
 | [CLI reference](docs/reference/cli.md) | Commands, options, and machine-readable output |
 | [MCP host setup](docs/mcp-hosts.md) | Connecting existing coding-agent tools |

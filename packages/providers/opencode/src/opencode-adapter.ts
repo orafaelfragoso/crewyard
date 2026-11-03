@@ -219,7 +219,7 @@ export class OpencodeAdapter implements ProviderAdapter {
       return health('unknown', 'opencode auth list returned no JSON');
     }
     if (providers.length === 0) {
-      return health('unauthenticated', `no credentials; run: ${opencodeLoginCommand(profile).argv.join(' ')}`);
+      return health('unauthenticated', 'no credentials');
     }
     return health('healthy', `credentials configured for ${providers.join(', ')}`);
   }

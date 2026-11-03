@@ -8,14 +8,17 @@ import {
   dataRoutingDecision,
   defaultAgentRuntimeConfig,
   getAccountPolicy,
+  type LoginCommand,
   listProfiles,
+  loginProfile,
+  type ProviderRegistry,
   registerUnmanagedAgent,
   removeProfile,
   routeAgent,
   setProfileHealth,
   testProfile,
 } from '@crewyard/agents';
-import { addSeconds, nowIso } from '@crewyard/core';
+import { addSeconds, type Capabilities, nowIso, type ProfileHealth, type ProviderAdapter } from '@crewyard/core';
 import { createTestContext, type TestContext } from '../../helpers/index.ts';
 import { fakeAgentSettings } from './setup.ts';
 
@@ -113,5 +116,59 @@ describe('unmanaged agents and data egress', () => {
     const offline = { security: { ...config.security, network: 'offline' as const } };
     expect(dataRoutingDecision(offline, 'codex').decision).toBe('deny');
     expect(dataRoutingDecision(offline, 'ollama')).toMatchObject({ decision: 'allow', destination: 'local' });
+  });
+});
+
+describe('account login', () => {
+  function registryWith(health: () => ProfileHealth): ProviderRegistry {
+    const adapter = {
+      id: 'claude',
+      capabilities: async () => ({}) as Capabilities,
+      validateProfile: async () => health(),
+      launch: async () => {
+        throw new Error('not used');
+      },
+      cancel: async () => {},
+    } as ProviderAdapter;
+    return { get: () => adapter };
+  }
+
+  test('runs the provider login in the profile config root and points unauthenticated profiles at it', async () => {
+    ctx = createTestContext();
+    const c = ctx;
+    await addProfile(c, { providerId: 'claude', name: 'work' });
+    let loggedIn = false;
+    const registry = registryWith(() =>
+      loggedIn
+        ? { status: 'healthy', detail: 'logged in', checkedAt: 'x' }
+        : { status: 'unauthenticated', detail: 'not logged in', checkedAt: 'x' },
+    );
+    expect((await testProfile(c, 'claude/work', { registry })).health.detail).toBe(
+      'not logged in; run: crew account login claude/work',
+    );
+    const runs: LoginCommand[] = [];
+    const result = await loginProfile(c, 'claude/work', {
+      registry,
+      runLogin: async (command) => {
+        runs.push(command);
+        loggedIn = true;
+        return 0;
+      },
+    });
+    expect(runs).toEqual([
+      {
+        argv: ['claude', 'auth', 'login'],
+        env: { CLAUDE_CONFIG_DIR: join(c.dirs.data, 'profiles', 'claude', 'work') },
+      },
+    ]);
+    expect(result.health.status).toBe('healthy');
+    const again = await loginProfile(c, 'claude/work', { registry, runLogin: async () => 1 });
+    expect(again.health.status).toBe('healthy');
+  });
+
+  test('refuses profiles that do not use a CLI login', async () => {
+    ctx = createTestContext();
+    await addProfile(ctx, { providerId: 'generic', name: 'fake', settings: fakeAgentSettings() });
+    await expect(loginProfile(ctx, 'generic/fake')).rejects.toMatchObject({ code: 'INVALID_INPUT' });
   });
 });

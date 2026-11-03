@@ -11,6 +11,7 @@ import {
   listProfiles,
   listSessions,
   listTeams,
+  loginProfile,
   readSessionLog,
   registerUnmanagedAgent,
   removeProfile,
@@ -96,12 +97,24 @@ export function registerAgentCommands(program: Command): void {
           ...(Object.keys(settings).length ? { settings } : {}),
           actor: operatorActor(),
         });
-        emit(
-          opts,
-          profile,
-          (p) =>
-            `${p.providerId}/${p.name} (${p.id}) auth=${p.authMechanism}${p.configRoot ? ` config=${p.configRoot}` : ''}`,
-        );
+        emit(opts, profile, (p) => {
+          const summary = `${p.ref} (${p.id}) auth=${p.authMechanism}${p.configRoot ? ` config=${p.configRoot}` : ''}`;
+          const next =
+            p.authMechanism === 'cli-login' && p.configRoot
+              ? `crew account login ${p.ref}`
+              : `crew account test ${p.ref}`;
+          return `${summary}\nNext: ${next}`;
+        });
+      }),
+    );
+  account
+    .command('login <ref>')
+    .description("log a cli-login profile in through the provider's own CLI, in the profile's configuration directory")
+    .action(
+      action(async (ctx, opts, ref: string) => {
+        const result = await loginProfile(ctx, ref);
+        emit(opts, result, (r) => `${r.profile.ref}: ${r.health.status} (${r.health.detail})`);
+        if (result.health.status !== 'healthy') process.exitCode = result.health.status === 'unauthenticated' ? 4 : 5;
       }),
     );
   account

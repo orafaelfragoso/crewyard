@@ -280,7 +280,7 @@ export class ClaudeAdapter implements ProviderAdapter {
     if (status.loggedIn === true) {
       return health('healthy', `logged in (${str(status.authMethod) ?? 'unknown method'})`);
     }
-    return health('unauthenticated', `not logged in; run: ${claudeLoginCommand(profile).argv.join(' ')}`);
+    return health('unauthenticated', 'not logged in');
   }
 
   async launch(input: AgentLaunch): Promise<AgentSessionHandle> {
