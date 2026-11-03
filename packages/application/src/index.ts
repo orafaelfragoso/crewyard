@@ -12,5 +12,6 @@ export * from './publish.ts';
 export * from './retrieval.ts';
 export * from './service-control.ts';
 export * from './service-loop.ts';
+export * from './session-tooling.ts';
 export * from './wiring.ts';
 export * from './work.ts';

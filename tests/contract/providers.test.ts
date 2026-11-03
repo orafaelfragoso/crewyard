@@ -323,3 +323,82 @@ describe('ollama and generic contracts', () => {
     expect(classifyFailureText('tests failed')).toBe('unknown');
   });
 });
+
+describe('crew MCP server and Skills in managed sessions', () => {
+  const crewMcp = {
+    command: '/usr/local/bin/crew',
+    args: ['mcp'],
+    env: { CREW_DATA_DIR: '/data', CREW_CONFIG_DIR: '/data/config' },
+    forwardEnv: ['CREW_SESSION_TOKEN', 'CREW_TASK_ID'],
+  };
+  const tooling = { crewMcp, skillsDir: '/data/runtime/agent-skills' };
+
+  test('claude gets an inline MCP config and the Skills plugin, never the token in argv', () => {
+    const { argv, env } = buildClaudeInvocation(launch(profile({ providerId: 'claude' }), tooling), {
+      executable: '/bin/claude',
+      apiKey: null,
+    });
+    const config = JSON.parse(argv[argv.indexOf('--mcp-config') + 1]!);
+    expect(config).toEqual({
+      mcpServers: {
+        crewyard: { type: 'stdio', command: '/usr/local/bin/crew', args: ['mcp'], env: crewMcp.env },
+      },
+    });
+    expect(argv[argv.indexOf('--plugin-dir') + 1]).toBe('/data/runtime/agent-skills');
+    expect(argv.join(' ')).not.toContain('crew_token');
+    expect(env.CREW_SESSION_TOKEN).toBe('crew_token');
+  });
+
+  test('codex gets config overrides that forward the session variables by name', () => {
+    const { argv } = buildCodexInvocation(launch(profile({}), tooling), { executable: '/bin/codex', apiKey: null });
+    const overrides = argv.filter((_, i) => argv[i - 1] === '-c');
+    expect(overrides).toEqual([
+      'mcp_servers.crewyard.command="/usr/local/bin/crew"',
+      'mcp_servers.crewyard.args=["mcp"]',
+      'mcp_servers.crewyard.env={CREW_DATA_DIR="/data",CREW_CONFIG_DIR="/data/config"}',
+      'mcp_servers.crewyard.env_vars=["CREW_SESSION_TOKEN","CREW_TASK_ID"]',
+    ]);
+    expect(argv.at(-1)).toBe('-');
+    expect(argv.join(' ')).not.toContain('crew_token');
+  });
+
+  test('opencode gets the server through inline config in its environment', () => {
+    const { env } = buildOpencodeInvocation(launch(profile({ providerId: 'opencode' }), tooling), {
+      executable: '/bin/opencode',
+      apiKey: null,
+    });
+    expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT!)).toEqual({
+      mcp: { crewyard: { type: 'local', command: ['/usr/local/bin/crew', 'mcp'], environment: crewMcp.env } },
+    });
+  });
+
+  test('sessions without crew tooling launch exactly as before', () => {
+    const { argv } = buildClaudeInvocation(launch(profile({ providerId: 'claude' })), {
+      executable: '/bin/claude',
+      apiKey: null,
+    });
+    expect(argv).not.toContain('--mcp-config');
+    expect(argv).not.toContain('--plugin-dir');
+  });
+});
+
+describe('codex git worktrees', () => {
+  test('workspace-write sessions may write the repository git directory, read-only ones may not', () => {
+    const p = profile({});
+    const exec = buildCodexInvocation(launch(p), {
+      executable: '/bin/codex',
+      apiKey: null,
+      writableDirs: ['/repo/.git'],
+    });
+    expect(exec.argv.slice(exec.argv.indexOf('--add-dir'), exec.argv.indexOf('--add-dir') + 2)).toEqual([
+      '--add-dir',
+      '/repo/.git',
+    ]);
+    const review = buildCodexInvocation(launch(p, { mode: 'review' }), {
+      executable: '/bin/codex',
+      apiKey: null,
+      writableDirs: ['/repo/.git'],
+    });
+    expect(review.argv).not.toContain('--add-dir');
+  });
+});

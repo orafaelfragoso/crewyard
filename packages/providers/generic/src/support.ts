@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import {
   type AccountProfile,
   type AgentLaunch,
@@ -134,4 +134,20 @@ export function compareVersions(a: string, b: string): number {
 
 export function health(status: ProfileHealthStatus, detail: string): ProfileHealth {
   return { status, detail, checkedAt: nowIso() };
+}
+
+export const CREW_MCP_SERVER_NAME = 'crewyard';
+
+export function crewSkillsSource(launch: AgentLaunch): string | null {
+  return launch.skillsDir ? join(launch.skillsDir, 'skills') : null;
+}
+
+export function syncCrewSkills(sourceDir: string, targetDir: string): void {
+  mkdirSync(targetDir, { recursive: true, mode: 0o700 });
+  for (const entry of readdirSync(targetDir)) {
+    if (entry.startsWith('crew-')) rmSync(join(targetDir, entry), { recursive: true, force: true });
+  }
+  for (const entry of readdirSync(sourceDir)) {
+    if (entry.startsWith('crew-')) cpSync(join(sourceDir, entry), join(targetDir, entry), { recursive: true });
+  }
 }

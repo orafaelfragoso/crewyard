@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import {
   type AccountProfile,
   type AgentEvent,
@@ -7,6 +7,9 @@ import {
   type AgentSessionHandle,
   type Capabilities,
   CrewError,
+  type CrewMcpLaunch,
+  git,
+  isWithin,
   type ProfileHealth,
   type ProviderAdapter,
   run,
@@ -14,9 +17,11 @@ import {
 import {
   type AdapterOptions,
   arr,
+  CREW_MCP_SERVER_NAME,
   childEnv,
   classifyFailureText,
   createUsageAccumulator,
+  crewSkillsSource,
   type DecoderSummary,
   health,
   num,
@@ -31,6 +36,7 @@ import {
   settingBool,
   settingString,
   str,
+  syncCrewSkills,
   truncate,
 } from '@crewyard/provider-generic';
 
@@ -61,6 +67,34 @@ function sandboxFor(launch: AgentLaunch): Sandbox {
   });
 }
 
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+export function codexMcpOverrides(server: CrewMcpLaunch): string[] {
+  const key = `mcp_servers.${CREW_MCP_SERVER_NAME}`;
+  const env = Object.entries(server.env)
+    .map(([name, value]) => `${name}=${tomlString(value)}`)
+    .join(',');
+  return [
+    '-c',
+    `${key}.command=${tomlString(server.command)}`,
+    '-c',
+    `${key}.args=[${server.args.map(tomlString).join(',')}]`,
+    '-c',
+    `${key}.env={${env}}`,
+    '-c',
+    `${key}.env_vars=[${server.forwardEnv.map(tomlString).join(',')}]`,
+  ];
+}
+
+export async function gitDirsOutside(cwd: string): Promise<string[]> {
+  const result = await git(cwd, ['rev-parse', '--path-format=absolute', '--absolute-git-dir', '--git-common-dir']);
+  const [gitDir, common] = result.exitCode === 0 ? result.stdout.trim().split('\n') : [];
+  if (!gitDir || !common || isWithin(resolve(cwd), resolve(gitDir))) return [];
+  return [...new Set([gitDir, join(common, 'objects'), join(common, 'refs'), join(common, 'logs')])];
+}
+
 export interface CodexInvocation {
   argv: string[];
   env: Record<string, string>;
@@ -70,13 +104,16 @@ export interface CodexInvocation {
 
 export function buildCodexInvocation(
   launch: AgentLaunch,
-  input: { executable: string; apiKey: string | null; options?: AdapterOptions },
+  input: { executable: string; apiKey: string | null; options?: AdapterOptions; writableDirs?: string[] },
 ): CodexInvocation {
   const outputSchemaPath = launch.outputSchema ? join(dirname(launch.logPath), 'output-schema.json') : null;
-  const argv = [input.executable, 'exec', '--json', '--cd', launch.cwd, '--sandbox', sandboxFor(launch)];
+  const sandbox = sandboxFor(launch);
+  const argv = [input.executable, 'exec', '--json', '--cd', launch.cwd, '--sandbox', sandbox];
+  if (sandbox === 'workspace-write') for (const dir of input.writableDirs ?? []) argv.push('--add-dir', dir);
   if (launch.model) argv.push('--model', launch.model);
   if (outputSchemaPath) argv.push('--output-schema', outputSchemaPath);
   if (settingBool(launch.profile, 'skipGitRepoCheck')) argv.push('--skip-git-repo-check');
+  if (launch.crewMcp) argv.push(...codexMcpOverrides(launch.crewMcp));
   argv.push('-');
   const env = childEnv(input.options ?? {}, launch.profile.configRoot ? [] : [CODEX_HOME_ENV], {
     ...codexIsolationEnv(launch.profile),
@@ -246,7 +283,14 @@ export class CodexAdapter implements ProviderAdapter {
     if (!executable) throw new CrewError('UNAVAILABLE', `${codexBinary(input.profile)} not found on PATH`);
     const apiKey = await resolveApiKey(input.profile, this.options.resolveSecret);
     if (input.profile.configRoot) mkdirSync(input.profile.configRoot, { recursive: true, mode: 0o700 });
-    const invocation = buildCodexInvocation(input, { executable, apiKey, options: this.options });
+    const skills = crewSkillsSource(input);
+    if (skills && input.profile.configRoot) syncCrewSkills(skills, join(input.profile.configRoot, 'skills'));
+    const invocation = buildCodexInvocation(input, {
+      executable,
+      apiKey,
+      options: this.options,
+      writableDirs: await gitDirsOutside(input.cwd),
+    });
     if (invocation.outputSchemaPath) {
       mkdirSync(dirname(invocation.outputSchemaPath), { recursive: true, mode: 0o700 });
       writeFileSync(invocation.outputSchemaPath, JSON.stringify(input.outputSchema), { mode: 0o600 });

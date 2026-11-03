@@ -5,7 +5,8 @@ Package: `@crewyard/provider-codex`. Verified against `codex-cli 0.166.0`.
 ## Invocation
 
 ```text
-codex exec --json --cd <cwd> --sandbox <workspace-write|read-only> [--model <m>] [--output-schema <log-dir>/output-schema.json] [--skip-git-repo-check] -
+codex exec --json --cd <cwd> --sandbox <workspace-write|read-only> [--add-dir <git dir> ...] [--model <m>] [--output-schema <log-dir>/output-schema.json] [--skip-git-repo-check] \
+  -c mcp_servers.crewyard.command=... -c mcp_servers.crewyard.args=[...] -c mcp_servers.crewyard.env={...} -c mcp_servers.crewyard.env_vars=[...] -
 ```
 
 - The prompt (with agent system instructions prepended in a `<system-instructions>` block) is written to stdin (`-`).
@@ -13,6 +14,14 @@ codex exec --json --cd <cwd> --sandbox <workspace-write|read-only> [--model <m>]
   `read-only`; `danger-full-access` is refused.
 - `launch.outputSchema` is written next to the session log and passed with `--output-schema`.
 - `settings.binary` overrides the executable, `settings.skipGitRepoCheck` adds `--skip-git-repo-check`.
+- **Commits in worktrees.** Codex keeps `.git` read-only inside its sandbox, and a task worktree's Git data lives in the
+  main repository's `.git`. In `workspace-write`, Crewyard adds exactly the worktree's own Git directory plus the shared
+  `objects`, `refs` and `logs` with `--add-dir`, so the agent can commit on its branch without write access to your checkout.
+- **Crewyard MCP server.** The `-c mcp_servers.crewyard.*` overrides register `crew mcp` for this run only. `env` sets
+  `CREW_DATA_DIR` and `CREW_CONFIG_DIR`; `env_vars` forwards the session variables (`CREW_SESSION_TOKEN`, `CREW_TASK_ID`, …)
+  by name, so the token never appears in argv. This works for any account, including one with its own `CODEX_HOME`.
+- **Skills.** For accounts with their own `CODEX_HOME`, the `crew-*` Skills are copied to `$CODEX_HOME/skills` before
+  launch (other skills there are left alone). Accounts using your default configuration get them from `crew install`.
 
 ## Isolation and authentication
 
