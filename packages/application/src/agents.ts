@@ -23,7 +23,7 @@ import {
   showTask,
   startTask,
 } from '@crewyard/tasks';
-import { collectCommits, commitWorkspaceChanges } from '@crewyard/workspaces';
+import { collectCommits, commitWorkspaceChanges, mergeRemoteBranch } from '@crewyard/workspaces';
 import { contextPack } from './retrieval.ts';
 import { sessionTooling } from './session-tooling.ts';
 import { claimAndPrepare, type PreparedClaim } from './work.ts';
@@ -325,6 +325,22 @@ async function superviseLease(
   return { kind: 'blocked', reason };
 }
 
+async function updateRevisionWorkspace(ctx: CrewContext, claim: PreparedClaim, actor: Actor): Promise<string | null> {
+  if (!claim.workspaceId) return null;
+  const update = await mergeRemoteBranch(ctx, claim.workspaceId, { actor }).catch((error: unknown) => {
+    ctx.logger.warn('could not update the revision worktree from origin', {
+      taskId: claim.taskId,
+      error: (error as Error).message,
+    });
+    return null;
+  });
+  if (update?.status !== 'diverged') return null;
+  return [
+    '### Remote branch changes',
+    `origin/${claim.branch} has commits this worktree lacks and Crewyard could not merge them automatically (${update.reason}). Merge origin/${claim.branch} into the task branch and resolve the conflicts before other changes. Do not rebase or force-push.`,
+  ].join('\n');
+}
+
 export async function dispatchTask(
   ctx: CrewContext,
   input: { taskId: string; agent: string; actor: Actor; model?: string | null },
@@ -343,6 +359,10 @@ export async function dispatchTask(
     actor: input.actor,
   });
   try {
+    const remote =
+      listPullRequests(ctx, { taskId: task.id, state: 'open' }).length > 0
+        ? await updateRevisionWorkspace(ctx, claim, input.actor)
+        : null;
     const pack = await contextPack(ctx, {
       projectId: task.projectId,
       query: `${task.title}\n${task.objective}`,
@@ -358,7 +378,7 @@ export async function dispatchTask(
         taskId: task.id,
         projectId: task.projectId,
         cwd: claim.worktreePath ?? primaryRepository(ctx, task.projectId).canonicalPath,
-        prompt: executionPrompt(task, claim, packText, revision),
+        prompt: executionPrompt(task, claim, packText, [revision, remote].filter(Boolean).join('\n\n') || null),
         mode: 'execute',
         ...(input.model ? { model: input.model } : {}),
         leaseBinding: { projectId: task.projectId, taskId: task.id, leaseGeneration: claim.leaseGeneration },

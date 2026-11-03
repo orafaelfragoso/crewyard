@@ -191,7 +191,7 @@ export function registerIntegrationCommands(program: Command): void {
         ctx,
         opts,
         `Accept the current head of PR #${number} as changed outside Crewyard?`,
-        (c) => acknowledgeDivergence(c, id, operatorActor()),
+        (c) => acknowledgeDivergence(c, id, operatorActor(), integrationEnv(c)),
       );
       emitChange(opts, result, (d) => `PR #${d.number}: acknowledged at ${d.headSha}`);
     }),

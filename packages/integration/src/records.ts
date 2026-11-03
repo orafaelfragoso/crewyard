@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { type Actor, CrewError, nowIso, type Risk } from '@crewyard/core';
 import { all, type CrewContext, one, parseJson, recordTransition, toJson } from '@crewyard/storage';
+import { type PendingHook, runHooks } from './env.ts';
 import {
   ACTIVE_ENTRY_STATUSES,
   type Blocker,
@@ -10,6 +11,7 @@ import {
   type Divergence,
   type Governance,
   type IntegrationCandidate,
+  type IntegrationEnv,
   type IntegrationQueue,
   type PullRequestRecord,
   type QueueEntry,
@@ -398,9 +400,15 @@ export function setExpectedRemoteHead(
   });
 }
 
-export function acknowledgeDivergence(ctx: CrewContext, prId: string, actor: Actor): PullRequestRecord {
+export async function acknowledgeDivergence(
+  ctx: CrewContext,
+  prId: string,
+  actor: Actor,
+  env: IntegrationEnv = {},
+): Promise<PullRequestRecord> {
   const at = nowIso(ctx.clock);
-  return ctx.store.immediate((db) => {
+  const hooks: PendingHook[] = [];
+  const record = ctx.store.immediate((db) => {
     const pr = requirePullRequest(db, prId);
     db.query(
       'UPDATE pull_requests SET external_divergence = NULL, expected_remote_head = CASE WHEN expected_remote_head IS NULL THEN NULL ELSE head_sha END, updated_at = ? WHERE id = ?',
@@ -417,8 +425,16 @@ export function acknowledgeDivergence(ctx: CrewContext, prId: string, actor: Act
       { action: 'pr.acknowledge_divergence', input: { prId }, decision: 'accepted' },
       at,
     );
+    if (pr.taskId && pr.expectedRemoteHead !== null) {
+      hooks.push({
+        name: 'onRemoteHeadAccepted',
+        event: { taskId: pr.taskId, prId, prNumber: pr.number, repositoryId: pr.repositoryId, headSha: pr.headSha },
+      });
+    }
     return requirePullRequest(db, prId);
   });
+  await runHooks(ctx, env.hooks, hooks);
+  return record;
 }
 
 export function setPullRequestDependency(

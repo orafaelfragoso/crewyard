@@ -1,3 +1,4 @@
+import { isCrewError } from '@crewyard/core';
 import {
   type IntegrationEnv,
   processIntegrationOutbox,
@@ -10,7 +11,7 @@ import type { RemoteRecovery } from '@crewyard/recovery';
 import type { CrewContext } from '@crewyard/storage';
 import type { QueueActions } from './dashboard-actions.ts';
 import { INTEGRATION_ACTOR, integrationEnv, reconcileMergedTasks } from './integration.ts';
-import { publishTask, tasksAwaitingPublication } from './publish.ts';
+import { blockDivergedPublication, publishTask, tasksAwaitingPublication } from './publish.ts';
 import type { ProjectCycle, ServiceOptions } from './service-loop.ts';
 
 export function hasGitHubRemote(repo: Repository): boolean {
@@ -51,6 +52,9 @@ export function integrationCycles(envFor: EnvFactory = integrationEnv): ProjectC
           const r = await publishTask(ctx, { taskId, actor: INTEGRATION_ACTOR, leaderId, env: envFor(ctx) });
           published.push({ taskId, pr: r.pullRequest?.number ?? null, queued: r.queued });
         } catch (error) {
+          if (isCrewError(error) && error.code === 'HEAD_MISMATCH') {
+            blockDivergedPublication(ctx, taskId, error, INTEGRATION_ACTOR);
+          }
           published.push({ taskId, error: (error as Error).message });
         }
       }
