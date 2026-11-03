@@ -1,4 +1,4 @@
-import { isCrewError } from '@crewyard/core';
+import { type Actor, isCrewError } from '@crewyard/core';
 import {
   type IntegrationEnv,
   processIntegrationOutbox,
@@ -13,6 +13,7 @@ import type { QueueActions } from './dashboard-actions.ts';
 import { INTEGRATION_ACTOR, integrationEnv, reconcileMergedTasks } from './integration.ts';
 import { blockDivergedPublication, publishTask, tasksAwaitingPublication } from './publish.ts';
 import type { ProjectCycle, ServiceOptions } from './service-loop.ts';
+import { resumeSessionRetries } from './session-retries.ts';
 
 export function hasGitHubRemote(repo: Repository): boolean {
   return repo.remoteOwner !== null && (repo.remoteHost === 'github.com' || Boolean(process.env.CREW_GITHUB_API_URL));
@@ -73,6 +74,21 @@ export function integrationCycles(envFor: EnvFactory = integrationEnv): ProjectC
   ];
 }
 
+const MAINTENANCE_ACTOR: Actor = { kind: 'service', id: 'crew-maintenance' };
+
+export function maintenanceCycles(): ProjectCycle[] {
+  return [
+    {
+      name: 'retry',
+      intervalSeconds: () => 30,
+      async run(ctx, input) {
+        const resumed = resumeSessionRetries(ctx, input.projectId, MAINTENANCE_ACTOR);
+        return resumed.length ? { resumed } : {};
+      },
+    },
+  ];
+}
+
 export function githubRecovery(envFor: EnvFactory = integrationEnv): RemoteRecovery {
   return {
     name: 'reconcile-github',
@@ -96,7 +112,7 @@ export function githubRecovery(envFor: EnvFactory = integrationEnv): RemoteRecov
 }
 
 export function defaultServiceOptions(envFor: EnvFactory = integrationEnv): ServiceOptions {
-  return { cycles: integrationCycles(envFor), remoteRecovery: [githubRecovery(envFor)] };
+  return { cycles: [...integrationCycles(envFor), ...maintenanceCycles()], remoteRecovery: [githubRecovery(envFor)] };
 }
 
 export function defaultQueueActions(): QueueActions {
