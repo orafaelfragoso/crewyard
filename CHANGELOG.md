@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/orafaelfragoso/crewyard/compare/v0.3.0...v0.3.1) (2026-11-03)
+
+
+### Bug Fixes
+
+* close security and correctness findings from the v0.3.0 review ([#12](https://github.com/orafaelfragoso/crewyard/issues/12)) ([a4a1956](https://github.com/orafaelfragoso/crewyard/commit/a4a1956f4ad82c6a71d25cc5bc67ba617ba6ebd2))
+
 ## [0.3.0](https://github.com/orafaelfragoso/crewyard/compare/v0.2.0...v0.3.0) (2026-11-03)
 
 
