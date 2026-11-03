@@ -110,11 +110,12 @@ export function applyEntryFailure(
   hooks: PendingHook[],
 ): FailureOutcome {
   const { entry, pr, failure } = input;
-  const counted = input.revisable ? countedOnHead(db, failure.fingerprint, pr) : null;
+  const revisable = input.revisable ?? failure.failureClass === 'merge_conflict';
+  const counted = revisable ? countedOnHead(db, failure.fingerprint, pr) : null;
   const attempts = counted ?? recordFailureInTx(db, { ...failure, subjectKind: 'pr', subjectId: pr.id }, at);
   const transient = TRANSIENT_CLASSES.includes(failure.failureClass);
   const capped = !transient && attempts >= Math.max(1, input.maxRetries);
-  const revision = !capped && (input.revisable ?? failure.failureClass === 'merge_conflict');
+  const revision = !capped && revisable;
   const status: QueueEntry['status'] = capped
     ? ESCALATE_CLASSES.includes(failure.failureClass)
       ? 'escalated'
