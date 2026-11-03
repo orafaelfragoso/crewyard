@@ -1,7 +1,15 @@
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { openSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { CrewError, ensureDir, isProcessAlive, run, terminateTree } from '@crewyard/core';
+import { join } from 'node:path';
+import {
+  CrewError,
+  ensureDir,
+  isProcessAlive,
+  readFileOrNull,
+  run,
+  terminateTree,
+  writeFileAtomic,
+} from '@crewyard/core';
 import { type CrewContext, listWorkers, type WorkerHeartbeat } from '@crewyard/storage';
 
 const SERVICE_LABEL = 'dev.crewyard.service';
@@ -25,7 +33,8 @@ export interface ServiceStatus {
 
 export function serviceStatus(ctx: CrewContext): ServiceStatus {
   const file = pidFile(ctx);
-  const pid = existsSync(file) ? Number.parseInt(readFileSync(file, 'utf8'), 10) : null;
+  const text = readFileOrNull(file);
+  const pid = text === null ? null : Number.parseInt(text, 10);
   const running = pid !== null && isProcessAlive(pid);
   const workers = listWorkers(ctx.store, 'service').filter((w) => w.status === 'running');
   return {
@@ -187,16 +196,18 @@ function escapeXml(value: string): string {
 export async function installServiceUnit(ctx: CrewContext, options: { dryRun?: boolean } = {}) {
   const plan = planServiceUnit(ctx);
   if (options.dryRun) return { ...plan, applied: false };
-  if (existsSync(plan.file)) {
-    const existing = readFileSync(plan.file, 'utf8');
-    if (!existing.includes('crewyard') && !existing.includes('Crewyard') && !existing.includes(SERVICE_LABEL)) {
-      throw new CrewError('CONFLICT', `${plan.file} exists and is not owned by Crewyard`, {
-        suggestion: 'Move it aside and retry.',
-      });
-    }
+  const existing = readFileOrNull(plan.file);
+  if (
+    existing !== null &&
+    !existing.includes('crewyard') &&
+    !existing.includes('Crewyard') &&
+    !existing.includes(SERVICE_LABEL)
+  ) {
+    throw new CrewError('CONFLICT', `${plan.file} exists and is not owned by Crewyard`, {
+      suggestion: 'Move it aside and retry.',
+    });
   }
-  mkdirSync(dirname(plan.file), { recursive: true });
-  writeFileSync(plan.file, plan.content, { mode: 0o644 });
+  writeFileAtomic(plan.file, plan.content, { mode: 0o644 });
   const results = [];
   for (const cmd of plan.activate) results.push(await run(cmd, { allowFailure: true, timeoutMs: 30_000 }));
   const failed = results.find((r) => r.exitCode !== 0);
@@ -216,7 +227,7 @@ export async function uninstallServiceUnit(ctx: CrewContext, options: { dryRun?:
   const plan = planServiceUnit(ctx);
   if (options.dryRun) return { ...plan, removed: false };
   for (const cmd of plan.deactivate) await run(cmd, { allowFailure: true, timeoutMs: 30_000 });
-  const owned = existsSync(plan.file) && /crewyard|Crewyard/.test(readFileSync(plan.file, 'utf8'));
-  if (owned) rmSync(plan.file);
+  const owned = /crewyard|Crewyard/.test(readFileOrNull(plan.file) ?? '');
+  if (owned) rmSync(plan.file, { force: true });
   return { ...plan, removed: owned };
 }

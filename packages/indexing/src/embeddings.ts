@@ -1,4 +1,4 @@
-import { CrewError, newId, nowIso } from '@crewyard/core';
+import { CrewError, newId, nowIso, trimTrailingSlashes } from '@crewyard/core';
 import { all, type CrewContext } from '@crewyard/storage';
 import { readChunks } from './content.ts';
 import { requireSnapshot, type SnapshotRequest } from './freshness.ts';
@@ -32,7 +32,7 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 
   constructor(options: OllamaOptions) {
     this.model = options.model;
-    this.endpoint = (options.endpoint ?? DEFAULT_OLLAMA_ENDPOINT).replace(/\/+$/, '');
+    this.endpoint = trimTrailingSlashes(options.endpoint ?? DEFAULT_OLLAMA_ENDPOINT);
     this.local = LOCAL_HOSTS.has(new URL(this.endpoint).hostname);
     if (!this.local && !options.consentExternal) {
       throw new CrewError(

@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import { CrewError } from '@crewyard/core';
+import { CrewError, trimTrailingSlashes } from '@crewyard/core';
 import { all, type CrewContext } from '@crewyard/storage';
 import { readChunks, readLines } from './content.ts';
 import { cosine, decodeVector, type EmbeddingProvider, modelKey } from './embeddings.ts';
@@ -54,7 +54,7 @@ const SCAN_DEADLINE_MS = 5_000;
 const GLOB_CHARS = /[*?[\]{}]/;
 
 export function compileFilter(filter: FileFilter): (file: SnapshotFileRow) => boolean {
-  const include = (filter.paths ?? []).map((p) => (GLOB_CHARS.test(p) ? new Bun.Glob(p) : p.replace(/\/+$/, '')));
+  const include = (filter.paths ?? []).map((p) => (GLOB_CHARS.test(p) ? new Bun.Glob(p) : trimTrailingSlashes(p)));
   const exclude = (filter.excludePaths ?? []).map((p) => new Bun.Glob(p));
   const kinds = filter.kinds ? new Set<string>(filter.kinds) : null;
   const languages = filter.languages ? new Set(filter.languages) : null;

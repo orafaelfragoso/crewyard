@@ -1,4 +1,3 @@
-import { existsSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { REPO_CONFIG_RELATIVE, renderConfigTemplate } from '@crewyard/config';
 import {
@@ -12,6 +11,7 @@ import {
   repositoryRoot,
   revParse,
   which,
+  writeFileIfAbsent,
 } from '@crewyard/core';
 import { type IndexResult, indexRepository, indexStatus } from '@crewyard/indexing';
 import {
@@ -83,15 +83,12 @@ export async function initRepository(ctx: CrewContext, input: InitInput): Promis
     });
   }
   const configFile = join(root, REPO_CONFIG_RELATIVE);
-  const configCreated = !existsSync(configFile);
   const name = input.name ?? (remote?.name ?? basename(root)).replace(/[^A-Za-z0-9._-]/g, '-');
-  if (configCreated) {
-    ensureDir(join(root, '.crewyard'));
-    writeFileSync(
-      configFile,
-      renderConfigTemplate({ projectName: name, baseBranch, ...(input.autonomy ? { autonomy: input.autonomy } : {}) }),
-    );
-  }
+  ensureDir(join(root, '.crewyard'));
+  const configCreated = writeFileIfAbsent(
+    configFile,
+    renderConfigTemplate({ projectName: name, baseBranch, ...(input.autonomy ? { autonomy: input.autonomy } : {}) }),
+  );
   const registered = await registerProject(ctx, {
     repoPath: root,
     name,

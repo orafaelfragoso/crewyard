@@ -67,9 +67,18 @@ export function sessionResultText(ctx: CrewContext, sessionId: string): string |
   return typeof text === 'string' ? text : null;
 }
 
+const FENCE = '```';
+
+function fencedBody(text: string): string | null {
+  const open = text.indexOf(FENCE);
+  if (open < 0) return null;
+  const start = text.startsWith('json', open + FENCE.length) ? open + FENCE.length + 4 : open + FENCE.length;
+  const close = text.indexOf(FENCE, start);
+  return close < 0 ? null : text.slice(start, close);
+}
+
 export function extractJson(text: string): unknown {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
-  const candidate = fenced ? fenced[1]! : text;
+  const candidate = fencedBody(text) ?? text;
   const start = candidate.indexOf('{');
   const end = candidate.lastIndexOf('}');
   if (start < 0 || end <= start) throw new CrewError('EXTERNAL_FAILURE', 'Agent output did not contain a JSON object');

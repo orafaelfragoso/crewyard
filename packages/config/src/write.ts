@@ -1,8 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { CrewError, ensureDir } from '@crewyard/core';
+import { CrewError, ensureDir, readFileOrNull, writeFileAtomic } from '@crewyard/core';
 import { parseDocument } from 'yaml';
-import { findSecretKeys, validateConfigText } from './load.ts';
+import { configPathSegments, findSecretKeys, validateConfigText } from './load.ts';
 
 function setPathValue(segments: string[], value: unknown): Record<string, unknown> {
   return segments.reduceRight<Record<string, unknown>>(
@@ -105,13 +104,13 @@ export function setConfigValue(
   rawValue: string,
   options: { dryRun?: boolean } = {},
 ): SetConfigResult {
-  const segments = path.split('.');
+  const segments = configPathSegments(path);
   if (findSecretKeys(setPathValue(segments, coerce(rawValue))).length > 0) {
     throw new CrewError('POLICY_DENIED', `Refusing to write a secret-like key (${path}) to configuration`, {
       suggestion: 'Use the system secret store via `crew account add`.',
     });
   }
-  const text = existsSync(file) ? readFileSync(file, 'utf8') : 'version: 1\n';
+  const text = readFileOrNull(file) ?? 'version: 1\n';
   const doc = parseDocument(text);
   const previous = doc.getIn(segments) as unknown;
   const next = coerce(rawValue);
@@ -126,7 +125,7 @@ export function setConfigValue(
   }
   if (!options.dryRun) {
     ensureDir(dirname(file));
-    writeFileSync(file, output, 'utf8');
+    writeFileAtomic(file, output);
   }
   return {
     file,

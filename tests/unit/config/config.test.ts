@@ -57,5 +57,7 @@ surprise: true
     expect(setConfigValue(file, 'index.max_context_tokens', '12000').next).toBe(12000);
     expect(() => setConfigValue(file, 'integration.mode', 'yolo')).toThrow(CrewError);
     expect(() => setConfigValue(file, 'security.api_key', 'abcdefghijklmnop')).toThrow(CrewError);
+    expect(() => setConfigValue(file, '__proto__.polluted', 'true')).toThrow(CrewError);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 });

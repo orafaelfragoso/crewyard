@@ -1,4 +1,11 @@
-import { backoffWithJitter, CrewError, sleep as defaultSleep, type ErrorCode, toIso } from '@crewyard/core';
+import {
+  backoffWithJitter,
+  CrewError,
+  sleep as defaultSleep,
+  type ErrorCode,
+  toIso,
+  trimTrailingSlashes,
+} from '@crewyard/core';
 import { asArray, asNumber, asRecord, asString, type JsonRecord } from './json.ts';
 import {
   mergeChecks,
@@ -99,7 +106,7 @@ export function apiBaseUrlForHost(host: string): string {
 }
 
 export function graphqlUrlFor(baseUrl: string): string {
-  const trimmed = baseUrl.replace(/\/+$/, '');
+  const trimmed = trimTrailingSlashes(baseUrl);
   return trimmed.endsWith('/api/v3') ? `${trimmed.slice(0, -'/api/v3'.length)}/api/graphql` : `${trimmed}/graphql`;
 }
 
@@ -137,7 +144,7 @@ export class GitHubClient {
   constructor(options: GitHubClientOptions) {
     this.options = options;
     this.repository = options.repository;
-    this.baseUrl = (options.baseUrl ?? apiBaseUrlForHost(options.repository.host)).replace(/\/+$/, '');
+    this.baseUrl = trimTrailingSlashes(options.baseUrl ?? apiBaseUrlForHost(options.repository.host));
     this.graphqlUrl = options.graphqlUrl ?? graphqlUrlFor(this.baseUrl);
     this.doFetch = options.fetch ?? ((input, init) => fetch(input, init));
     this.sleep = options.sleep ?? defaultSleep;
