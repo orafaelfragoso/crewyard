@@ -36,8 +36,8 @@ import {
 import type { CrewContext } from '@crewyard/storage';
 import { acquireLeadership } from '@crewyard/storage';
 import type { Command } from 'commander';
-import { confirm, emit, keyValues, table } from '../output.ts';
-import { action, operatorActor, withMutationOptions } from '../program.ts';
+import { confirm, emit, emitChange, keyValues, table } from '../output.ts';
+import { action, mutate, operatorActor, withConfirmOption, withMutationOptions } from '../program.ts';
 
 async function repo(ctx: CrewContext, opts: { project?: string }) {
   return (await projectForRepositoryPath(ctx, opts.project)).repository;
@@ -136,7 +136,7 @@ export function registerIntegrationCommands(program: Command): void {
       );
     }),
   );
-  withMutationOptions(
+  withConfirmOption(
     pr
       .command('submit')
       .description('push a handed-off task branch and open its PR (operator authorization for assisted mode)')
@@ -170,12 +170,13 @@ export function registerIntegrationCommands(program: Command): void {
   ).action(
     action(async (ctx, opts, number: string) => {
       const id = await prId(ctx, opts, number);
-      await confirm(opts, `${opts.reject ? 'Reject' : 'Approve'} merging PR #${number} at its current head?`);
-      emit(
+      const result = await mutate(
+        ctx,
         opts,
-        decideMergeApproval(ctx, { prId: id, approved: !opts.reject }, operatorActor()),
-        (d) => `${d.subjectId}: ${d.status}`,
+        `${opts.reject ? 'Reject' : 'Approve'} merging PR #${number} at its current head?`,
+        (c) => decideMergeApproval(c, { prId: id, approved: !opts.reject }, operatorActor()),
       );
+      emitChange(opts, result, (d) => `${d.subjectId}: ${d.status}`);
     }),
   );
 

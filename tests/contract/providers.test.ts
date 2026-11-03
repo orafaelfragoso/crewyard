@@ -189,7 +189,7 @@ describe('claude adapter contract', () => {
       '--permission-prompts',
       'none',
       '--permission-mode',
-      'acceptEdits',
+      'auto',
     ]);
     expect(exec.argv).toContain('--append-system-prompt');
     expect(exec.env[CLAUDE_CONFIG_DIR_ENV]).toBe('/data/profiles/claude/work');
@@ -204,11 +204,17 @@ describe('claude adapter contract', () => {
     expect(plan.argv[plan.argv.indexOf('--json-schema') + 1]).toBe('{"type":"object"}');
     expect(plan.env[CLAUDE_API_KEY_ENV]).toBe('sk-ant-test-0123456789abcdef');
     expect(() =>
-      buildClaudeInvocation(launch({ ...p, settings: { permissionMode: 'bypassPermissions' } }), {
+      buildClaudeInvocation(launch({ ...p, settings: { permissionMode: 'manual' } }), {
         executable: '/bin/claude',
         apiKey: null,
       }),
     ).toThrow('not permitted');
+    const yolo = buildClaudeInvocation(launch({ ...p, settings: { permissionMode: 'bypassPermissions' } }), {
+      executable: '/bin/claude',
+      apiKey: null,
+      options: { baseEnv },
+    });
+    expect(yolo.argv[yolo.argv.indexOf('--permission-mode') + 1]).toBe('bypassPermissions');
   });
 });
 

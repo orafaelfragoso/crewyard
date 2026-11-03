@@ -1,9 +1,9 @@
 import { userInfo } from 'node:os';
 import { createCrewContext } from '@crewyard/application';
 import type { Actor } from '@crewyard/core';
-import type { CrewContext } from '@crewyard/storage';
+import { type CrewContext, previewStore } from '@crewyard/storage';
 import { Command, CommanderError, Option } from 'commander';
-import { type GlobalOptions, reportError } from './output.ts';
+import { confirm, type GlobalOptions, reportError } from './output.ts';
 
 let shared: CrewContext | null = null;
 
@@ -40,6 +40,25 @@ export function withMutationOptions(command: Command): Command {
   return command
     .addOption(new Option('--dry-run', 'preview the change without applying it'))
     .addOption(new Option('-y, --yes', 'confirm destructive or authorization-gated actions'));
+}
+
+export function withConfirmOption(command: Command): Command {
+  return command.addOption(new Option('-y, --yes', 'confirm destructive or authorization-gated actions'));
+}
+
+export function previewContext(ctx: CrewContext): CrewContext {
+  return { ...ctx, store: previewStore(ctx.store) };
+}
+
+export async function mutate<T>(
+  ctx: CrewContext,
+  opts: GlobalOptions,
+  question: string,
+  apply: (ctx: CrewContext) => T,
+): Promise<T> {
+  if (opts.dryRun) return apply(previewContext(ctx));
+  await confirm(opts, question);
+  return apply(ctx);
 }
 
 export function createProgram(version: string): Command {

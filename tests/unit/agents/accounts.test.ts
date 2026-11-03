@@ -17,6 +17,7 @@ import {
   routeAgent,
   setProfileHealth,
   testProfile,
+  updateProfileSettings,
 } from '@crewyard/agents';
 import { addSeconds, type Capabilities, nowIso, type ProfileHealth, type ProviderAdapter } from '@crewyard/core';
 import { createTestContext, type TestContext } from '../../helpers/index.ts';
@@ -78,6 +79,22 @@ describe('account profiles', () => {
       addProfile(ctx, { providerId: 'codex', name: 'default2', useProviderDefaultConfig: true }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
     expect(secrets.names()).toEqual([]);
+  });
+
+  test('set changes execution permissions, validates the mode and previews without writing', async () => {
+    ctx = createTestContext();
+    await addProfile(ctx, { providerId: 'claude', name: 'work' });
+    await addProfile(ctx, { providerId: 'codex', name: 'work' });
+    const preview = updateProfileSettings(ctx, 'claude/work', { permissionMode: 'bypassPermissions', dryRun: true });
+    expect(preview.profile.settings).toEqual({ permissionMode: 'bypassPermissions' });
+    expect(listProfiles(ctx, { providerId: 'claude' })[0]!.settings).toEqual({});
+    updateProfileSettings(ctx, 'claude/work', { permissionMode: 'acceptEdits', allowedTools: ['Bash(cargo test:*)'] });
+    expect(listProfiles(ctx, { providerId: 'claude' })[0]!.settings).toEqual({
+      permissionMode: 'acceptEdits',
+      allowedTools: ['Bash(cargo test:*)'],
+    });
+    expect(() => updateProfileSettings(ctx!, 'claude/work', { permissionMode: 'manual' })).toThrow('Unknown');
+    expect(() => updateProfileSettings(ctx!, 'codex/work', { permissionMode: 'auto' })).toThrow('claude profiles');
   });
 
   test('test validates through the adapter and keeps an active rate limit', async () => {

@@ -567,6 +567,17 @@ log a cli-login profile in through the provider's own CLI, in the profile's conf
 
 
 
+#### `crew account set <ref>`
+
+change how execution sessions on this account may use tools
+
+| Option | Description |
+|---|---|
+| `--permission-mode <mode>` | claude: auto | acceptEdits | dontAsk | bypassPermissions |
+| `--allowed-tools <tools>` | tools allowed without a prompt, e.g. "Bash(cargo test:*)" |
+| `--dry-run` | preview the change without applying it |
+| `-y, --yes` | confirm destructive or authorization-gated actions |
+
 #### `crew account test <ref>`
 
 check CLI availability, authentication status and capabilities
@@ -699,7 +710,6 @@ claim a task, allocate its worktree and run a managed session (stays attached un
 | Option | Description |
 |---|---|
 | `--reason <text>` |  |
-| `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
 #### `crew agent sessions`
@@ -866,7 +876,6 @@ push a handed-off task branch and open its PR (operator authorization for assist
 | `--task <taskId>` |  |
 | `--no-review` | skip Crewyard review |
 | `--no-enqueue` | do not request integration |
-| `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
 #### `crew pr approve <number>`
@@ -1038,7 +1047,6 @@ replace local state with a backup (a safety backup is taken first)
 
 | Option | Description |
 |---|---|
-| `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
 ### `crew gc`
@@ -1049,7 +1057,6 @@ preview (default) or apply retention: unreferenced index data, abandoned worktre
 |---|---|
 | `--apply` | apply the plan (events are archived to JSONL before deletion) |
 | `--keep-backups <n>` | backups to keep (default: `10`) |
-| `--dry-run` | preview the change without applying it |
 | `-y, --yes` | confirm destructive or authorization-gated actions |
 
 ### `crew recover`

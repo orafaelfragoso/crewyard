@@ -29,6 +29,15 @@ export function emit<T>(opts: GlobalOptions, data: T, human: (data: T) => string
   writeLine(Array.isArray(out) ? out.join('\n') : out);
 }
 
+export function emitChange<T extends object>(
+  opts: GlobalOptions,
+  data: T,
+  human: (data: T) => string | string[],
+): void {
+  if (opts.dryRun) emit(opts, { ...data, dryRun: true }, (d) => ['dry run, nothing changed:', ...[human(d)].flat()]);
+  else emit(opts, data, human);
+}
+
 export function table(rows: Record<string, unknown>[], columns?: string[]): string {
   if (rows.length === 0) return '(none)';
   const cols = columns ?? Object.keys(rows[0]!);

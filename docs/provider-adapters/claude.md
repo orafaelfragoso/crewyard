@@ -12,8 +12,10 @@ claude --print --output-format stream-json --verbose --permission-prompts none -
 ```
 
 - The prompt is written to stdin.
-- `execute` uses `settings.permissionMode` (`acceptEdits` default, `auto` or `dontAsk`); `bypassPermissions` is refused.
-  `plan`/`review` use `plan`.
+- `execute` uses `settings.permissionMode`: `auto` (default), `acceptEdits`, `dontAsk` or `bypassPermissions`.
+  `auto` lets Claude's classifier approve routine commands such as builds and tests, so it works even when a user hook
+  rewrites commands. `bypassPermissions` skips every check; use it only for profiles you trust in an isolated machine.
+  `plan`/`review` use `plan`. Change it with `crew account set <ref> --permission-mode <mode>`.
 - `--permission-prompts none` makes unattended runs deny anything that would prompt instead of hanging.
 - `settings.bare: true` adds `--bare` (recommended for API-key profiles; it never reads OAuth or the keychain).
 - **Crewyard MCP server.** `--mcp-config` registers `crew mcp` as `crewyard` for this run only, with `CREW_DATA_DIR` and
@@ -25,7 +27,8 @@ claude --print --output-format stream-json --verbose --permission-prompts none -
   that sees the session token nor impersonate `crewyard`. Your own user settings still apply.
 - **Allowed tools.** Crewyard always adds `mcp__crewyard` (its own tools) and, for `execute`, `Bash(git status:*)`. Agents
   don't commit: Crewyard commits their changes, with Git hooks disabled, on `crew_submit_work` or when the session ends.
-  Anything else, such as running tests, still needs `settings.allowedTools` or a broader `permissionMode`.
+  In `acceptEdits` or `dontAsk`, anything else, such as running tests, needs `settings.allowedTools`
+  (`crew account set <ref> --allowed-tools 'Bash(cargo test:*)'`).
 
 ## Isolation and authentication
 

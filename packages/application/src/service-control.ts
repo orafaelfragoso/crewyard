@@ -1,4 +1,4 @@
-import { openSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, openSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -14,9 +14,14 @@ import { type CrewContext, listWorkers, type WorkerHeartbeat } from '@crewyard/s
 
 const SERVICE_LABEL = 'dev.crewyard.service';
 
-export function crewInvocation(): string[] {
-  const compiled = Bun.main.includes('$bunfs') || Bun.main.includes('~BUN');
-  return compiled ? [process.execPath] : [process.execPath, Bun.main];
+export function crewInvocation(
+  options: { execPath?: string; main?: string; which?: (binary: string) => string | null } = {},
+): string[] {
+  const execPath = options.execPath ?? process.execPath;
+  const main = options.main ?? Bun.main;
+  if (!main.includes('$bunfs') && !main.includes('~BUN')) return [execPath, main];
+  if (existsSync(execPath)) return [execPath];
+  return [(options.which ?? Bun.which)('crew') ?? execPath];
 }
 
 function pidFile(ctx: CrewContext): string {

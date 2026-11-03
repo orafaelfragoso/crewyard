@@ -46,8 +46,8 @@ import {
 } from '@crewyard/tasks';
 import { applyCleanup, getWorkspace, inspectWorkspace, listWorkspaces, previewCleanup } from '@crewyard/workspaces';
 import type { Command } from 'commander';
-import { confirm, emit, keyValues, progress, table } from '../output.ts';
-import { action, operatorActor, withMutationOptions } from '../program.ts';
+import { confirm, emit, emitChange, keyValues, progress, table } from '../output.ts';
+import { action, mutate, operatorActor, previewContext, withMutationOptions } from '../program.ts';
 import { type SessionWatch, watchSession } from '../session-progress.ts';
 
 const list = (value: string, previous: string[] = []) => [
@@ -445,9 +445,10 @@ export function registerWorkCommands(program: Command): void {
     );
   withMutationOptions(goal.command('approve <goalId>')).action(
     action(async (ctx, opts, goalId: string) => {
-      await confirm(opts, `Approve the plan for ${goalId} and create its tasks?`);
-      const result = approvePlan(ctx, goalId, operatorActor());
-      emit(opts, result, (r) => JSON.stringify(r, null, 2));
+      const result = await mutate(ctx, opts, `Approve the plan for ${goalId} and create its tasks?`, (c) =>
+        approvePlan(c, goalId, operatorActor()),
+      );
+      emitChange(opts, result, (r) => JSON.stringify(r, null, 2));
     }),
   );
   goal.command('status [goalId]').action(
@@ -461,10 +462,10 @@ export function registerWorkCommands(program: Command): void {
   );
   withMutationOptions(goal.command('cancel <goalId>').requiredOption('--reason <text>')).action(
     action(async (ctx, opts, goalId: string) => {
-      await confirm(opts, `Cancel ${goalId} and all of its active tasks?`);
-      emit(opts, cancelGoal(ctx, goalId, { actor: operatorActor(), reason: String(opts.reason) }), (r) =>
-        JSON.stringify(r, null, 2),
+      const result = await mutate(ctx, opts, `Cancel ${goalId} and all of its active tasks?`, (c) =>
+        cancelGoal(c, goalId, { actor: operatorActor(), reason: String(opts.reason) }),
       );
+      emitChange(opts, result, (r) => JSON.stringify(r, null, 2));
     }),
   );
 
@@ -660,19 +661,17 @@ export function registerWorkCommands(program: Command): void {
   }
   withMutationOptions(task.command('retry <taskId>').requiredOption('--reason <text>')).action(
     action(async (ctx, opts, taskId: string) => {
-      const detail = showTask(ctx, taskId);
-      const to: TaskState = detail.task.state === 'ESCALATED' || detail.task.state === 'BLOCKED' ? 'READY' : 'READY';
-      if (detail.lease) {
-        await confirm(opts, `${taskId} holds an active lease; force-release it?`);
-        return emit(
-          opts,
-          forceReleaseLease(ctx, taskId, { reason: String(opts.reason), actor: operatorActor(), to: 'READY' }),
-          (r) => `${r.from} → ${r.to}`,
+      const reason = String(opts.reason);
+      if (showTask(ctx, taskId).lease) {
+        const released = await mutate(ctx, opts, `${taskId} holds an active lease; force-release it?`, (c) =>
+          forceReleaseLease(c, taskId, { reason, actor: operatorActor(), to: 'READY' }),
         );
+        return emitChange(opts, released, (r) => `${r.from} → ${r.to}`);
       }
-      emit(
+      const target = opts.dryRun ? previewContext(ctx) : ctx;
+      emitChange(
         opts,
-        transitionTask(ctx, { taskId, to, actor: operatorActor(), reason: String(opts.reason) }),
+        transitionTask(target, { taskId, to: 'READY', actor: operatorActor(), reason }),
         (r) => `${r.from} → ${r.to}`,
       );
     }),
@@ -705,15 +704,13 @@ export function registerWorkCommands(program: Command): void {
     );
   withMutationOptions(task.command('cancel <taskId>').requiredOption('--reason <text>')).action(
     action(async (ctx, opts, taskId: string) => {
-      await confirm(opts, `Cancel ${taskId}?`);
       const state = showTask(ctx, taskId).task.state;
       const to: TaskState =
         state === 'DRAFT' || state === 'READY' || state === 'ESCALATED' ? 'CANCELLED' : 'CANCEL_REQUESTED';
-      emit(
-        opts,
-        transitionTask(ctx, { taskId, to, actor: operatorActor(), reason: String(opts.reason) }),
-        (r) => `${r.from} → ${r.to}`,
+      const result = await mutate(ctx, opts, `Cancel ${taskId}?`, (c) =>
+        transitionTask(c, { taskId, to, actor: operatorActor(), reason: String(opts.reason) }),
       );
+      emitChange(opts, result, (r) => `${r.from} → ${r.to}`);
     }),
   );
   task
@@ -758,10 +755,13 @@ export function registerWorkCommands(program: Command): void {
     );
   withMutationOptions(task.command('approve <taskId>').option('--reject', 'reject instead of approve')).action(
     action(async (ctx, opts, taskId: string) => {
-      await confirm(opts, `${opts.reject ? 'Reject' : 'Approve'} the risk gate for ${taskId}?`);
-      emit(opts, decideTaskApproval(ctx, taskId, opts.reject ? 'rejected' : 'approved', operatorActor()), (a) =>
-        JSON.stringify(a, null, 2),
+      const result = await mutate(
+        ctx,
+        opts,
+        `${opts.reject ? 'Reject' : 'Approve'} the risk gate for ${taskId}?`,
+        (c) => decideTaskApproval(c, taskId, opts.reject ? 'rejected' : 'approved', operatorActor()),
       );
+      emitChange(opts, result, (a) => JSON.stringify(a, null, 2));
     }),
   );
 
