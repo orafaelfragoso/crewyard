@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.2](https://github.com/orafaelfragoso/crewyard/compare/v0.4.1...v0.4.2) (2026-11-03)
+
+
+### Features
+
+* **cli:** change account concurrency with crew account set ([#30](https://github.com/orafaelfragoso/crewyard/issues/30)) ([e23083b](https://github.com/orafaelfragoso/crewyard/commit/e23083b6556672d864cbc55177dc6d29f30b0af1))
+* **cli:** show who holds each task in crew task list ([2f53f6e](https://github.com/orafaelfragoso/crewyard/commit/2f53f6e9d81be148b46f6efb8f01f9cc6f862060))
+
+
+### Bug Fixes
+
+* **agents:** tell engineers why a pull request needs revision ([2f53f6e](https://github.com/orafaelfragoso/crewyard/commit/2f53f6e9d81be148b46f6efb8f01f9cc6f862060))
+* **github:** read mergeability from the GraphQL state query ([#33](https://github.com/orafaelfragoso/crewyard/issues/33)) ([5642379](https://github.com/orafaelfragoso/crewyard/commit/5642379e1e2ceee10d6656c994c6028684feaa11))
+* **publish:** push revised commits to the task's existing pull request ([2f53f6e](https://github.com/orafaelfragoso/crewyard/commit/2f53f6e9d81be148b46f6efb8f01f9cc6f862060))
+* **queue:** close the revision loop from failing checks to merge ([#32](https://github.com/orafaelfragoso/crewyard/issues/32)) ([2f53f6e](https://github.com/orafaelfragoso/crewyard/commit/2f53f6e9d81be148b46f6efb8f01f9cc6f862060))
+* **queue:** send tasks back for revision when checks or reviews fail ([2f53f6e](https://github.com/orafaelfragoso/crewyard/commit/2f53f6e9d81be148b46f6efb8f01f9cc6f862060))
+* **service:** ignore stale service workers in status and stop ([e23083b](https://github.com/orafaelfragoso/crewyard/commit/e23083b6556672d864cbc55177dc6d29f30b0af1))
+* **service:** keep heartbeats flowing while a review runs ([2f53f6e](https://github.com/orafaelfragoso/crewyard/commit/2f53f6e9d81be148b46f6efb8f01f9cc6f862060))
+
 ## [0.4.1](https://github.com/orafaelfragoso/crewyard/compare/v0.4.0...v0.4.1) (2026-11-03)
 
 
