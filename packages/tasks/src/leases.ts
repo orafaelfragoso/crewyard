@@ -746,11 +746,24 @@ export function reconcileExpiredLease(
       );
       return { taskId, outcome: 'preserved', transition };
     }
-    const transition = applyTransition(
-      db,
-      { taskId, to: 'READY', actor, reason: `lease expired; released${note}` },
-      at,
-    );
+    const reason = `lease expired; released${note}`;
+    if (task.state === 'REVISION' && lastLease) {
+      exec(db, 'UPDATE leases SET release_reason = ? WHERE id = ?', reason, lastLease.id);
+      recordTransition(
+        db,
+        {
+          type: 'lease.reconciled',
+          actor,
+          projectId: task.projectId,
+          taskId,
+          payload: { generation: lastLease.generation, state: task.state, reason },
+        },
+        { action: 'lease.reconcile', input: { taskId, ...input, actor: undefined }, decision: 'released' },
+        at,
+      );
+      return { taskId, outcome: 'released', transition: null };
+    }
+    const transition = applyTransition(db, { taskId, to: 'READY', actor, reason }, at);
     return { taskId, outcome: 'released', transition };
   });
 }

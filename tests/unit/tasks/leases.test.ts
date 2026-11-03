@@ -107,6 +107,20 @@ describe('leases', () => {
     expect(interventions(c, task.id)).toEqual([{ title: `Task ${task.id} blocked`, level: 'action_required' }]);
   });
 
+  test('an expired revision lease keeps the task in REVISION', () => {
+    const { c, clock, add } = setup();
+    const task = add('revise');
+    const first = claimTask(c, { taskId: task.id, holder: agent('a'), config });
+    submitWork(c, { ...first, handoff: { summary: 'done', commits: ['abcdef1'] } });
+    transitionTask(c, { taskId: task.id, to: 'REVISION', actor: operator });
+    claimTask(c, { taskId: task.id, holder: agent('a'), config });
+    clock.advance(1000);
+    expireLeases(c);
+    expect(reconcileExpiredLease(c, task.id, { processAlive: false, worktreeDirty: false }).outcome).toBe('released');
+    expect(showTask(c, task.id).task.state).toBe('REVISION');
+    expect(listTasksNeedingReconciliation(c)).toEqual([]);
+  });
+
   test('exclusive reservations conflict transactionally and are held until merge', () => {
     const { c, add } = setup();
     const first = add('migration one', { exclusiveResources: ['lock:search-index'] });
