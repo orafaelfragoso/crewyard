@@ -1,4 +1,4 @@
-import type { CrewConfig } from '@crewyard/config';
+import { CREW_POLICY_CLASS, CREW_POLICY_PATHS, type CrewConfig } from '@crewyard/config';
 import type { Risk } from '@crewyard/core';
 
 const globCache = new Map<string, Bun.Glob>();
@@ -36,12 +36,17 @@ const MEDIUM_LINES = 400;
 
 export function classifyPaths(policy: SecurityPolicy, paths: readonly string[], size?: ChangeSize): PathClassification {
   const matches: Record<string, string[]> = {};
-  for (const [cls, patterns] of Object.entries(policy.sensitive_paths)) {
+  for (const [cls, patterns] of [
+    ...Object.entries(policy.sensitive_paths),
+    [CREW_POLICY_CLASS, CREW_POLICY_PATHS] as const,
+  ]) {
     const hit = paths.filter((path) => matchesAny(patterns, path)).sort();
     if (hit.length > 0) matches[cls] = hit;
   }
   const classes = Object.keys(matches).sort();
-  const approvalClasses = classes.filter((cls) => (policy.require_approval_for as readonly string[]).includes(cls));
+  const approvalClasses = classes.filter(
+    (cls) => cls === CREW_POLICY_CLASS || (policy.require_approval_for as readonly string[]).includes(cls),
+  );
   const lines = (size?.additions ?? 0) + (size?.deletions ?? 0);
   const risk: Risk =
     classes.length > 0

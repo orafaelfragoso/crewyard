@@ -29,8 +29,9 @@ import { dispatchTask } from '@crewyard/application';
 import { type AuthMechanism, CrewError, type ProviderId } from '@crewyard/core';
 import { listProjects, resolveProject } from '@crewyard/projects';
 import type { Command } from 'commander';
-import { confirm, emit, keyValues, table, writeLine } from '../output.ts';
+import { confirm, emit, keyValues, table } from '../output.ts';
 import { action, operatorActor, withMutationOptions } from '../program.ts';
+import { watchSession } from '../session-progress.ts';
 
 const list = (value: string, previous: string[] = []) => [
   ...previous,
@@ -171,7 +172,9 @@ export function registerAgentCommands(program: Command): void {
       emit(opts, removed, (r) => [
         `${r.dryRun ? 'would remove' : 'removed'} ${r.ref}`,
         ...(r.removedFromPolicies.length ? [`  dropped from policies: ${r.removedFromPolicies.join(', ')}`] : []),
-        ...(r.configRootPurged ? ['  configuration directory deleted'] : []),
+        ...(r.configRootPurged
+          ? [r.dryRun ? '  would delete the configuration directory' : '  configuration directory deleted']
+          : []),
       ]);
     }),
   );
@@ -297,7 +300,7 @@ export function registerAgentCommands(program: Command): void {
           ...(opts.policy ? { accountPolicy: String(opts.policy) } : {}),
           ...(opts.account ? { account: String(opts.account) } : {}),
           ...(opts.reviewAuthority ? { reviewAuthority: opts.reviewAuthority as never } : {}),
-          ...(opts.maxParallel ? { maxParallel: Number(opts.maxParallel) } : {}),
+          ...(opts.maxParallel !== undefined ? { maxParallel: Number(opts.maxParallel) } : {}),
           ...(project ? { projects: [project.id] } : {}),
           actor: operatorActor(),
         });
@@ -377,7 +380,7 @@ export function registerAgentCommands(program: Command): void {
               ? { allowedMcpTools: opts.tools as string[] }
               : {}),
           ...(opts.reviewAuthority ? { reviewAuthority: opts.reviewAuthority as never } : {}),
-          ...(opts.maxParallel ? { maxParallel: Number(opts.maxParallel) } : {}),
+          ...(opts.maxParallel !== undefined ? { maxParallel: Number(opts.maxParallel) } : {}),
           ...(opts.allProjects ? { projects: null } : opts.projects ? { projects: opts.projects as string[] } : {}),
           actor: operatorActor(),
         });
@@ -419,18 +422,18 @@ export function registerAgentCommands(program: Command): void {
           actor: operatorActor(),
           ...(opts.model ? { model: String(opts.model) } : {}),
         });
-        if (!opts.json) {
-          writeLine(
-            `session ${dispatch.session.sessionId} (${dispatch.session.providerId}/${dispatch.session.profileRef}) on ${dispatch.claim.taskId}`,
-          );
-          writeLine(`worktree ${dispatch.claim.worktreePath ?? '—'} · log ${dispatch.session.logPath}`);
-          writeLine(`routing: ${dispatch.session.routing.join('; ')}`);
+        const watch = watchSession(
+          ctx,
+          opts,
+          dispatch.session,
+          `Running ${dispatch.claim.taskId} with ${ref} in ${dispatch.claim.worktreePath ?? 'its worktree'}`,
+        );
+        let outcome: Awaited<typeof dispatch.done>;
+        try {
+          outcome = await dispatch.done;
+        } finally {
+          watch.stop();
         }
-        const stop = () =>
-          void stopSession(ctx, dispatch.session.sessionId, { actor: operatorActor(), reason: 'operator interrupt' });
-        process.once('SIGINT', stop);
-        const outcome = await dispatch.done;
-        process.off('SIGINT', stop);
         emit(
           opts,
           { claim: dispatch.claim, session: dispatch.session, outcome },

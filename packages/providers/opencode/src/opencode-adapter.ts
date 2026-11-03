@@ -102,6 +102,7 @@ export function buildOpencodeInvocation(
   const env = childEnv(input.options ?? {}, [], {
     ...opencodeIsolationEnv(launch.profile),
     ...launch.env,
+    OPENCODE_DISABLE_PROJECT_CONFIG: '1',
     ...(launch.crewMcp ? { OPENCODE_CONFIG_CONTENT: opencodeMcpConfig(launch.crewMcp) } : {}),
     ...(input.apiKey ? { [apiKeyEnvName(launch.profile)]: input.apiKey } : {}),
   });

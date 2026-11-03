@@ -15,6 +15,8 @@ opencode run --standalone --format json [--model provider/model] [--agent plan|<
 - **Crewyard MCP server.** `OPENCODE_CONFIG_CONTENT` in the child environment adds a local `crewyard` server (`crew mcp`)
   for this run only. OpenCode merges inline config over the user and project config, and the server inherits the session
   variables from the OpenCode process. (`opencode mcp list` in 2.2.5 does not show inline or project servers.)
+- **Repository isolation.** `OPENCODE_DISABLE_PROJECT_CONFIG=1` keeps the repository's `opencode.json` and `.opencode/`
+  from loading, so a repository cannot add an MCP server or plugin that sees the session token.
 - **Skills.** For accounts with their own directories, the `crew-*` Skills are copied to the profile's
   `config/opencode/skills` before launch. Accounts using your default configuration get them from `crew install`.
 

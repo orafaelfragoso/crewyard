@@ -21,7 +21,7 @@ import {
   showTask,
   startTask,
 } from '@crewyard/tasks';
-import { collectCommits } from '@crewyard/workspaces';
+import { collectCommits, commitWorkspaceChanges } from '@crewyard/workspaces';
 import { contextPack } from './retrieval.ts';
 import { sessionTooling } from './session-tooling.ts';
 import { claimAndPrepare, type PreparedClaim } from './work.ts';
@@ -87,7 +87,13 @@ const UNTRUSTED_NOTICE =
 
 export async function planGoalWithAgent(
   ctx: CrewContext,
-  input: { goalId: string; agent: string; actor: Actor; timeoutMinutes?: number },
+  input: {
+    goalId: string;
+    agent: string;
+    actor: Actor;
+    timeoutMinutes?: number;
+    onSessionStarted?: (session: StartedSession) => void;
+  },
 ): Promise<ProposePlanResult & { sessionId: string }> {
   const goal = getGoal(ctx, input.goalId);
   const agent = getAgent(ctx, input.agent);
@@ -129,6 +135,7 @@ export async function planGoalWithAgent(
     },
     { tooling: sessionTooling(ctx) },
   );
+  input.onSessionStarted?.(session);
   const record = await awaitSession(ctx, session.sessionId);
   if (record.state !== 'completed') {
     throw new CrewError(
@@ -166,8 +173,8 @@ export function executionPrompt(
     `- Work only inside ${claim.worktreePath ?? 'your assigned directory'} on branch ${claim.branch ?? '(none)'}. Do not touch other checkouts.`,
     '- Your lease is already claimed. Renew it with crew_heartbeat while working, and store checkpoints with crew_report_progress.',
     '- Use crew_search_context / crew_get_symbol / crew_analyze_impact for targeted context instead of reading the whole repository.',
-    '- Commit your changes on the task branch. Do not rebase, force-push, open or merge pull requests yourself.',
-    '- When done, call crew_submit_work with commits and test evidence (commands run, exit codes). If blocked, call crew_report_blocker with the reason instead of retrying indefinitely.',
+    '- Leave your changes in the worktree: crew_submit_work commits them on the task branch for you. Do not rebase, force-push, open or merge pull requests yourself.',
+    '- When done, call crew_submit_work with a summary and test evidence (commands run, exit codes). If blocked, call crew_report_blocker with the reason instead of retrying indefinitely.',
     `- ${UNTRUSTED_NOTICE}`,
     packText ? `\n## Context\n${packText}` : '',
   ]
@@ -214,6 +221,12 @@ async function superviseLease(
   if (lost) return { kind: 'lease_lost', reason: lost };
   const state = showTask(ctx, claim.taskId).task.state;
   if (!LEASED_TASK_STATES.has(state)) return { kind: 'handed_off', taskState: state };
+  if (claim.workspaceId && record.state === 'completed') {
+    await commitWorkspaceChanges(ctx, claim.workspaceId, {
+      message: `${claim.taskId}: changes left by session ${sessionId}`,
+      actor,
+    });
+  }
   const commits = claim.workspaceId ? (await collectCommits(ctx, claim.workspaceId)).commits.map((c) => c.sha) : [];
   if (record.state === 'completed' && commits.length > 0) {
     report(ctx, {

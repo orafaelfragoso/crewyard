@@ -11,9 +11,10 @@ export function registerDashboardCommand(program: Command): void {
     .description('interactive terminal dashboard (prints a static snapshot when not attached to a terminal)')
     .option('--view <view>', `initial view: ${VIEWS.join(', ')}`)
     .option('--snapshot', 'print a static snapshot and exit')
+    .option('--all-projects', 'show every registered project instead of the current one')
     .action(
       action(async (ctx, opts) => {
-        const project = await resolveProject(ctx, opts.project as string | undefined).catch(() => null);
+        const project = opts.allProjects ? null : await resolveProject(ctx, opts.project as string | undefined);
         if (opts.json) return emit(opts, loadDashboard(ctx, project?.id ?? null, true), () => '');
         if (opts.snapshot || !process.stdout.isTTY || !process.stdin.isTTY) {
           process.stdout.write(`${renderSnapshot(ctx, project?.id ?? null, process.stdout.columns ?? 120)}\n`);

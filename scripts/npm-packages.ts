@@ -61,19 +61,37 @@ function shared(root: RootManifest) {
   };
 }
 
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|svg|webp|avif)(\?.*)?$/i;
+
 export function absolutizeReadme(markdown: string, repositoryUrl: string, ref: string): string {
   const repo = repositoryUrl.replace(/^git\+/, '').replace(/\.git$/, '');
   const raw = repo.replace('https://github.com/', 'https://raw.githubusercontent.com/');
   const isRelative = (target: string) => !/^([a-z][a-z0-9+.-]*:|#|\/\/)/i.test(target);
-  const toBlob = (target: string) =>
-    isRelative(target) ? `${repo}/blob/${ref}/${target.replace(/^\.\//, '')}` : target;
-  const toRaw = (target: string) => (isRelative(target) ? `${raw}/${ref}/${target.replace(/^\.\//, '')}` : target);
+  const clean = (target: string) => target.replace(/^\.?\//, '');
+  const toBlob = (target: string) => (isRelative(target) ? `${repo}/blob/${ref}/${clean(target)}` : target);
+  const toRaw = (target: string) => (isRelative(target) ? `${raw}/${ref}/${clean(target)}` : target);
+  const toAny = (target: string) => (IMAGE_EXTENSIONS.test(target) ? toRaw(target) : toBlob(target));
+  const rewrite = (text: string) =>
+    text
+      .replace(
+        /(<img\b[^>]*\bsrc=)(["'])([^"']+)\2/g,
+        (_, head: string, q: string, t: string) => `${head}${q}${toRaw(t)}${q}`,
+      )
+      .replace(/(\bhref=)(["'])([^"']+)\2/g, (_, head: string, q: string, t: string) => `${head}${q}${toBlob(t)}${q}`)
+      .replace(/(!\[[^\]]*\]\()([^)\s]+)/g, (_, head: string, t: string) => `${head}${toRaw(t)}`)
+      .replace(/((?<!!)\[(?:[^[\]]|\[[^\]]*\])*\]\()([^)\s]+)/g, (_, head: string, t: string) => `${head}${toBlob(t)}`)
+      .replace(/^( {0,3}\[[^\]]+\]:\s*)(\S+)/gm, (_, head: string, t: string) => `${head}${toAny(t)}`);
   return markdown
-    .replace(/(<img\b[^>]*\bsrc=")([^"]+)"/g, (_, head: string, target: string) => `${head}${toRaw(target)}"`)
-    .replace(/(\bhref=")([^"]+)"/g, (_, head: string, target: string) => `${head}${toBlob(target)}"`)
-    .replace(/(!?\[[^\]]*\]\()([^)\s]+)\)/g, (_, head: string, target: string) =>
-      head.startsWith('!') ? `${head}${toRaw(target)})` : `${head}${toBlob(target)})`,
-    );
+    .split(/(^```[\s\S]*?^```[^\n]*$)/m)
+    .map((block, i) =>
+      i % 2 === 1
+        ? block
+        : block
+            .split(/(`[^`\n]*`)/)
+            .map((part, j) => (j % 2 === 1 ? part : rewrite(part)))
+            .join(''),
+    )
+    .join('');
 }
 
 async function pack(dir: string, outDir: string): Promise<string> {

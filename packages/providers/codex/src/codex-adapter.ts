@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   type AccountProfile,
   type AgentEvent,
@@ -8,8 +8,6 @@ import {
   type Capabilities,
   CrewError,
   type CrewMcpLaunch,
-  git,
-  isWithin,
   type ProfileHealth,
   type ProviderAdapter,
   run,
@@ -88,13 +86,6 @@ export function codexMcpOverrides(server: CrewMcpLaunch): string[] {
   ];
 }
 
-export async function gitDirsOutside(cwd: string): Promise<string[]> {
-  const result = await git(cwd, ['rev-parse', '--path-format=absolute', '--absolute-git-dir', '--git-common-dir']);
-  const [gitDir, common] = result.exitCode === 0 ? result.stdout.trim().split('\n') : [];
-  if (!gitDir || !common || isWithin(resolve(cwd), resolve(gitDir))) return [];
-  return [...new Set([gitDir, join(common, 'objects'), join(common, 'refs'), join(common, 'logs')])];
-}
-
 export interface CodexInvocation {
   argv: string[];
   env: Record<string, string>;
@@ -104,12 +95,10 @@ export interface CodexInvocation {
 
 export function buildCodexInvocation(
   launch: AgentLaunch,
-  input: { executable: string; apiKey: string | null; options?: AdapterOptions; writableDirs?: string[] },
+  input: { executable: string; apiKey: string | null; options?: AdapterOptions },
 ): CodexInvocation {
   const outputSchemaPath = launch.outputSchema ? join(dirname(launch.logPath), 'output-schema.json') : null;
-  const sandbox = sandboxFor(launch);
-  const argv = [input.executable, 'exec', '--json', '--cd', launch.cwd, '--sandbox', sandbox];
-  if (sandbox === 'workspace-write') for (const dir of input.writableDirs ?? []) argv.push('--add-dir', dir);
+  const argv = [input.executable, 'exec', '--json', '--cd', launch.cwd, '--sandbox', sandboxFor(launch)];
   if (launch.model) argv.push('--model', launch.model);
   if (outputSchemaPath) argv.push('--output-schema', outputSchemaPath);
   if (settingBool(launch.profile, 'skipGitRepoCheck')) argv.push('--skip-git-repo-check');
@@ -285,12 +274,7 @@ export class CodexAdapter implements ProviderAdapter {
     if (input.profile.configRoot) mkdirSync(input.profile.configRoot, { recursive: true, mode: 0o700 });
     const skills = crewSkillsSource(input);
     if (skills && input.profile.configRoot) syncCrewSkills(skills, join(input.profile.configRoot, 'skills'));
-    const invocation = buildCodexInvocation(input, {
-      executable,
-      apiKey,
-      options: this.options,
-      writableDirs: await gitDirsOutside(input.cwd),
-    });
+    const invocation = buildCodexInvocation(input, { executable, apiKey, options: this.options });
     if (invocation.outputSchemaPath) {
       mkdirSync(dirname(invocation.outputSchemaPath), { recursive: true, mode: 0o700 });
       writeFileSync(invocation.outputSchemaPath, JSON.stringify(input.outputSchema), { mode: 0o600 });

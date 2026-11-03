@@ -9,6 +9,7 @@ import {
   applyCleanup,
   bootstrapWorkspace,
   collectCommits,
+  commitWorkspaceChanges,
   inspectWorkspace,
   listWorkspaceArtifacts,
   markWorkspacesForReconciliation,
@@ -242,5 +243,26 @@ describe('workspaces', () => {
     expect(slow.durationMs).toBeLessThan(3_000);
     expect(platformLimitations('linux').map((l) => l.id)).toContain('worktree-not-sandbox');
     expect(platformLimitations('win32').map((l) => l.id)).toContain('windows-tree-kill');
+  });
+});
+
+describe('crew commits agent changes', () => {
+  test('commits every change with hooks disabled, and does nothing on a clean worktree', async () => {
+    const { ctx, newTask, config } = await setup();
+    const task = newTask('Change app');
+    const { workspace } = await allocateWorkspace(ctx, { taskId: task.id, actor: operator, config });
+    writeFiles(workspace.path, { 'src/app.ts': 'export const v = 2;\n', 'src/new.ts': 'export {};\n' });
+    const hook = join(await gitText(workspace.path, ['rev-parse', '--git-common-dir']), 'hooks', 'pre-commit');
+    writeFiles(workspace.path, {});
+    await Bun.write(hook, '#!/bin/sh\nexit 1\n');
+    await Bun.$`chmod +x ${hook}`;
+
+    const result = await commitWorkspaceChanges(ctx, workspace.id, { message: 'TASK-1: change app', actor: operator });
+    expect(result).toMatchObject({ committed: true, files: ['src/app.ts', 'src/new.ts'] });
+    expect(await gitText(workspace.path, ['status', '--porcelain'])).toBe('');
+    expect((await collectCommits(ctx, workspace.id)).commits.map((c) => c.subject)).toEqual(['TASK-1: change app']);
+
+    const again = await commitWorkspaceChanges(ctx, workspace.id, { message: 'noop', actor: operator });
+    expect(again).toMatchObject({ committed: false, sha: null });
   });
 });

@@ -35,8 +35,8 @@ Every response is an envelope: `{ "ok": true, "operationId", "data", "revision" 
 4. **Use the assigned worktree.** Work only inside the `worktreePath` returned by the claim, on the branch Crewyard created. Never edit the primary checkout or another task's worktree.
 5. **Get context.** Prefer `crew_search_context`, `crew_get_symbol` and `crew_analyze_impact` (see the `crew-context` skill) over reading the whole repository. Stay inside the task's scope hints; if the change must spread beyond them, report progress explaining why.
 6. **Renew the lease.** Call `crew_heartbeat` at the configured heartbeat interval and always before `leaseExpiresAt`. If a heartbeat returns `STALE_LEASE` or `LEASE_CONFLICT`, stop writing immediately: you no longer own the task.
-7. **Checkpoint.** After each meaningful step, commit in the worktree and call `crew_report_progress` with a short summary, commit SHAs and what remains.
-8. **Validate.** Run the fast checks relevant to the files you changed. Record each command, exit code and the commit it ran on.
+7. **Checkpoint.** After each meaningful step, call `crew_report_progress` with a short summary and what remains. Leave changes in the worktree: `crew_submit_work` commits them on the task branch for you.
+8. **Validate.** Run the fast checks relevant to the files you changed. Record each command and its exit code.
 9. **Hand off.** Call `crew_submit_work` with structured evidence (below) and the handoff kind: `ready_for_pr`, `needs_review`, `completed` or `blocked`. Publish through `crew_submit_pr` only when policy allows it; in `assisted` mode the operator authorizes publication.
 10. **Next.** Call `crew_get_next_action` again. The task record, not this conversation, is the handoff boundary.
 
@@ -59,7 +59,7 @@ These apply to every Crewyard task, whatever this skill is used for:
 3. Work only in the assigned worktree returned by the claim.
 4. Renew the lease with `crew_heartbeat` while active; stop writing as soon as the lease is lost.
 5. Do not rebase proactively; update a branch from its base only when Crewyard says it is required.
-6. Submit structured evidence with `crew_submit_work`: commits, checks with exit codes, the commit SHA tested, context pack IDs, remaining issues.
+6. Submit structured evidence with `crew_submit_work`: a summary, checks with exit codes, context pack IDs, remaining issues. Crewyard commits the worktree changes and records the commits.
 7. Never bypass merge authority: never merge, approve your own work, skip checks or change branch protection.
 8. Report blockers with `crew_report_blocker` instead of retrying indefinitely.
 9. After a handoff, request the next safe action with `crew_get_next_action`.

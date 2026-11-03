@@ -61,7 +61,7 @@ export async function runProgram(program: Command, argv: string[]): Promise<numb
   const json = argv.includes('--json');
   try {
     await program.parseAsync(argv);
-    return 0;
+    return typeof process.exitCode === 'number' ? process.exitCode : 0;
   } catch (error) {
     if (error instanceof CommanderError) {
       if (error.code === 'commander.helpDisplayed' || error.code === 'commander.version' || error.exitCode === 0)

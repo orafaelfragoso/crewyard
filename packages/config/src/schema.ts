@@ -56,7 +56,11 @@ const rateSpec = z.strictObject({
   output_per_mtok_usd: z.number().nonnegative(),
 });
 
+export const CREW_POLICY_CLASS = 'crew-policy';
+export const CREW_POLICY_PATHS: readonly string[] = ['.crewyard/**'];
+
 export const approvalClasses = [
+  'crew-policy',
   'security-sensitive',
   'database-migration',
   'deployment-config',

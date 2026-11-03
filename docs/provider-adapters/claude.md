@@ -8,7 +8,7 @@ Package: `@crewyard/provider-claude`. Verified against Claude Code `2.1.316`; re
 ```text
 claude --print --output-format stream-json --verbose --permission-prompts none --permission-mode <mode> \
   [--model <m>] [--append-system-prompt <instructions>] [--json-schema <schema>] [--bare] [--allowedTools a,b] \
-  --mcp-config '{"mcpServers":{"crewyard":{...}}}' --plugin-dir <data>/runtime/agent-skills
+  --setting-sources user --strict-mcp-config --mcp-config '{"mcpServers":{"crewyard":{...}}}' --plugin-dir <data>/runtime/agent-skills
 ```
 
 - The prompt is written to stdin.
@@ -20,8 +20,11 @@ claude --print --output-format stream-json --verbose --permission-prompts none -
   `CREW_CONFIG_DIR` set; the session variables reach it through the Claude process environment, never argv. This works
   for any account, including one with its own `CLAUDE_CONFIG_DIR`, and in `--bare` mode.
 - **Skills.** `--plugin-dir` loads the `crew-*` Skills as the `crewyard` plugin (`crewyard:crew-execution`, …).
-- **Allowed tools.** Crewyard always adds `mcp__crewyard` (its own tools) and, for `execute`, `Bash(git status:*)`,
-  `Bash(git diff:*)`, `Bash(git log:*)`, `Bash(git add:*)` and `Bash(git commit:*)`, so an unattended engineer can commit.
+- **Repository isolation.** `--setting-sources user` keeps the repository's `.claude/settings.json` (including hooks) from
+  loading, and `--strict-mcp-config` loads only Crewyard's server, so a repository's `.mcp.json` can neither run a server
+  that sees the session token nor impersonate `crewyard`. Your own user settings still apply.
+- **Allowed tools.** Crewyard always adds `mcp__crewyard` (its own tools) and, for `execute`, `Bash(git status:*)`. Agents
+  don't commit: Crewyard commits their changes, with Git hooks disabled, on `crew_submit_work` or when the session ends.
   Anything else, such as running tests, still needs `settings.allowedTools` or a broader `permissionMode`.
 
 ## Isolation and authentication

@@ -15,6 +15,7 @@ import {
 } from '@crewyard/core';
 import { type IndexResult, indexRepository, indexStatus } from '@crewyard/indexing';
 import {
+  getProject,
   loadProjectConfig,
   type Project,
   primaryRepository,
@@ -141,7 +142,7 @@ export async function readinessReport(ctx: CrewContext, projectId: string): Prom
     {
       id: 'config',
       ok: true,
-      message: `autonomy ${loaded.config.project.autonomy}, integration ${loaded.config.integration.mode}`,
+      message: `autonomy ${getProject(ctx, projectId).autonomy}, integration ${loaded.config.integration.mode}`,
     },
   ];
   try {

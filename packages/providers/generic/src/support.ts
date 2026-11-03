@@ -143,6 +143,11 @@ export function crewSkillsSource(launch: AgentLaunch): string | null {
 }
 
 export function syncCrewSkills(sourceDir: string, targetDir: string): void {
+  if (!existsSync(sourceDir)) {
+    throw new CrewError('UNAVAILABLE', `Crewyard Skills folder is missing: ${sourceDir}`, {
+      suggestion: 'Start the session again; Crewyard recreates the folder.',
+    });
+  }
   mkdirSync(targetDir, { recursive: true, mode: 0o700 });
   for (const entry of readdirSync(targetDir)) {
     if (entry.startsWith('crew-')) rmSync(join(targetDir, entry), { recursive: true, force: true });

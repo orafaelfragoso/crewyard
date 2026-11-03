@@ -39,7 +39,7 @@ These apply to every Crewyard task, whatever this skill is used for:
 3. Work only in the assigned worktree returned by the claim.
 4. Renew the lease with `crew_heartbeat` while active; stop writing as soon as the lease is lost.
 5. Do not rebase proactively; update a branch from its base only when Crewyard says it is required.
-6. Submit structured evidence with `crew_submit_work`: commits, checks with exit codes, the commit SHA tested, context pack IDs, remaining issues.
+6. Submit structured evidence with `crew_submit_work`: a summary, checks with exit codes, context pack IDs, remaining issues. Crewyard commits the worktree changes and records the commits.
 7. Never bypass merge authority: never merge, approve your own work, skip checks or change branch protection.
 8. Report blockers with `crew_report_blocker` instead of retrying indefinitely.
 9. After a handoff, request the next safe action with `crew_get_next_action`.

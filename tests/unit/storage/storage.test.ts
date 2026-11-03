@@ -73,3 +73,25 @@ describe('storage', () => {
     expect(isLeader(ctx.store, 'repo:x:main', 'w2', second.generation)).toBe(true);
   });
 });
+
+describe('store preview', () => {
+  test('returns the result of the transaction and rolls every write back', () => {
+    const c = createTestContext();
+    try {
+      const at = new Date().toISOString();
+      const result = c.store.preview((db) => {
+        db.query(`INSERT INTO projects (id, name, created_at, updated_at) VALUES ('prj_p', 'p', ?, ?)`).run(at, at);
+        return (db.query('SELECT COUNT(*) AS n FROM projects').get() as { n: number }).n;
+      });
+      expect(result).toBe(1);
+      expect(c.store.db.query('SELECT COUNT(*) AS n FROM projects').get()).toEqual({ n: 0 });
+      expect(() =>
+        c.store.preview(() => {
+          throw new Error('boom');
+        }),
+      ).toThrow('boom');
+    } finally {
+      c.cleanup();
+    }
+  });
+});

@@ -56,7 +56,7 @@ cd ~/src/my-repo
 crew init --repo .
 ```
 
-This writes `.crewyard/config.yaml` (safe to commit), indexes the code, and prints a readiness report. The ✗ lines are what the next steps fix. For pull requests the repository needs a GitHub `origin` remote.
+This writes `.crewyard/config.yaml` (safe to commit), indexes the code, and prints a readiness report. From now on, run project commands (`goal`, `task`, `queue`, `dashboard`, …) inside this repository or one of its folders, or pass `--project <name>`. Account, agent and `doctor` commands work anywhere. The ✗ lines are what the next steps fix. For pull requests the repository needs a GitHub `origin` remote.
 
 ## 3. Add an account
 
@@ -151,6 +151,19 @@ crew goal status GOAL-1                # read the proposed tasks
 crew goal approve GOAL-1 --yes         # creates the tasks
 ```
 
+While the architect works, `crew goal plan` shows what it is doing:
+
+```text
+Planning GOAL-1 with architect: gathering repository context…
+Started the planning agent. This usually takes a few minutes.
+  agent session ses_01a1… · claude/personal · opus
+  full log: crew agent logs ses_01a1…   (Ctrl-C stops the session)
+  [8s] → Read
+  [41s] · Splitting the change into two tasks
+```
+
+Ctrl-C stops the agent. `crew agent run` shows the same progress for a task.
+
 **Or write the plan yourself** as YAML or JSON. Your own plans are accepted immediately:
 
 ```yaml
@@ -218,6 +231,7 @@ The service picks an agent for each ready task by role (`engineer` unless the ta
 
 | Symptom | Fix |
 |---|---|
+| `… is not inside a Crewyard project` | Run the command inside your registered repository, or pass `--project <name>` (`crew project list` shows the names) |
 | `crew account test` says `unauthenticated` | Run the command it suggests: `crew account login <account>` |
 | `error APPROVAL_REQUIRED … confirmation required` | Add `--yes` to confirm, or `--dry-run` to preview |
 | `Goal … has no plan awaiting approval` | The plan was already accepted. Check `crew task list` |

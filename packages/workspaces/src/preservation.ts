@@ -130,6 +130,62 @@ export async function collectCommits(ctx: CrewContext, workspaceId: string): Pro
   return { workspaceId, taskId: ws.taskId, branch: ws.branch, baseSha: ws.baseSha, headSha, commits };
 }
 
+export interface CommittedChanges {
+  workspaceId: string;
+  committed: boolean;
+  sha: string | null;
+  files: string[];
+}
+
+const AGENT_COMMIT_IDENTITY = { name: 'Crewyard agent', email: 'agent@crewyard.invalid' };
+
+export async function commitWorkspaceChanges(
+  ctx: CrewContext,
+  workspaceId: string,
+  input: { message: string; actor: Actor },
+): Promise<CommittedChanges> {
+  const ws = requireWorkspace(ctx, workspaceId);
+  const repo = requireRepository(ctx, ws.repositoryId);
+  const path = assertManagedWorkspacePath(ctx, ws, repo);
+  const branch = await gitText(path, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  if (branch !== ws.branch) {
+    throw new CrewError('CONFLICT', `Workspace ${workspaceId} is on ${branch}, expected ${ws.branch}`, {
+      suggestion: 'Check out the task branch in the worktree before submitting.',
+    });
+  }
+  const files = parsePorcelain(
+    (await git(path, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])).stdout,
+  ).map((f) => f.path);
+  if (files.length === 0) return { workspaceId, committed: false, sha: null, files };
+  const noHooks = ['-c', `core.hooksPath=${ensureDir(safeJoin(ctx.dirs.run, 'empty-hooks'))}`];
+  const configured = (key: string) => git(path, ['config', '--get', key], { allowFailure: true });
+  const [name, email] = await Promise.all([configured('user.name'), configured('user.email')]);
+  const identity = [
+    ...(name.exitCode === 0 && name.stdout.trim() ? [] : ['-c', `user.name=${AGENT_COMMIT_IDENTITY.name}`]),
+    ...(email.exitCode === 0 && email.stdout.trim() ? [] : ['-c', `user.email=${AGENT_COMMIT_IDENTITY.email}`]),
+  ];
+  await git(path, [...noHooks, 'add', '--all']);
+  await git(path, [...noHooks, ...identity, 'commit', '--no-verify', '--quiet', '-m', input.message]);
+  const sha = await gitText(path, ['rev-parse', 'HEAD']);
+  ctx.store.immediate((db) => {
+    const at = nowIso(ctx.clock);
+    exec(db, 'UPDATE workspaces SET head_sha = ?, updated_at = ? WHERE id = ?', sha, at, workspaceId);
+    recordTransition(
+      db,
+      {
+        type: 'workspace.changes_committed',
+        actor: input.actor,
+        projectId: repo.projectId,
+        ...(ws.taskId ? { taskId: ws.taskId } : {}),
+        payload: { workspaceId, sha, files: files.length },
+      },
+      { action: 'workspace.commit_changes', input: { workspaceId, files: files.length }, decision: 'accepted' },
+      at,
+    );
+  });
+  return { workspaceId, committed: true, sha, files };
+}
+
 export interface BackupResult {
   workspaceId: string;
   directory: string;

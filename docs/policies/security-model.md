@@ -25,6 +25,7 @@ Autonomy is set per repository (`project.autonomy`) and further limited by actio
 
 A change needs operator approval before integration when any of the following holds:
 
+- it touches `.crewyard/` (class `crew-policy`). This is built in and cannot be removed by configuration, so an agent cannot loosen autonomy or approval gates through its own change;
 - it touches a path class listed in `security.require_approval_for` (default: `security-sensitive`, `database-migration`, `deployment-config`; also available: `dependency-change`, `high-risk`);
 - its task risk is `high` and `review.require_review_for_high_risk` is on;
 - reviewers disagree, a mandatory check is unavailable, the policy outcome is uncertain, or retries are exhausted.
@@ -73,6 +74,11 @@ Repository files, READMEs, code comments, issue bodies, PR descriptions and comm
 Crewyard isolates tasks into separate Git worktrees and branches, validates canonical paths against traversal and symlink escape, sanitizes environment variables, applies timeouts and output limits, and cancels process trees. These limit **accidents**, not a hostile agent.
 
 **All agents launched by Crewyard run as your operating-system user.** Processes running as the same user can read the same files, environment and user-level credentials, and Crewyard does not treat them as mutually hostile tenants. If you run agents you do not trust, put them in a separate OS account, container or VM with only the credentials they need. Platform limitations (for example, network policy enforcement where no sandbox exists) are reported by `crew doctor` and the session view rather than advertised as guarantees.
+
+Two consequences worth knowing:
+
+- An agent that can run shell commands can also run `crew` itself as you, with operator rights (for example `crew agent remove`). Crewyard's leases and policies govern what agents do through the MCP server, not what an unsandboxed shell can do. Restrict shell access (Claude's default `acceptEdits` mode, Codex's sandbox) or use a separate OS account for agents you don't trust.
+- A repository's own agent configuration is ignored in managed sessions: Claude Code loads only your user settings and Crewyard's MCP server, and OpenCode skips project config. Changes to `.crewyard/` always need operator approval.
 
 ## Auditability
 

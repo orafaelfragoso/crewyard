@@ -164,10 +164,12 @@ export async function resolveProject(
   if (selector && selector !== 'current') return getProject(ctx, selector);
   const found = await findProjectForPath(ctx, cwd);
   if (found) return found;
-  const projects = listProjects(ctx);
-  if (projects.length === 1) return projects[0]!;
-  throw new CrewError('NOT_FOUND', 'No project selected and the current directory is not a registered repository', {
-    suggestion: 'Pass --project NAME or run `crew init` in the repository.',
+  const names = listProjects(ctx).map((p) => p.name);
+  throw new CrewError('NOT_FOUND', `${cwd} is not inside a Crewyard project`, {
+    details: { cwd, projects: names },
+    suggestion: names.length
+      ? `Run this inside a registered repository, or pass --project <name> (registered: ${names.join(', ')}).`
+      : 'Run `crew init --repo .` inside your repository first.',
   });
 }
 

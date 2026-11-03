@@ -67,13 +67,7 @@ function permissionMode(launch: AgentLaunch): string {
   return configured;
 }
 
-const EXECUTE_GIT_TOOLS = [
-  'Bash(git status:*)',
-  'Bash(git diff:*)',
-  'Bash(git log:*)',
-  'Bash(git add:*)',
-  'Bash(git commit:*)',
-];
+const EXECUTE_READ_TOOLS = ['Bash(git status:*)'];
 
 export interface ClaudeInvocation {
   argv: string[];
@@ -103,12 +97,14 @@ export function buildClaudeInvocation(
   const allowedTools = [
     ...settingStrings(launch.profile, 'allowedTools'),
     ...(launch.crewMcp ? [`mcp__${CREW_MCP_SERVER_NAME}`] : []),
-    ...(launch.mode === 'execute' ? EXECUTE_GIT_TOOLS : []),
+    ...(launch.mode === 'execute' ? EXECUTE_READ_TOOLS : []),
   ];
   if (allowedTools.length > 0) argv.push('--allowedTools', [...new Set(allowedTools)].join(','));
+  argv.push('--setting-sources', 'user');
   if (launch.crewMcp) {
     const { command, args, env } = launch.crewMcp;
     argv.push(
+      '--strict-mcp-config',
       '--mcp-config',
       JSON.stringify({ mcpServers: { [CREW_MCP_SERVER_NAME]: { type: 'stdio', command, args, env } } }),
     );

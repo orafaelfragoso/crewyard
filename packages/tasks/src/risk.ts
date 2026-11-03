@@ -1,4 +1,4 @@
-import type { CrewConfig } from '@crewyard/config';
+import { CREW_POLICY_CLASS, CREW_POLICY_PATHS, type CrewConfig } from '@crewyard/config';
 import type { Risk } from '@crewyard/core';
 import type { ApprovalClass } from './model.ts';
 import { isResourceScope } from './scopes.ts';
@@ -23,6 +23,7 @@ export interface RiskClassification {
 }
 
 const APPROVAL_CLASS_ORDER: readonly ApprovalClass[] = [
+  'crew-policy',
   'security-sensitive',
   'database-migration',
   'deployment-config',
@@ -62,7 +63,10 @@ export function classifyRisk(input: RiskClassificationInput, config: CrewConfig)
     matches.push(match);
   };
   const paths = [...(input.scopeHints ?? []), ...(input.changedPaths ?? [])].filter((p) => !isResourceScope(p));
-  const globs = Object.entries(config.security.sensitive_paths).flatMap(([name, patterns]) =>
+  const globs = [
+    ...Object.entries(config.security.sensitive_paths),
+    [CREW_POLICY_CLASS, CREW_POLICY_PATHS] as const,
+  ].flatMap(([name, patterns]) =>
     isApprovalClass(name) ? patterns.map((pattern) => ({ class: name, pattern, glob: new Bun.Glob(pattern) })) : [],
   );
   for (const path of paths) {
@@ -84,6 +88,7 @@ export function classifyRisk(input: RiskClassificationInput, config: CrewConfig)
   const detectedClasses = APPROVAL_CLASS_ORDER.filter((c) => detected.has(c));
   const required = new Set<ApprovalClass>(config.security.require_approval_for);
   required.add('high-risk');
+  required.add(CREW_POLICY_CLASS);
   return {
     detectedClasses,
     requiredClasses: detectedClasses.filter((c) => required.has(c)),
