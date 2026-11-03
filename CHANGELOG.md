@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.0](https://github.com/orafaelfragoso/crewyard/compare/v0.1.1...v0.2.0) (2026-11-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* manage agents and account policies ([#9](https://github.com/orafaelfragoso/crewyard/issues/9))
+
+### Features
+
+* add crew account login and a getting-started guide ([#8](https://github.com/orafaelfragoso/crewyard/issues/8)) ([feae366](https://github.com/orafaelfragoso/crewyard/commit/feae366a3a421d5c44e6902ad85c3ed7e4ab3797))
+* manage agents and account policies ([#9](https://github.com/orafaelfragoso/crewyard/issues/9)) ([89783db](https://github.com/orafaelfragoso/crewyard/commit/89783db4cdf11e4e416ec36d23fd193ce8e2372d))
+
+
+### Documentation
+
+* add the Crewyard banner to the README ([#6](https://github.com/orafaelfragoso/crewyard/issues/6)) ([7fdb5a9](https://github.com/orafaelfragoso/crewyard/commit/7fdb5a9f087dbc62612f08fb24d9d8fba11d34fc))
+
 ## [0.1.1](https://github.com/orafaelfragoso/crewyard/compare/v0.1.0...v0.1.1) (2026-11-03)
 
 
