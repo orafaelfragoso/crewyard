@@ -132,7 +132,7 @@ function settledMerge(data: unknown): boolean {
   return !asString(pr.merged_at) || asString(pr.merge_commit_sha) !== null;
 }
 
-const PR_STATE_FIELDS = `id reviewDecision mergeable mergeStateStatus isInMergeQueue isMergeQueueEnabled
+const PR_STATE_FIELDS = `id reviewDecision mergeable mergeStateStatus isInMergeQueue isMergeQueueEnabled mergeCommit { oid }
   mergeQueueEntry { id position state enqueuedAt headCommit { oid } baseCommit { oid } pullRequest { number } }`;
 
 const ENTRY_FIELDS = 'id position state enqueuedAt headCommit { oid } baseCommit { oid } pullRequest { number }';
@@ -430,7 +430,9 @@ export class GitHubClient {
       conditional: true,
       cacheable: settledMerge,
     });
-    return toPullRequest(response.data);
+    const pr = toPullRequest(response.data);
+    if (pr.state !== 'merged' || pr.mergeCommitSha) return pr;
+    return { ...pr, mergeCommitSha: (await this.getPullRequestState(number)).mergeCommitSha };
   }
 
   async findPullRequestsForHead(headRef: string): Promise<GitHubPullRequest[]> {

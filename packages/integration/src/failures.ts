@@ -77,6 +77,17 @@ export function recordFailureInTx(db: Database, input: FailureInput, at: string)
   return row!.attempts;
 }
 
+function countedOnHead(db: Database, fingerprint: string, pr: PullRequestRecord): number | null {
+  const row = one<{ attempts: number; head: string | null }>(
+    db,
+    `SELECT attempts, json_extract(last_evidence, '$.headSha') AS head FROM failure_records
+     WHERE fingerprint = ? AND subject_kind = 'pr' AND subject_id = ?`,
+    fingerprint,
+    pr.id,
+  );
+  return row && row.head === pr.headSha ? row.attempts : null;
+}
+
 export interface FailureOutcome {
   attempts: number;
   status: QueueEntry['status'];
@@ -99,7 +110,8 @@ export function applyEntryFailure(
   hooks: PendingHook[],
 ): FailureOutcome {
   const { entry, pr, failure } = input;
-  const attempts = recordFailureInTx(db, { ...failure, subjectKind: 'pr', subjectId: pr.id }, at);
+  const counted = input.revisable ? countedOnHead(db, failure.fingerprint, pr) : null;
+  const attempts = counted ?? recordFailureInTx(db, { ...failure, subjectKind: 'pr', subjectId: pr.id }, at);
   const transient = TRANSIENT_CLASSES.includes(failure.failureClass);
   const capped = !transient && attempts >= Math.max(1, input.maxRetries);
   const revision = !capped && (input.revisable ?? failure.failureClass === 'merge_conflict');
