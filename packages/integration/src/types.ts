@@ -28,6 +28,9 @@ export interface TaskHooks {
     event: TaskHookEvent & { reason: string; details: Record<string, unknown> },
   ): void | Promise<void>;
   onRemoteHeadAccepted?(event: TaskHookEvent & { headSha: string }): void | Promise<void>;
+  onReviewRequired?(
+    event: Omit<TaskHookEvent, 'taskId'> & { taskId: string | null; headSha: string },
+  ): void | Promise<void>;
 }
 
 export type GitHubClientFactory = (repository: Repository) => GitHubClient;
@@ -137,6 +140,14 @@ export const ACTIVE_ENTRY_STATUSES: readonly QueueEntryStatus[] = [
   'blocked',
   'quarantined',
   'escalated',
+];
+
+export const PROGRESSING_ENTRY_STATUSES: readonly QueueEntryStatus[] = [
+  'waiting',
+  'eligible',
+  'candidate',
+  'validating',
+  'merging',
 ];
 
 export interface IntegrationQueue {

@@ -160,8 +160,8 @@ export async function requestIntegration(
     const id = newId('qe');
     const risk = classifyPullRequest(config, pr).risk;
     db.query(
-      `INSERT INTO queue_entries (id, queue_id, pr_id, priority, risk, stack_id, stack_order, status, blockers, attempts, requested_by, enqueued_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'waiting', '[]', 0, ?, ?, ?)`,
+      `INSERT INTO queue_entries (id, queue_id, pr_id, priority, risk, stack_id, stack_order, status, blockers, attempts, requested_by, enqueued_at, progressing_since, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'waiting', '[]', 0, ?, ?, ?, ?)`,
     ).run(
       id,
       queue.id,
@@ -171,6 +171,7 @@ export async function requestIntegration(
       pr.stackId,
       pr.stackOrder,
       `${input.requestedBy.kind}:${input.requestedBy.id}`,
+      at,
       at,
       at,
     );

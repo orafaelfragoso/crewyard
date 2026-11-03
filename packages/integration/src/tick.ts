@@ -3,7 +3,7 @@ import type { CrewConfig } from '@crewyard/config';
 import { type Actor, type AutonomyMode, CrewError, type FailureClass, gitText, nowIso } from '@crewyard/core';
 import type { GitHubClient } from '@crewyard/github';
 import type { Repository } from '@crewyard/projects';
-import { requestInterventionInTx } from '@crewyard/reviews';
+import { type ReviewSummary, requestInterventionInTx } from '@crewyard/reviews';
 import {
   acquireLeadership,
   type CrewContext,
@@ -48,7 +48,7 @@ import {
   setEntryStatus,
 } from './records.ts';
 import { type SyncResult, syncRepository } from './sync.ts';
-import { readFreshness } from './sync-state.ts';
+import { readFreshness, remoteUnavailable } from './sync-state.ts';
 import type {
   Blocker,
   IntegrationCandidate,
@@ -78,13 +78,32 @@ const WAITING_CODES = new Set([
   'RATE_LIMITED',
   'RULES_UNKNOWN',
 ]);
+const REVISION_PREVENTING_CODES = new Set([
+  'PR_NOT_OPEN',
+  'PR_DRAFT',
+  'QUEUE_PAUSED',
+  'QUARANTINED',
+  'ESCALATED',
+  'AUTONOMY_OBSERVE',
+  'EXTERNAL_DIVERGENCE',
+]);
+const OPERATOR_CODES = new Set([
+  'REVIEWS_REQUIRED',
+  'CODEOWNER_REVIEW_REQUIRED',
+  'MERGE_METHOD_NOT_ALLOWED',
+  'MERGE_QUEUE_REQUIRED',
+  'BLOCKED_BY_RULES',
+  'REQUIRED_CHECK_MISSING',
+  'PR_DRAFT',
+  'EXTERNAL_DIVERGENCE',
+]);
 
 export function revisionFor(
   pr: PullRequestRecord,
   hard: readonly Blocker[],
 ): { failure: Omit<FailureInput, 'subjectKind' | 'subjectId'>; reason: string } | null {
   const fixable = hard.filter((b) => REVISABLE_CODES.has(b.code));
-  if (fixable.length === 0 || hard.some((b) => !REVISABLE_CODES.has(b.code) && !WAITING_CODES.has(b.code))) return null;
+  if (fixable.length === 0 || hard.some((b) => REVISION_PREVENTING_CODES.has(b.code))) return null;
   const codes = [...new Set(fixable.map((b) => b.code))].sort();
   const failingChecks = pr.checks
     .filter((c) => c.state === 'failure')
@@ -103,6 +122,11 @@ export function revisionFor(
     },
     reason: `PR #${pr.number} needs revision: ${fixable.map((b) => b.message).join('; ')}`,
   };
+}
+
+function operatorBlockers(pr: PullRequestRecord, hard: readonly Blocker[]): Blocker[] {
+  const checksSettled = pr.checks.length > 0 && pr.checks.every((c) => c.state !== 'pending');
+  return hard.filter((b) => OPERATOR_CODES.has(b.code) && (b.code !== 'REQUIRED_CHECK_MISSING' || checksSettled));
 }
 
 export interface QueueTickOptions {
@@ -197,13 +221,9 @@ function evaluateQueue(
       continue;
     }
     if (FROZEN.includes(entry.status)) continue;
-    if (entry.status === 'blocked') {
-      const revision = entry.blockers.find((b) => b.code === REVISION_REQUIRED);
-      if (revision && revision.details?.headSha === pr.headSha) {
-        result.blocked.push(pr.id);
-        continue;
-      }
-    }
+    const revisionPending =
+      entry.status === 'blocked' &&
+      entry.blockers.some((b) => b.code === REVISION_REQUIRED && b.details?.headSha === pr.headSha);
     if (entry.status === 'validating' && queue.mode === 'github-managed') {
       if (pr.governance?.isInMergeQueue) continue;
       const failing = pr.checks.filter((c) => c.state === 'failure').map((c) => c.name);
@@ -230,15 +250,18 @@ function evaluateQueue(
     if ((entry.status === 'candidate' || entry.status === 'validating') && activeCandidates(db, queue.id).length > 0) {
       continue;
     }
-    const evaluation = evaluateEligibility(
-      eligibilityInputFor(db, pr, {
-        autonomy: scope.autonomy,
-        config: scope.config,
-        mode: queue.mode,
-        queuePaused: queue.paused,
-      }),
-    );
+    const input = eligibilityInputFor(db, pr, {
+      autonomy: scope.autonomy,
+      config: scope.config,
+      mode: queue.mode,
+      queuePaused: queue.paused,
+    });
+    const evaluation = evaluateEligibility(input);
     const hard = evaluation.blockers.filter((b) => !b.soft);
+    if (revisionPending && hard.some((b) => REVISABLE_CODES.has(b.code))) {
+      result.blocked.push(pr.id);
+      continue;
+    }
     const revision = revisionFor(pr, hard);
     if (revision) {
       applyEntryFailure(
@@ -261,7 +284,7 @@ function evaluateQueue(
     }
     const next: QueueEntry['status'] = hard.length === 0 ? 'eligible' : 'blocked';
     const base = hookBase(pr);
-    if (base && next === 'blocked' && entry.status !== 'blocked') {
+    if (base && next === 'blocked' && (entry.status !== 'blocked' || revisionPending)) {
       scope.hooks.push({
         name: 'onBlocked',
         event: { ...base, reason: hard[0]!.message, blockers: evaluation.blockers },
@@ -269,6 +292,29 @@ function evaluateQueue(
     }
     if (base && next === 'eligible' && entry.status === 'blocked') {
       scope.hooks.push({ name: 'onQueued', event: { ...base, entryId: entry.id } });
+    }
+    if (scope.config.review.enabled && hard.some((b) => b.code === 'HIGH_RISK_REVIEW_REQUIRED')) {
+      requestHighRiskReview(db, scope, pr, input.reviews, at);
+    }
+    const operator = operatorBlockers(pr, hard);
+    if (operator.length > 0) {
+      requestInterventionInTx(
+        db,
+        {
+          projectId: scope.repository.projectId,
+          title: `PR #${pr.number} needs operator action`,
+          reasons: operator.map((b) =>
+            b.code === 'EXTERNAL_DIVERGENCE'
+              ? `${b.message}: review the outside change, then run \`crew pr acknowledge ${pr.number}\``
+              : b.message,
+          ),
+          prId: pr.id,
+          taskId: pr.taskId,
+          once: true,
+        },
+        TICK_ACTOR,
+        at,
+      );
     }
     if (hard.some((b) => APPROVAL_CODES.has(b.code))) {
       requestInterventionInTx(
@@ -293,6 +339,46 @@ function evaluateQueue(
     );
     setEntryStatus(db, entry.id, next, at, { blockers: evaluation.blockers });
     (next === 'eligible' ? result.eligible : result.blocked).push(pr.id);
+  }
+}
+
+function requestHighRiskReview(
+  db: Database,
+  scope: TickScope,
+  pr: PullRequestRecord,
+  reviews: ReviewSummary,
+  at: string,
+): void {
+  const latest = [reviews.byType.code, reviews.byType.security].filter((r) => r !== null);
+  if (latest.length === 0) {
+    scope.hooks.push({
+      name: 'onReviewRequired',
+      event: {
+        taskId: pr.taskId,
+        prId: pr.id,
+        prNumber: pr.number,
+        repositoryId: pr.repositoryId,
+        headSha: pr.headSha,
+      },
+    });
+    return;
+  }
+  if (latest.every((r) => r.status === 'failed')) {
+    requestInterventionInTx(
+      db,
+      {
+        projectId: scope.repository.projectId,
+        title: `Crewyard review failed for PR #${pr.number}`,
+        reasons: [
+          `The high-risk review of ${pr.headSha.slice(0, 12)} failed; run \`crew review request ${pr.number}\` to retry`,
+        ],
+        prId: pr.id,
+        taskId: pr.taskId,
+        once: true,
+      },
+      TICK_ACTOR,
+      at,
+    );
   }
 }
 
@@ -755,7 +841,7 @@ export async function queueTick(
   };
   const sync = options.sync === false ? null : await syncRepository(ctx, repositoryId, env);
   const freshness = readFreshness(ctx.store.db, repositoryId);
-  const offline = freshness.offline || (sync !== null && !sync.ok);
+  const offline = remoteUnavailable(freshness, ctx.clock.now()) || (sync !== null && !sync.ok);
   const outbox = offline ? null : await processIntegrationOutbox(ctx, { leaderId: options.leaderId, env });
   const results: QueueTickQueueResult[] = [];
   for (const initial of queuesForRepository(ctx.store.db, repositoryId)) {

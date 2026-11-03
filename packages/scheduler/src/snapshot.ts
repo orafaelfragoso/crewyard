@@ -188,7 +188,7 @@ export function buildSchedulerSnapshot(
   const projectLeases = leases.filter((l) => l.project_id === projectId);
   const queue = one<{ depth: number; oldest: string | null }>(
     db,
-    `SELECT COUNT(*) AS depth, MIN(e.enqueued_at) AS oldest FROM queue_entries e
+    `SELECT COUNT(*) AS depth, MIN(e.progressing_since) AS oldest FROM queue_entries e
      JOIN integration_queues q ON q.id = e.queue_id JOIN repositories r ON r.id = q.repository_id
      WHERE r.project_id = ? AND e.status NOT IN ('merged', 'removed')`,
     projectId,

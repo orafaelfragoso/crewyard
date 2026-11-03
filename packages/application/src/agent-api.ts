@@ -4,7 +4,6 @@ import {
   getQueueStatus,
   listPullRequests,
   requestIntegration,
-  requestPullRequestReview,
   showPullRequest,
 } from '@crewyard/integration';
 import { getProject, loadProjectConfig, primaryRepository } from '@crewyard/projects';
@@ -30,7 +29,7 @@ import {
   callerProject,
   leaseFor,
 } from './caller.ts';
-import { contextFingerprints, integrationEnv, reviewersFor } from './integration.ts';
+import { integrationEnv, reviewPullRequest } from './integration.ts';
 import { publishTask } from './publish.ts';
 import { serviceStatus } from './service-control.ts';
 import { claimAndPrepare, type PreparedClaim } from './work.ts';
@@ -338,17 +337,9 @@ export function agentGetReview(
 
 export async function agentRequestReview(ctx: CrewContext, caller: Caller, input: { taskId: string }) {
   assertToolAllowed(caller, 'crew_request_review');
-  const detail = ownedTask(ctx, caller, input.taskId);
+  ownedTask(ctx, caller, input.taskId);
   const pr = prForTask(ctx, input.taskId);
-  return requestPullRequestReview(
-    ctx,
-    { prId: pr.id },
-    {
-      reviewers: reviewersFor(ctx, detail.task.projectId),
-      context: contextFingerprints(ctx),
-      env: integrationEnv(ctx),
-    },
-  );
+  return reviewPullRequest(ctx, { prId: pr.id }, integrationEnv(ctx));
 }
 
 export async function agentRequestIntegration(ctx: CrewContext, caller: Caller, input: { taskId: string }) {

@@ -1,18 +1,25 @@
+import { rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { awaitSession, getAgent, startManagedSession } from '@crewyard/agents';
 import { interfaceFingerprint } from '@crewyard/context';
-import { type Actor, CrewError, fingerprint, type TaskState, toCrewError } from '@crewyard/core';
+import { type Actor, CrewError, ensureDir, fingerprint, git, newId, type TaskState, toCrewError } from '@crewyard/core';
 import { dependencyGraph, snapshotByCommit } from '@crewyard/indexing';
 import {
   createClientFactory,
+  fetchIntegrationRefs,
   type IntegrationEnv,
   type PendingHook,
+  type PullRequestReviewInput,
+  requestPullRequestReview,
+  requirePullRequest,
   runHooks,
   type TaskHookEvent,
   type TaskHooks,
 } from '@crewyard/integration';
-import { loadProjectConfig, primaryRepository } from '@crewyard/projects';
+import { getRepository, loadProjectConfig } from '@crewyard/projects';
 import {
   type ContextFingerprintProvider,
+  type RequestReviewResult,
   type Reviewer,
   type ReviewInput,
   type ReviewType,
@@ -87,6 +94,9 @@ export function taskHooks(ctx: CrewContext): TaskHooks {
     onEscalated: (e) => advance(ctx, e.taskId, ['ESCALATED'], `PR #${e.prNumber} escalated`, e.reason),
     onRevisionRequired: (e) => advance(ctx, e.taskId, ['REVISION'], `PR #${e.prNumber} needs revision: ${e.reason}`),
     onRemoteHeadAccepted: (e) => acceptRemoteHead(ctx, e.taskId, e.headSha),
+    onReviewRequired: async (e) => {
+      await reviewPullRequest(ctx, { prId: e.prId });
+    },
   };
 }
 
@@ -229,14 +239,47 @@ export class AgentReviewer implements Reviewer {
   }
 }
 
-export function reviewersFor(ctx: CrewContext, projectId: string): Partial<Record<ReviewType, Reviewer>> {
+export function reviewersFor(ctx: CrewContext, projectId: string, cwd: string): Partial<Record<ReviewType, Reviewer>> {
   const config = loadProjectConfig(ctx, projectId).config;
   const baseline = new StaticAnalysisReviewer();
   const agentName = config.review.reviewer_agent;
   if (!agentName) return { code: baseline, security: baseline, integration: baseline };
-  const repo = primaryRepository(ctx, projectId);
-  const agent = new AgentReviewer(ctx, agentName, repo.canonicalPath, projectId);
+  const agent = new AgentReviewer(ctx, agentName, cwd, projectId);
   return { code: agent, security: baseline, integration: agent };
+}
+
+async function headOf(path: string): Promise<string | null> {
+  const result = await git(path, ['rev-parse', 'HEAD'], { allowFailure: true });
+  return result.exitCode === 0 ? result.stdout.trim() : null;
+}
+
+export async function reviewPullRequest(
+  ctx: CrewContext,
+  input: PullRequestReviewInput,
+  env: IntegrationEnv = {},
+): Promise<RequestReviewResult> {
+  const pr = requirePullRequest(ctx.store.db, input.prId);
+  const repo = getRepository(ctx, pr.repositoryId);
+  const review = (cwd: string) =>
+    requestPullRequestReview(ctx, input, {
+      reviewers: reviewersFor(ctx, repo.projectId, cwd),
+      context: contextFingerprints(ctx),
+      env,
+    });
+  if (!loadProjectConfig(ctx, repo.projectId).config.review.reviewer_agent) return review(repo.canonicalPath);
+  for (const workspace of pr.taskId ? listWorkspaces(ctx, { taskId: pr.taskId }) : []) {
+    if (workspace.state !== 'cleaned' && (await headOf(workspace.path)) === pr.headSha) return review(workspace.path);
+  }
+  await fetchIntegrationRefs(repo.canonicalPath, pr.governance?.integrationBase ?? pr.baseRef, [pr]);
+  const worktree = join(ensureDir(join(ctx.dirs.worktrees, 'reviews')), newId('ws'));
+  try {
+    await git(repo.canonicalPath, ['worktree', 'add', '--detach', '--force', worktree, pr.headSha]);
+    return await review(worktree);
+  } finally {
+    await git(repo.canonicalPath, ['worktree', 'remove', '--force', worktree], { allowFailure: true });
+    rmSync(worktree, { recursive: true, force: true });
+    await git(repo.canonicalPath, ['worktree', 'prune'], { allowFailure: true });
+  }
 }
 
 export function integrationEnv(ctx: CrewContext, overrides: Partial<IntegrationEnv> = {}): IntegrationEnv {

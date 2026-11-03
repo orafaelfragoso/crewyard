@@ -132,6 +132,28 @@ describe('evidence fingerprint and cache', () => {
     });
   });
 
+  test('review status follows blocking severities, not the model verdict', async () => {
+    const { ctx: c, repositoryId, config } = setup();
+    const finding = { severity: 'medium' as const, confidence: 0.9, path: 'src/service.ts', reason: 'naming' };
+    const review = async (commitSha: string, result: StructuredFindings) =>
+      (
+        await requestReview(
+          c,
+          { repositoryId, prId: 'pr_1', commitSha, baseSha: 'b1', patch: PATCH, types: ['code'], force: true },
+          { reviewers: { code: new CountingReviewer('llm-reviewer', result) }, config },
+        )
+      ).outcomes[0]!.review!;
+    const medium = await review('h1', { verdict: 'changes_requested', confidence: 0.9, findings: [finding] });
+    expect(medium.status).toBe('passed');
+    expect(medium.findings.map((f) => f.severity)).toEqual(['medium']);
+    const high = await review('h2', {
+      verdict: 'passed',
+      confidence: 0.9,
+      findings: [{ ...finding, severity: 'high' }],
+    });
+    expect(high.status).toBe('changes_requested');
+  });
+
   test('AT-08: unchanged patch with a changed relevant schema invalidates reuse and runs integration review', async () => {
     const { ctx: c, repositoryId, config } = setup();
     const code = new CountingReviewer('code-llm');

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
 import { addProfile, createAccountPolicy, createAgent, getSession, listSessions } from '@crewyard/agents';
-import { CrewService, initRepository } from '@crewyard/application';
+import { CrewService, initRepository, type ProjectCycle } from '@crewyard/application';
 import { git } from '@crewyard/core';
 import { listEvents } from '@crewyard/storage';
 import { addTask, showTask } from '@crewyard/tasks';
@@ -117,4 +117,35 @@ describe('service dispatch', () => {
     const finished = listEvents(c.store, { types: ['service.dispatch_finished'] });
     expect(finished.at(-1)?.payload.outcome).toMatchObject({ kind: 'interrupted', commits: [expect.any(String)] });
   }, 60_000);
+
+  test('cycles hand long work to the background without blocking later ticks or shutdown', async () => {
+    ctx = createTestContext();
+    const c = ctx;
+    const repo = await createTempGitRepo({ 'a.ts': 'export const a = 1;\n' });
+    await initRepository(c, { repoPath: repo, actor: { kind: 'operator', id: 'op' } });
+    const { promise: slow, resolve: release } = Promise.withResolvers<void>();
+    let runs = 0;
+    const cycle: ProjectCycle = {
+      name: 'slow',
+      intervalSeconds: () => 0,
+      async run(_ctx, input) {
+        runs++;
+        input.background(slow);
+        return {};
+      },
+    };
+    const service = new CrewService(c, { cycles: [cycle], dispatch: false });
+    await service.tick();
+    await service.tick();
+    expect(runs).toBe(2);
+    let stopped = false;
+    const stopping = service.stop().then(() => {
+      stopped = true;
+    });
+    await Bun.sleep(50);
+    expect(stopped).toBe(false);
+    release();
+    await stopping;
+    expect(stopped).toBe(true);
+  }, 30_000);
 });

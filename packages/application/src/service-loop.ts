@@ -22,7 +22,12 @@ export interface ProjectCycle {
   intervalSeconds(ctx: CrewContext, projectId: string): number;
   run(
     ctx: CrewContext,
-    input: { projectId: string; leaderId: string; leaderGeneration: number },
+    input: {
+      projectId: string;
+      leaderId: string;
+      leaderGeneration: number;
+      background(work: Promise<unknown>): void;
+    },
   ): Promise<Record<string, unknown>>;
 }
 
@@ -126,6 +131,13 @@ export class CrewService {
     return true;
   }
 
+  private track(name: string, projectId: string, work: Promise<unknown>): void {
+    const done = work
+      .catch((error: unknown) => this.log(`service.${name}_failed`, { error: toCrewError(error).message }, projectId))
+      .finally(() => this.inflight.delete(done));
+    this.inflight.add(done);
+  }
+
   async tick(): Promise<void> {
     await reapOrphans(this.ctx, { actor: SERVICE_ACTOR });
     for (const project of listProjects(this.ctx)) {
@@ -170,6 +182,7 @@ export class CrewService {
           projectId,
           leaderId: this.workerId,
           leaderGeneration: lease.generation,
+          background: (work) => this.track(cycle.name, projectId, work),
         });
         if (Object.keys(result).length > 0) this.log(`service.${cycle.name}`, result, projectId);
       } catch (error) {

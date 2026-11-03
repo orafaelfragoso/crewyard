@@ -1,10 +1,4 @@
-import {
-  contextFingerprints,
-  integrationEnv,
-  projectForRepositoryPath,
-  publishTask,
-  reviewersFor,
-} from '@crewyard/application';
+import { integrationEnv, projectForRepositoryPath, publishTask, reviewPullRequest } from '@crewyard/application';
 import { CrewError } from '@crewyard/core';
 import {
   acknowledgeDivergence,
@@ -20,7 +14,6 @@ import {
   processIntegrationOutbox,
   queueTick,
   requestIntegration,
-  requestPullRequestReview,
   setQueuePaused,
   showPullRequest,
   syncRepository,
@@ -205,15 +198,14 @@ export function registerIntegrationCommands(program: Command): void {
     .action(
       action(async (ctx, opts, number: string) => {
         const id = await prId(ctx, opts, number);
-        const { project } = await projectForRepositoryPath(ctx, opts.project as string | undefined);
-        const result = await requestPullRequestReview(
+        const result = await reviewPullRequest(
           ctx,
           {
             prId: id,
             ...(opts.type ? { types: String(opts.type).split(',') as ReviewType[] } : {}),
             ...(opts.force ? { force: true } : {}),
           },
-          { reviewers: reviewersFor(ctx, project.id), context: contextFingerprints(ctx), env: integrationEnv(ctx) },
+          integrationEnv(ctx),
         );
         emit(opts, result, (d) =>
           table(

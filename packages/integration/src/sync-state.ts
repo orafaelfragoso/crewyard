@@ -35,6 +35,12 @@ export function readFreshness(db: Database, repositoryId: string): RemoteFreshne
   };
 }
 
+export function remoteUnavailable(freshness: RemoteFreshness, now: Date): boolean {
+  return (
+    freshness.offline || (freshness.rateLimitResetAt !== null && Date.parse(freshness.rateLimitResetAt) > now.getTime())
+  );
+}
+
 export function markSyncSuccess(db: Database, repositoryId: string, at: string): void {
   db.query(
     `INSERT INTO sync_state (key, last_success_at, last_attempt_at, last_error, offline, rate_limit_reset_at) VALUES (?, ?, ?, NULL, 0, NULL)

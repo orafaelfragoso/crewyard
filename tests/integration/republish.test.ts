@@ -139,7 +139,12 @@ describe('republishing a revised task', () => {
     writeFileSync(join(claim.worktreePath!, 'NOTES.md'), 'stale revision\n');
     await commitWorkspaceChanges(ctx, claim.workspaceId!, { message: 'stale', actor: operator });
     const publish = integrationCycles(() => env).find((c) => c.name === 'publish')!;
-    const cycle = await publish.run(ctx, { projectId: f.projectId, leaderId: 'leader-1', leaderGeneration: 1 });
+    const cycle = await publish.run(ctx, {
+      projectId: f.projectId,
+      leaderId: 'leader-1',
+      leaderGeneration: 1,
+      background: () => {},
+    });
     expect(JSON.stringify(cycle)).toContain('outside Crewyard');
     expect(showTask(ctx, task.id).task.state).toBe('BLOCKED');
     expect(tasksAwaitingPublication(ctx, f.projectId)).toEqual([]);

@@ -274,14 +274,14 @@ function carriedFindings(prior: ReviewArtifact, keepPaths: Set<string> | null) {
     }));
 }
 
-function statusFromFindings(db: Database, reviewId: string, verdict: string | undefined): ReviewStatus {
+function statusFromFindings(db: Database, reviewId: string): ReviewStatus {
   const blocking = one<{ n: number }>(
     db,
     `SELECT COUNT(*) AS n FROM review_findings WHERE review_id = ? AND status IN ('open', 'accepted') AND severity IN (${BLOCKING_SEVERITIES.map(() => '?').join(',')})`,
     reviewId,
     ...BLOCKING_SEVERITIES,
   )!.n;
-  return blocking > 0 || verdict === 'changes_requested' ? 'changes_requested' : 'passed';
+  return blocking > 0 ? 'changes_requested' : 'passed';
 }
 
 function insertArtifact(
@@ -523,7 +523,7 @@ export async function requestReview(
           const unchanged = new Set(Object.keys(inputs.fileHashes).filter((p) => !decision.changedPaths.includes(p)));
           insertFindings(db, id, reviewer.identity, input.commitSha, carriedFindings(prior, unchanged), done);
         }
-        const status = statusFromFindings(db, id, result.verdict);
+        const status = statusFromFindings(db, id);
         db.query('UPDATE review_artifacts SET status = ?, confidence = ?, completed_at = ? WHERE id = ?').run(
           status,
           Math.min(1, Math.max(0, result.confidence)),
@@ -642,8 +642,9 @@ export function reviewSummary(db: Database, prId: string, commitSha: string): Re
     byType[type] = { reviewId: row.id, status: row.status, reused: row.reused_from !== null && row.scope === 'reused' };
     blockingFindings += one<{ n: number }>(
       db,
-      `SELECT COUNT(*) AS n FROM review_findings WHERE review_id = ? AND status IN ('open', 'accepted') AND severity IN ('high', 'critical')`,
+      `SELECT COUNT(*) AS n FROM review_findings WHERE review_id = ? AND status IN ('open', 'accepted') AND severity IN (${BLOCKING_SEVERITIES.map(() => '?').join(',')})`,
       row.id,
+      ...BLOCKING_SEVERITIES,
     )!.n;
   }
   return { commitSha, byType, blockingFindings };
@@ -787,7 +788,7 @@ export function updateFindingStatus(
     db.query('UPDATE review_findings SET status = ?, updated_at = ? WHERE id = ?').run(input.status, at, row.id);
     const review = one<ReviewRow>(db, 'SELECT * FROM review_artifacts WHERE id = ?', row.review_id)!;
     if (review.status === 'changes_requested' || review.status === 'passed') {
-      const next = statusFromFindings(db, review.id, undefined);
+      const next = statusFromFindings(db, review.id);
       if (next !== review.status) {
         db.query('UPDATE review_artifacts SET status = ? WHERE id = ?').run(next, review.id);
       }

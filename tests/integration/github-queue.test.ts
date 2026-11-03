@@ -7,11 +7,13 @@ import {
   getQueueStatus,
   listPullRequests,
   queueTick,
+  repositorySyncKey,
   requestIntegration,
   setExpectedRemoteHead,
   showPullRequest,
   syncRepository,
 } from '@crewyard/integration';
+import { type Reviewer, requestReview } from '@crewyard/reviews';
 import { all } from '@crewyard/storage';
 import { createGitHubFixture, type GitHubFixture } from './github-fixture.ts';
 
@@ -320,6 +322,19 @@ describe('crew-managed integration queue', () => {
     expect(listPullRequests(f.ctx, { repositoryId: f.repositoryId }).map((p) => p.state)).toEqual(['merged', 'merged']);
   }, 60_000);
 
+  test('a stored rate limit pauses remote mutations until it resets', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    const n = await openPull(f, 'feature', { 'src/feature.ts': 'export const f = 1;\n' });
+    await queueAll(f, [n]);
+    f.ctx.store.db
+      .query('UPDATE sync_state SET rate_limit_reset_at = ? WHERE key = ?')
+      .run(new Date(Date.now() + 3_600_000).toISOString(), repositorySyncKey(f.repositoryId));
+    const result = await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env, sync: false });
+    expect(result.offline).toBe(true);
+    expect(mergeCalls(f)).toBe(0);
+  }, 30_000);
+
   test('observe autonomy never merges', async () => {
     fx = await createGitHubFixture({ autonomy: 'observe', config: { integration: { auto_merge_eligible: false } } });
     const f = fx;
@@ -388,6 +403,21 @@ describe('github-managed integration queue', () => {
     expect(showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: pr.number }).state).toBe('merged');
   }, 60_000);
 
+  test('failing checks on a high-risk PR without a review still send it back for revision', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    const sha = await f.pushBranch('deps', { 'pkg/Cargo.toml': '[package]\nname = "pkg"\n' });
+    const pr = f.mock.addPull({ headRef: 'deps', baseRef: 'main' });
+    f.mock.setCheck(sha, 'ci', 'failure');
+    await queueAll(f, [pr.number]);
+    await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+    const record = showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: pr.number });
+    const entry = getQueueStatus(f.ctx, { repositoryId: f.repositoryId }, f.env).entries.find(
+      (e) => e.pr.id === record.id,
+    )!.entry;
+    expect(entry.blockers.map((b) => b.code)).toEqual(['REVISION_REQUIRED']);
+  }, 60_000);
+
   test('the same failing checks on a revised head quarantine the PR after the retry limit', async () => {
     fx = await createGitHubFixture({ config: { agents: { max_retries_per_failure: 2 } } });
     const f = fx;
@@ -443,4 +473,84 @@ describe('branches behind a strict base', () => {
       expect(after).toMatchObject({ headSha: merged, expectedRemoteHead: merged, externalDivergence: null });
     }, 60_000);
   }
+});
+
+describe('queue routing', () => {
+  const entryFor = (f: GitHubFixture, number: number) => {
+    const record = showPullRequest(f.ctx, { repositoryId: f.repositoryId, number });
+    return getQueueStatus(f.ctx, { repositoryId: f.repositoryId }, f.env).entries.find((e) => e.pr.id === record.id)!
+      .entry;
+  };
+  const tick = (f: GitHubFixture) => queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+
+  test('failing checks are revised while reviews and merge approval are still outstanding', async () => {
+    fx = await createGitHubFixture({ config: { integration: { auto_merge_eligible: false } } });
+    const f = fx;
+    f.mock.requireReviews('main', 1);
+    const sha = await f.pushBranch('fix', { 'src/a.ts': 'export const a = 1;\n' });
+    const pr = f.mock.addPull({ headRef: 'fix', baseRef: 'main' });
+    f.mock.setCheck(sha, 'ci', 'failure');
+    await queueAll(f, [pr.number]);
+    await tick(f);
+    expect(entryFor(f, pr.number).blockers.map((b) => b.code)).toEqual(['REVISION_REQUIRED']);
+  }, 30_000);
+
+  test('blockers only an operator can resolve raise one intervention', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    f.mock.requireReviews('main', 1);
+    const n = await openPull(f, 'feature', { 'src/feature.ts': 'export const f = 1;\n' });
+    await queueAll(f, [n]);
+    await tick(f);
+    await tick(f);
+    expect(entryFor(f, n).blockers.map((b) => b.code)).toContain('REVIEWS_REQUIRED');
+    expect(
+      all(f.ctx.store.db, 'SELECT body FROM notifications WHERE title = ?', `PR #${n} needs operator action`),
+    ).toEqual([{ body: '- 0/1 required approvals' }]);
+  }, 30_000);
+
+  test('a failing check that turns green on the same head leaves revision without a new failure', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    const sha = await f.pushBranch('fix', { 'src/a.ts': 'export const a = 1;\n' });
+    const pr = f.mock.addPull({ headRef: 'fix', baseRef: 'main' });
+    f.mock.setCheck(sha, 'ci', 'failure');
+    await queueAll(f, [pr.number]);
+    await tick(f);
+    expect(entryFor(f, pr.number).blockers.map((b) => b.code)).toEqual(['REVISION_REQUIRED']);
+    f.mock.setCheck(sha, 'ci', 'success');
+    await syncRepository(f.ctx, f.repositoryId, f.env);
+    await tickUntilIdle(f);
+    expect(showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: pr.number }).state).toBe('merged');
+    expect(all(f.ctx.store.db, 'SELECT attempts FROM failure_records')).toEqual([{ attempts: 1 }]);
+  }, 60_000);
+
+  test('a high-risk PR without a review on its head requests one, and a failed review asks an operator', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    const n = await openPull(f, 'deps', { 'pkg/Cargo.toml': '[package]\nname = "pkg"\n' });
+    await queueAll(f, [n]);
+    await tick(f);
+    const pr = showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: n });
+    const requested = () => f.hookCalls.filter((h) => h.name === 'onReviewRequired').map((h) => h.event.headSha);
+    expect(requested()).toEqual([pr.headSha]);
+
+    const failing: Reviewer = {
+      identity: 'broken',
+      model: null,
+      promptVersion: 'p1',
+      review: () => Promise.reject(new Error('reviewer crashed')),
+    };
+    await requestReview(
+      f.ctx,
+      { repositoryId: f.repositoryId, prId: pr.id, commitSha: pr.headSha, baseSha: 'base', patch: '', types: ['code'] },
+      { reviewers: { code: failing }, config: f.config },
+    );
+    await tick(f);
+    await tick(f);
+    expect(requested()).toEqual([pr.headSha]);
+    expect(
+      all(f.ctx.store.db, 'SELECT 1 FROM notifications WHERE title = ?', `Crewyard review failed for PR #${n}`),
+    ).toHaveLength(1);
+  }, 30_000);
 });
