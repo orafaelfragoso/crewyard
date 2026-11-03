@@ -238,15 +238,23 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Wait until the registry serves the version
+      - name: Wait until the registry serves crewyard and its platform packages
         run: |
+          set -euo pipefail
           version="${TAG#v}"
+          served() { [ "$(npm view "$1@$version" version --prefer-online 2>/dev/null)" = "$version" ]; }
+          pending=crewyard
           for attempt in $(seq 1 40); do
-            if [ "$(npm view "crewyard@$version" version --prefer-online 2>/dev/null)" = "$version" ]; then exit 0; fi
-            echo "Attempt $attempt: crewyard@$version is not served yet; retrying in 15 s."
+            if served crewyard; then
+              platforms=$(npm view "crewyard@$version" optionalDependencies --json --prefer-online | jq -r 'if type == "array" then .[0] else . end | keys[]')
+              pending=""
+              for name in $platforms; do served "$name" || pending="$pending $name"; done
+              if [ -z "$pending" ]; then exit 0; fi
+            fi
+            echo "Attempt $attempt: not served yet: $pending; retrying in 15 s."
             sleep 15
           done
-          echo "::error::crewyard@$version did not appear on the registry within 10 minutes."
+          echo "::error::Version $version of $pending did not appear on the registry within 10 minutes."
           exit 1
       - name: Install the published version and run crew
         run: |
