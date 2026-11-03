@@ -341,12 +341,14 @@ export function toMergeQueueEntry(value: unknown): MergeQueueEntry | null {
 export function toGraphState(value: unknown): PullRequestGraphState {
   const raw = asRecord(value);
   const decision = asString(raw.reviewDecision);
+  const mergeable = asString(raw.mergeable);
   return {
     nodeId: asString(raw.id) ?? '',
     reviewDecision:
       decision === 'APPROVED' || decision === 'CHANGES_REQUESTED' || decision === 'REVIEW_REQUIRED'
         ? (decision as ReviewDecision)
         : null,
+    mergeable: mergeable === 'MERGEABLE' || mergeable === 'CONFLICTING' ? mergeable : 'UNKNOWN',
     mergeStateStatus: toMergeStateStatus(raw.mergeStateStatus),
     isInMergeQueue: asBoolean(raw.isInMergeQueue) ?? false,
     isMergeQueueEnabled: asBoolean(raw.isMergeQueueEnabled) ?? false,

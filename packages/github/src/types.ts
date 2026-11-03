@@ -135,6 +135,7 @@ export interface MergeQueueEntry {
 export interface PullRequestGraphState {
   nodeId: string;
   reviewDecision: ReviewDecision;
+  mergeable: Mergeability;
   mergeStateStatus: MergeStateStatus;
   isInMergeQueue: boolean;
   isMergeQueueEnabled: boolean;
