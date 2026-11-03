@@ -24,4 +24,13 @@ describe('secret redaction', () => {
       n: 1,
     });
   });
+
+  test('redacts each private key block and scans unterminated headers in linear time', () => {
+    const key = '-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----';
+    expect(redactSecrets(`a ${key} b ${key} c`)).toEqual({ text: 'a [REDACTED] b [REDACTED] c', redactions: 2 });
+    const hostile = '-----BEGIN PRIVATE KEY-----'.repeat(50_000);
+    const started = performance.now();
+    expect(redactSecrets(hostile).text).toBe(hostile);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
 });

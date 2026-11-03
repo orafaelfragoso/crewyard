@@ -1,19 +1,6 @@
-import {
-  copyFileSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  renameSync,
-  rmdirSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { copyFileSync, existsSync, readdirSync, readFileSync, rmdirSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
-import { CrewError, ensureDir, resolveDirs, sha256, systemClock, toIso } from '@crewyard/core';
+import { CrewError, ensureDir, resolveDirs, sha256, systemClock, toIso, writeFileAtomic } from '@crewyard/core';
 import { defaultExec } from './hosts.ts';
 import { type BackupManifest, installerBackupsRoot, MANIFEST_VERSION, type ManifestEntry } from './manifest.ts';
 import { formatCommand } from './plan.ts';
@@ -21,28 +8,6 @@ import type { ApplyOptions, ApplyResult, CommandChange, FileChange, InstallPlan,
 
 function readOrNull(path: string): string | null {
   return existsSync(path) ? readFileSync(path, 'utf8') : null;
-}
-
-function resolveWriteTarget(path: string): string {
-  try {
-    return lstatSync(path).isSymbolicLink() ? realpathSync(path) : path;
-  } catch {
-    return path;
-  }
-}
-
-export function writeFileAtomic(path: string, content: string): void {
-  const target = resolveWriteTarget(path);
-  mkdirSync(dirname(target), { recursive: true });
-  const mode = existsSync(target) ? statSync(target).mode & 0o777 : 0o644;
-  const temp = join(dirname(target), `.${basename(target)}.crewyard-${crypto.randomUUID().slice(0, 8)}.tmp`);
-  try {
-    writeFileSync(temp, content, { mode });
-    renameSync(temp, target);
-  } catch (error) {
-    if (existsSync(temp)) unlinkSync(temp);
-    throw error;
-  }
 }
 
 function pruneEmptyDirs(start: string, stopAt: string): void {

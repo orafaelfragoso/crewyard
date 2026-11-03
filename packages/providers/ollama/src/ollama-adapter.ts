@@ -12,6 +12,7 @@ import {
   type ProfileHealth,
   type ProviderAdapter,
   type SessionOutcome,
+  trimTrailingSlashes,
   UNKNOWN_USAGE,
   type UsageReport,
 } from '@crewyard/core';
@@ -36,7 +37,7 @@ import {
 export const OLLAMA_DEFAULT_ENDPOINT = 'http://127.0.0.1:11434';
 
 export function ollamaEndpoint(profile: AccountProfile): string {
-  return (settingString(profile, 'endpoint') ?? OLLAMA_DEFAULT_ENDPOINT).replace(/\/+$/, '');
+  return trimTrailingSlashes(settingString(profile, 'endpoint') ?? OLLAMA_DEFAULT_ENDPOINT);
 }
 
 export function ollamaIsLoopback(profile: AccountProfile): boolean {

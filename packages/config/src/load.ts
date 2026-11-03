@@ -56,8 +56,18 @@ function flattenPaths(value: unknown, prefix = ''): string[] {
   return Object.entries(value).flatMap(([k, v]) => flattenPaths(v, prefix ? `${prefix}.${k}` : k));
 }
 
+const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
+export function configPathSegments(path: string): string[] {
+  const segments = path.split('.');
+  if (segments.some((segment) => segment === '' || FORBIDDEN_SEGMENTS.has(segment))) {
+    throw new CrewError('INVALID_INPUT', `Invalid configuration path: ${path}`);
+  }
+  return segments;
+}
+
 export function setPath(target: Plain, path: string, value: unknown): void {
-  const parts = path.split('.');
+  const parts = configPathSegments(path);
   let cursor = target;
   for (const part of parts.slice(0, -1)) {
     if (!isPlain(cursor[part])) cursor[part] = {};

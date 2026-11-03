@@ -1,11 +1,12 @@
 import type { Database } from 'bun:sqlite';
-import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import {
   type Actor,
   type CostSource,
   CrewError,
   hashToken,
   isExpired,
+  isNotFound,
   nowIso,
   redactObject,
   type UsageSource,
@@ -241,15 +242,22 @@ export function readSessionLog(
   options: { tailBytes?: number } = {},
 ): { path: string | null; content: string; truncated: boolean } {
   const session = getSession(ctx, sessionId);
-  if (!session.logPath || !existsSync(session.logPath)) return { path: session.logPath, content: '', truncated: false };
-  const size = statSync(session.logPath).size;
-  const tail = options.tailBytes ?? 64 * 1024;
-  if (size <= tail) return { path: session.logPath, content: readFileSync(session.logPath, 'utf8'), truncated: false };
-  const fd = openSync(session.logPath, 'r');
+  const empty = { path: session.logPath, content: '', truncated: false };
+  if (!session.logPath) return empty;
+  let fd: number;
   try {
-    const buffer = Buffer.alloc(tail);
-    readSync(fd, buffer, 0, tail, size - tail);
-    return { path: session.logPath, content: buffer.toString('utf8'), truncated: true };
+    fd = openSync(session.logPath, 'r');
+  } catch (error) {
+    if (isNotFound(error)) return empty;
+    throw error;
+  }
+  try {
+    const size = fstatSync(fd).size;
+    const tail = options.tailBytes ?? 64 * 1024;
+    const length = Math.min(size, tail);
+    const buffer = Buffer.alloc(length);
+    const read = readSync(fd, buffer, 0, length, size - length);
+    return { path: session.logPath, content: buffer.toString('utf8', 0, read), truncated: size > tail };
   } finally {
     closeSync(fd);
   }

@@ -1,5 +1,7 @@
+const PRIVATE_KEY_BEGIN = /-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----/g;
+const PRIVATE_KEY_END = /-----END [A-Z ]{0,40}PRIVATE KEY-----/g;
+
 const SECRET_PATTERNS: readonly RegExp[] = [
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
   /\bgh[pousr]_[A-Za-z0-9]{36,255}\b/g,
   /\bgithub_pat_[A-Za-z0-9_]{60,255}\b/g,
   /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
@@ -15,9 +17,26 @@ const ASSIGNMENT_PATTERN =
 
 export const REDACTED = '[REDACTED]';
 
+export function replacePrivateKeys(text: string, replace: (block: string) => string): { text: string; count: number } {
+  let out = '';
+  let cursor = 0;
+  let count = 0;
+  PRIVATE_KEY_BEGIN.lastIndex = 0;
+  for (let begin = PRIVATE_KEY_BEGIN.exec(text); begin; begin = PRIVATE_KEY_BEGIN.exec(text)) {
+    PRIVATE_KEY_END.lastIndex = begin.index + begin[0].length;
+    if (!PRIVATE_KEY_END.exec(text)) break;
+    out += text.slice(cursor, begin.index) + replace(text.slice(begin.index, PRIVATE_KEY_END.lastIndex));
+    cursor = PRIVATE_KEY_END.lastIndex;
+    PRIVATE_KEY_BEGIN.lastIndex = cursor;
+    count++;
+  }
+  return { text: out + text.slice(cursor), count };
+}
+
 export function redactSecrets(text: string): { text: string; redactions: number } {
-  let redactions = 0;
-  let out = text;
+  const keys = replacePrivateKeys(text, () => REDACTED);
+  let redactions = keys.count;
+  let out = keys.text;
   for (const pattern of SECRET_PATTERNS) {
     out = out.replace(pattern, () => {
       redactions++;

@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import { REDACTED, redactSecrets } from '@crewyard/core';
+import { REDACTED, redactSecrets, replacePrivateKeys } from '@crewyard/core';
 
 export interface Chunk {
   index: number;
@@ -13,7 +13,6 @@ const MAX_CHUNK_CHARS = 4_000;
 export const MAX_CHUNKS_PER_BLOB = 4_096;
 const SLOT_SPACE = 2 ** 40;
 const MAX_PROBES = 4;
-const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
 
 export function splitLines(text: string): string[] {
   if (text === '') return [];
@@ -23,14 +22,12 @@ export function splitLines(text: string): string[] {
 }
 
 export function redactPreservingLines(text: string): { text: string; redactions: number } {
-  let blocks = 0;
-  const withoutKeys = text.replace(PRIVATE_KEY_BLOCK, (block) => {
-    blocks++;
-    return block
+  const { text: withoutKeys, count: blocks } = replacePrivateKeys(text, (block) =>
+    block
       .split('\n')
       .map(() => REDACTED)
-      .join('\n');
-  });
+      .join('\n'),
+  );
   const result = redactSecrets(withoutKeys);
   if (splitLines(result.text).length === splitLines(withoutKeys).length) {
     return { text: result.text, redactions: result.redactions + blocks };

@@ -1,4 +1,5 @@
 export * from './errors.ts';
+export * from './fs.ts';
 export * from './git.ts';
 export * from './hash.ts';
 export * from './ids.ts';
