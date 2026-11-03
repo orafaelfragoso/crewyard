@@ -17,6 +17,7 @@ export interface HandoffInput {
 
 export interface HandoffPolicy {
   releaseReservationsOnBlock?: boolean;
+  interventionOnBlock?: boolean;
 }
 
 export interface ReportInput extends LeaseCredentials {
@@ -102,12 +103,14 @@ export function report(ctx: CrewContext, input: ReportInput): ReportResult {
           at,
         ),
       );
-      requestInterventionInTx(
-        db,
-        { projectId: task.projectId, title: `Task ${task.id} blocked`, reasons, taskId: task.id },
-        actor,
-        at,
-      );
+      if (input.policy?.interventionOnBlock ?? true) {
+        requestInterventionInTx(
+          db,
+          { projectId: task.projectId, title: `Task ${task.id} blocked`, reasons, taskId: task.id },
+          actor,
+          at,
+        );
+      }
     } else {
       transitions.push(applyTransition(db, { ...base, to: 'SUBMITTED', reason: `reported_${input.kind}` }, at));
       if (input.kind === 'completed' && !requiresPullRequest(task)) {

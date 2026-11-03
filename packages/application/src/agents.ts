@@ -324,6 +324,7 @@ async function superviseLease(
       commits,
       remainingIssues: [reason],
     },
+    policy: { interventionOnBlock: false },
   });
   const failure = recordSessionFailure(ctx, {
     taskId: claim.taskId,
