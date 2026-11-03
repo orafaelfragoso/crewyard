@@ -125,6 +125,16 @@ blocks the entry with `REVISION_REQUIRED`, notifies the operator and calls `Task
 is re-evaluated when the head changes. Strict "up to date" rules surface `BRANCH_BEHIND_BASE` instead of an automatic
 update.
 
+### Revisions
+
+A queued PR whose only hard blockers are fixable by its author — failing checks (`CHECK_FAILED`,
+`REQUIRED_CHECK_FAILED`), a merge conflict, open high-severity review findings (`REVIEW_FINDINGS_OPEN`) or a
+GitHub reviewer requesting changes (`CHANGES_REQUESTED`) — is parked with `REVISION_REQUIRED` and its task moves to
+`REVISION`, so the service dispatches an engineer again. The new session reuses the task worktree and branch, its
+prompt lists the failing checks and open findings, and `crew_submit_work` pushes the new commits to the same PR, which
+is then re-reviewed and re-evaluated. Each identical failure counts against `agents.max_retries_per_failure`; at the
+limit the entry is quarantined and the task escalated for an operator.
+
 ## Stacked pull requests
 
 GitHub-native stacks (created with `gh stack submit`) expose a `stack` object (`id`, `position`, `size`, `base`) on

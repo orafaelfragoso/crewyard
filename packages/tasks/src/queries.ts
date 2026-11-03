@@ -4,6 +4,8 @@ import { all, one } from '@crewyard/storage';
 import {
   type ApprovalRow,
   compareTaskIds,
+  type LeaseHolder,
+  type LeaseHolderKind,
   type LeaseRow,
   mapTask,
   type ReservationRow,
@@ -51,9 +53,18 @@ export function dependentIds(db: Database, taskId: string): string[] {
 export function toViews(db: Database, tasks: readonly Task[]): TaskView[] {
   if (tasks.length === 0) return [];
   const deps = new Map<string, DependencyStatus[]>();
+  const holders = new Map<string, LeaseHolder>();
   const ids = tasks.map((t) => t.id);
   for (let i = 0; i < ids.length; i += 500) {
     const chunk = ids.slice(i, i + 500);
+    const marks = chunk.map(() => '?').join(',');
+    for (const lease of all<{ task_id: string; holder_kind: LeaseHolderKind; holder_id: string }>(
+      db,
+      `SELECT task_id, holder_kind, holder_id FROM leases WHERE released_at IS NULL AND task_id IN (${marks})`,
+      ...chunk,
+    )) {
+      holders.set(lease.task_id, { kind: lease.holder_kind, id: lease.holder_id });
+    }
     const rows = all<{ task_id: string; depends_on_id: string; state: TaskState }>(
       db,
       `SELECT d.task_id, d.depends_on_id, t.state FROM task_dependencies d JOIN tasks t ON t.id = d.depends_on_id
@@ -76,6 +87,7 @@ export function toViews(db: Database, tasks: readonly Task[]): TaskView[] {
       ...task,
       dependencies: statuses.map((d) => d.taskId),
       blockedByDependencies: statuses.filter((d) => !d.satisfied).map((d) => d.taskId),
+      leaseHolder: holders.get(task.id) ?? null,
     };
   });
 }

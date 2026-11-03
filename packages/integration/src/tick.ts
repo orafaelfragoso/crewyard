@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import type { CrewConfig } from '@crewyard/config';
-import { type Actor, type AutonomyMode, CrewError, gitText, nowIso } from '@crewyard/core';
+import { type Actor, type AutonomyMode, CrewError, type FailureClass, gitText, nowIso } from '@crewyard/core';
 import type { GitHubClient } from '@crewyard/github';
 import type { Repository } from '@crewyard/projects';
 import { requestInterventionInTx } from '@crewyard/reviews';
@@ -16,7 +16,7 @@ import {
   repositoryFor,
   runHooks,
 } from './env.ts';
-import { applyEntryFailure, REVISION_REQUIRED } from './failures.ts';
+import { applyEntryFailure, type FailureInput, REVISION_REQUIRED } from './failures.ts';
 import {
   type EnqueueIntent,
   enqueueOrReviveInTx,
@@ -41,6 +41,7 @@ import {
 import { type SyncResult, syncRepository } from './sync.ts';
 import { readFreshness } from './sync-state.ts';
 import type {
+  Blocker,
   IntegrationCandidate,
   IntegrationEnv,
   IntegrationQueue,
@@ -53,6 +54,47 @@ const TICK_ACTOR: Actor = { kind: 'service', id: 'integration-tick' };
 export const DEFAULT_LEASE_TTL = 120;
 const APPROVAL_CODES = new Set(['APPROVAL_REQUIRED', 'OPERATOR_MERGE_APPROVAL_REQUIRED']);
 const FROZEN: readonly QueueEntry['status'][] = ['quarantined', 'escalated', 'merging', 'merged', 'removed'];
+const REVISABLE_CODES = new Set([
+  'CHECK_FAILED',
+  'REQUIRED_CHECK_FAILED',
+  'MERGE_CONFLICT',
+  'REVIEW_FINDINGS_OPEN',
+  'CHANGES_REQUESTED',
+]);
+const WAITING_CODES = new Set([
+  'MERGEABILITY_UNKNOWN',
+  'REQUIRED_CHECK_PENDING',
+  'NOT_SYNCED',
+  'REMOTE_STATE_STALE',
+  'RATE_LIMITED',
+  'RULES_UNKNOWN',
+]);
+
+export function revisionFor(
+  pr: PullRequestRecord,
+  hard: readonly Blocker[],
+): { failure: Omit<FailureInput, 'subjectKind' | 'subjectId'>; reason: string } | null {
+  const fixable = hard.filter((b) => REVISABLE_CODES.has(b.code));
+  if (fixable.length === 0 || hard.some((b) => !REVISABLE_CODES.has(b.code) && !WAITING_CODES.has(b.code))) return null;
+  const codes = [...new Set(fixable.map((b) => b.code))].sort();
+  const failingChecks = pr.checks
+    .filter((c) => c.state === 'failure')
+    .map((c) => c.name)
+    .sort();
+  const failureClass: FailureClass = codes.includes('MERGE_CONFLICT')
+    ? 'merge_conflict'
+    : failingChecks.length > 0
+      ? 'test_failure'
+      : 'review_findings';
+  return {
+    failure: {
+      fingerprint: `revision:${pr.id}:${codes.join(',')}:${failingChecks.join(',')}`,
+      failureClass,
+      evidence: { codes, failingChecks, headSha: pr.headSha },
+    },
+    reason: `PR #${pr.number} needs revision: ${fixable.map((b) => b.message).join('; ')}`,
+  };
+}
 
 export interface QueueTickOptions {
   leaderId: string;
@@ -184,6 +226,26 @@ function evaluateQueue(
       }),
     );
     const hard = evaluation.blockers.filter((b) => !b.soft);
+    const revision = revisionFor(pr, hard);
+    if (revision) {
+      applyEntryFailure(
+        db,
+        {
+          entry,
+          pr,
+          projectId: scope.repository.projectId,
+          failure: revision.failure,
+          maxRetries: scope.config.agents.max_retries_per_failure,
+          reason: revision.reason,
+          actor: TICK_ACTOR,
+          revisable: true,
+        },
+        at,
+        scope.hooks,
+      );
+      result.blocked.push(pr.id);
+      continue;
+    }
     const next: QueueEntry['status'] = hard.length === 0 ? 'eligible' : 'blocked';
     if (next === 'blocked' && entry.status !== 'blocked') {
       const base = hookBase(pr);
