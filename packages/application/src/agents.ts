@@ -87,7 +87,13 @@ const UNTRUSTED_NOTICE =
 
 export async function planGoalWithAgent(
   ctx: CrewContext,
-  input: { goalId: string; agent: string; actor: Actor; timeoutMinutes?: number },
+  input: {
+    goalId: string;
+    agent: string;
+    actor: Actor;
+    timeoutMinutes?: number;
+    onSessionStarted?: (session: StartedSession) => void;
+  },
 ): Promise<ProposePlanResult & { sessionId: string }> {
   const goal = getGoal(ctx, input.goalId);
   const agent = getAgent(ctx, input.agent);
@@ -129,6 +135,7 @@ export async function planGoalWithAgent(
     },
     { tooling: sessionTooling(ctx) },
   );
+  input.onSessionStarted?.(session);
   const record = await awaitSession(ctx, session.sessionId);
   if (record.state !== 'completed') {
     throw new CrewError(

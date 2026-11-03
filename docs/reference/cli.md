@@ -827,6 +827,7 @@ interactive terminal dashboard (prints a static snapshot when not attached to a 
 |---|---|
 | `--view <view>` | initial view: Overview, Projects, Tasks, Sessions, Queue, Context, Events, Metrics |
 | `--snapshot` | print a static snapshot and exit |
+| `--all-projects` | show every registered project instead of the current one |
 
 ### `crew sync`
 

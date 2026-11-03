@@ -46,8 +46,9 @@ import {
 } from '@crewyard/tasks';
 import { applyCleanup, getWorkspace, inspectWorkspace, listWorkspaces, previewCleanup } from '@crewyard/workspaces';
 import type { Command } from 'commander';
-import { confirm, emit, keyValues, table } from '../output.ts';
+import { confirm, emit, keyValues, progress, table } from '../output.ts';
 import { action, operatorActor, withMutationOptions } from '../program.ts';
+import { type SessionWatch, watchSession } from '../session-progress.ts';
 
 const list = (value: string, previous: string[] = []) => [
   ...previous,
@@ -411,8 +412,28 @@ export function registerWorkCommands(program: Command): void {
       action(async (ctx, opts, goalId: string) => {
         if (opts.agent) {
           const { planGoalWithAgent } = await import('@crewyard/application');
-          const result = await planGoalWithAgent(ctx, { goalId, agent: String(opts.agent), actor: operatorActor() });
-          return emit(opts, result, (r) => planSummary(r));
+          progress(opts, `Planning ${goalId} with ${String(opts.agent)}: gathering repository context…`);
+          let watch: SessionWatch | null = null;
+          try {
+            const result = await planGoalWithAgent(ctx, {
+              goalId,
+              agent: String(opts.agent),
+              actor: operatorActor(),
+              onSessionStarted: (session) => {
+                watch = watchSession(
+                  ctx,
+                  opts,
+                  session,
+                  `Started the planning agent. This usually takes a few minutes.`,
+                );
+              },
+            });
+            (watch as SessionWatch | null)?.stop();
+            progress(opts, '');
+            return emit(opts, result, (r) => planSummary(r));
+          } finally {
+            (watch as SessionWatch | null)?.stop();
+          }
         }
         if (!opts.file) throw new CrewError('INVALID_INPUT', 'Pass --file PLAN or --agent NAME');
         const text = readFileSync(String(opts.file), 'utf8');
@@ -807,6 +828,12 @@ function planSummary(r: ProposePlanResult) {
     `${r.goal.id}: ${r.goal.state}${r.validation.valid ? '' : ' (plan rejected by validation)'}`,
     ...r.validation.issues.map((i) => `  ${i.code}${i.taskKey ? ` [${i.taskKey}]` : ''}: ${i.message}`),
     ...(r.tasks.length ? [`created ${r.tasks.map((t) => t.id).join(', ')}`] : []),
-    ...(r.validation.valid && r.approval?.status === 'pending' ? [`approve with: crew goal approve ${r.goal.id}`] : []),
+    ...(r.validation.valid && r.approval?.status === 'pending'
+      ? [
+          `${r.goal.plan?.tasks.length ?? 0} task(s) proposed`,
+          `review with:  crew goal status ${r.goal.id}`,
+          `approve with: crew goal approve ${r.goal.id} --yes`,
+        ]
+      : []),
   ];
 }
