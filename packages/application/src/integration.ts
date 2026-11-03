@@ -2,7 +2,14 @@ import { awaitSession, getAgent, startManagedSession } from '@crewyard/agents';
 import { interfaceFingerprint } from '@crewyard/context';
 import { type Actor, CrewError, fingerprint, type TaskState, toCrewError } from '@crewyard/core';
 import { dependencyGraph, snapshotByCommit } from '@crewyard/indexing';
-import { createClientFactory, type IntegrationEnv, type TaskHookEvent, type TaskHooks } from '@crewyard/integration';
+import {
+  createClientFactory,
+  type IntegrationEnv,
+  type PendingHook,
+  runHooks,
+  type TaskHookEvent,
+  type TaskHooks,
+} from '@crewyard/integration';
 import { loadProjectConfig, primaryRepository } from '@crewyard/projects';
 import {
   type ContextFingerprintProvider,
@@ -12,12 +19,15 @@ import {
   StaticAnalysisReviewer,
   type StructuredFindings,
 } from '@crewyard/reviews';
-import { appendEvent, type CrewContext } from '@crewyard/storage';
+import { all, appendEvent, type CrewContext } from '@crewyard/storage';
 import { showTask, transitionTask } from '@crewyard/tasks';
 import { extractJson, sessionResultText } from './agents.ts';
 import { sessionTooling } from './session-tooling.ts';
 
 export const INTEGRATION_ACTOR: Actor = { kind: 'service', id: 'crew-integration' };
+
+const REQUEUEABLE: ReadonlySet<TaskState> = new Set(['SUBMITTED', 'REVIEWING', 'BLOCKED', 'REVISION']);
+const MERGE_PENDING: readonly TaskState[] = [...REQUEUEABLE, 'ESCALATED', 'QUEUED', 'VALIDATING', 'MERGED'];
 
 function advance(
   ctx: CrewContext,
@@ -52,21 +62,42 @@ function advance(
 }
 
 export function taskHooks(ctx: CrewContext): TaskHooks {
-  const pre = (e: TaskHookEvent): TaskState[] => {
+  const requeue = (e: TaskHookEvent, leaveEscalated: boolean, then: TaskState[], reason: string): void => {
     const state = showTask(ctx, e.taskId).task.state;
-    return state === 'SUBMITTED' || state === 'REVIEWING' || state === 'BLOCKED' || state === 'REVISION'
-      ? ['QUEUED']
-      : [];
+    if (state === 'DONE' || (state === 'ESCALATED' && !leaveEscalated)) return;
+    const pre: TaskState[] = REQUEUEABLE.has(state) || state === 'ESCALATED' ? ['QUEUED'] : [];
+    advance(ctx, e.taskId, [...pre, ...then], reason);
   };
   return {
-    onQueued: (e) => advance(ctx, e.taskId, pre(e), `PR #${e.prNumber} queued for integration`),
-    onValidating: (e) => advance(ctx, e.taskId, [...pre(e), 'VALIDATING'], `candidate ${e.candidateId} validating`),
-    onMerged: (e) =>
-      advance(ctx, e.taskId, [...pre(e), 'MERGED', 'DONE'], `PR #${e.prNumber} merged as ${e.mergeCommitSha}`),
+    onQueued: (e) => requeue(e, e.revived === true, [], `PR #${e.prNumber} queued for integration`),
+    onValidating: (e) => requeue(e, false, ['VALIDATING'], `candidate ${e.candidateId} validating`),
+    onMerged: (e) => requeue(e, true, ['MERGED', 'DONE'], `PR #${e.prNumber} merged as ${e.mergeCommitSha}`),
     onBlocked: (e) => advance(ctx, e.taskId, ['BLOCKED'], `PR #${e.prNumber} blocked`, e.reason),
     onEscalated: (e) => advance(ctx, e.taskId, ['ESCALATED'], `PR #${e.prNumber} escalated`, e.reason),
     onRevisionRequired: (e) => advance(ctx, e.taskId, ['REVISION'], `PR #${e.prNumber} needs revision: ${e.reason}`),
   };
+}
+
+export async function reconcileMergedTasks(
+  ctx: CrewContext,
+  repositoryId: string,
+  env: IntegrationEnv = integrationEnv(ctx),
+): Promise<string[]> {
+  const rows = all<{ id: string; number: number; task_id: string; merge_commit_sha: string }>(
+    ctx.store.db,
+    `SELECT p.id, p.number, p.task_id, p.merge_commit_sha FROM pull_requests p JOIN tasks t ON t.id = p.task_id
+     WHERE p.repository_id = ? AND p.state = 'merged' AND p.merge_commit_sha IS NOT NULL
+       AND t.state IN (${MERGE_PENDING.map(() => '?').join(', ')})
+     ORDER BY p.number`,
+    repositoryId,
+    ...MERGE_PENDING,
+  );
+  const hooks: PendingHook[] = rows.map((r) => ({
+    name: 'onMerged',
+    event: { taskId: r.task_id, prId: r.id, prNumber: r.number, repositoryId, mergeCommitSha: r.merge_commit_sha },
+  }));
+  await runHooks(ctx, env.hooks, hooks);
+  return rows.map((r) => r.task_id);
 }
 
 export function contextFingerprints(ctx: CrewContext): ContextFingerprintProvider {

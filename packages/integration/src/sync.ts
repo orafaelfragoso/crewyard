@@ -306,16 +306,33 @@ export function applyObservation(
     const entry = activeEntryForPr(db, prId);
     if (entry) {
       setEntryStatus(db, entry.id, becameMerged ? 'merged' : 'removed', at);
-      if (record.taskId) {
-        const base = { taskId: record.taskId, prId, prNumber: record.number, repositoryId };
-        if (becameMerged && record.mergeCommitSha) {
-          hooks.push({ name: 'onMerged', event: { ...base, mergeCommitSha: record.mergeCommitSha } });
-        } else if (becameClosed) {
-          hooks.push({ name: 'onBlocked', event: { ...base, reason: 'pull request closed on GitHub', blockers: [] } });
-        }
+      if (becameClosed && record.taskId) {
+        hooks.push({
+          name: 'onBlocked',
+          event: {
+            taskId: record.taskId,
+            prId,
+            prNumber: record.number,
+            repositoryId,
+            reason: 'pull request closed on GitHub',
+            blockers: [],
+          },
+        });
       }
     }
     invalidateCandidatesInTx(db, { prId }, becameMerged ? 'merged_elsewhere' : 'closed', actor, at);
+  }
+  if (record.state === 'merged' && record.mergeCommitSha && !previous?.mergeCommitSha && record.taskId) {
+    hooks.push({
+      name: 'onMerged',
+      event: {
+        taskId: record.taskId,
+        prId,
+        prNumber: record.number,
+        repositoryId,
+        mergeCommitSha: record.mergeCommitSha,
+      },
+    });
   }
   if (changes.length > 0) {
     recordTransition(
@@ -451,7 +468,7 @@ export async function syncRepository(
       const listed = new Set(prs.map((p) => p.number));
       const stale = all<{ number: number }>(
         ctx.store.db,
-        `SELECT number FROM pull_requests WHERE repository_id = ? AND state = 'open'`,
+        `SELECT number FROM pull_requests WHERE repository_id = ? AND (state = 'open' OR (state = 'merged' AND merge_commit_sha IS NULL))`,
         repositoryId,
       ).filter((r) => !listed.has(r.number));
       for (const row of stale) prs.push(await client.getPullRequest(row.number));

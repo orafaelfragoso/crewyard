@@ -9,7 +9,7 @@ import { listProjects, loadProjectConfig, primaryRepository, type Repository } f
 import type { RemoteRecovery } from '@crewyard/recovery';
 import type { CrewContext } from '@crewyard/storage';
 import type { QueueActions } from './dashboard-actions.ts';
-import { INTEGRATION_ACTOR, integrationEnv } from './integration.ts';
+import { INTEGRATION_ACTOR, integrationEnv, reconcileMergedTasks } from './integration.ts';
 import { publishTask, tasksAwaitingPublication } from './publish.ts';
 import type { ProjectCycle, ServiceOptions } from './service-loop.ts';
 
@@ -61,8 +61,10 @@ export function integrationCycles(envFor: EnvFactory = integrationEnv): ProjectC
       return report.processed > 0 ? { outbox: report as unknown as Record<string, unknown> } : {};
     }),
     githubCycle('queue', fast, async (ctx, repo, leaderId) => {
-      const result = await queueTick(ctx, repo.id, { leaderId, env: envFor(ctx), sync: false });
-      return { queue: result as unknown as Record<string, unknown> };
+      const env = envFor(ctx);
+      const result = await queueTick(ctx, repo.id, { leaderId, env, sync: false });
+      const reconciled = await reconcileMergedTasks(ctx, repo.id, env);
+      return { queue: result as unknown as Record<string, unknown>, ...(reconciled.length ? { reconciled } : {}) };
     }),
   ];
 }
@@ -76,7 +78,9 @@ export function githubRecovery(envFor: EnvFactory = integrationEnv): RemoteRecov
         const repo = primaryRepository(ctx, project.id);
         if (!hasGitHubRemote(repo)) continue;
         try {
-          await syncRepository(ctx, repo.id, envFor(ctx));
+          const env = envFor(ctx);
+          await syncRepository(ctx, repo.id, env);
+          await reconcileMergedTasks(ctx, repo.id, env);
           results[project.name] = 'synced';
         } catch (error) {
           results[project.name] = `sync failed: ${(error as Error).message}`;

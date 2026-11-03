@@ -1,5 +1,6 @@
 import { type Actor, CrewError, git, nowIso } from '@crewyard/core';
 import {
+  ACTIVE_ENTRY_STATUSES,
   setExpectedRemoteHead as expectPullRequestHead,
   type IntegrationEnv,
   listPullRequests,
@@ -272,15 +273,20 @@ export async function publishTask(
 }
 
 export function tasksAwaitingPublication(ctx: CrewContext, projectId: string): string[] {
+  const active = ACTIVE_ENTRY_STATUSES.map(() => '?').join(', ');
   return (
     ctx.store.db
       .query(
-        `SELECT t.id FROM tasks t WHERE t.project_id = ? AND t.state = 'SUBMITTED' AND t.repository_id IS NOT NULL
-         AND EXISTS (SELECT 1 FROM workspaces w WHERE w.task_id = t.id AND w.state <> 'cleaned'
-           AND NOT EXISTS (SELECT 1 FROM pull_requests p WHERE p.task_id = t.id AND p.state = 'open' AND p.head_sha = w.head_sha))
+        `SELECT t.id FROM tasks t JOIN projects pj ON pj.id = t.project_id WHERE t.project_id = ? AND t.repository_id IS NOT NULL
+         AND ((t.state = 'SUBMITTED'
+           AND EXISTS (SELECT 1 FROM workspaces w WHERE w.task_id = t.id AND w.state <> 'cleaned'
+             AND NOT EXISTS (SELECT 1 FROM pull_requests p WHERE p.task_id = t.id AND p.state = 'open' AND p.head_sha = w.head_sha)))
+         OR (t.state = 'REVIEWING' AND pj.autonomy IN ('guarded', 'autopilot')
+           AND EXISTS (SELECT 1 FROM pull_requests p WHERE p.task_id = t.id AND p.state = 'open'
+             AND NOT EXISTS (SELECT 1 FROM queue_entries q WHERE q.pr_id = p.id AND q.status IN (${active})))))
          ORDER BY t.id`,
       )
-      .all(projectId) as { id: string }[]
+      .all(projectId, ...ACTIVE_ENTRY_STATUSES) as { id: string }[]
   ).map((r) => r.id);
 }
 

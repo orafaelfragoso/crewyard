@@ -15,6 +15,7 @@
     "@crewyard/tasks": "workspace:*",
     "@crewyard/agents": "workspace:*",
     "@crewyard/workspaces": "workspace:*",
-    "@crewyard/integration": "workspace:*"
+    "@crewyard/integration": "workspace:*",
+    "@crewyard/reviews": "workspace:*"
   }
 }

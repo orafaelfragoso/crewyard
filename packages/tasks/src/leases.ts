@@ -14,6 +14,7 @@ import {
   type TaskState,
   timingSafeEqualHex,
 } from '@crewyard/core';
+import { requestInterventionInTx } from '@crewyard/reviews';
 import { all, type CrewContext, exec, one, recordTransition } from '@crewyard/storage';
 import { resolveTaskConfig } from './config.ts';
 import {
@@ -731,24 +732,38 @@ export function reconcileExpiredLease(
       return { taskId, outcome: 'cancelled', transition };
     }
     if (input.worktreeDirty) {
+      const blockerReason = `Lease generation ${lastLease?.generation} expired with uncommitted work; workspace preserved for recovery${note}`;
       const transition = applyTransition(
         db,
-        {
-          taskId,
-          to: 'BLOCKED',
-          actor,
-          reason: 'lease_expired_preserved',
-          blockerReason: `Lease generation ${lastLease?.generation} expired with uncommitted work; workspace preserved for recovery${note}`,
-        },
+        { taskId, to: 'BLOCKED', actor, reason: 'lease_expired_preserved', blockerReason },
+        at,
+      );
+      requestInterventionInTx(
+        db,
+        { projectId: task.projectId, title: `Task ${taskId} blocked`, reasons: [blockerReason], taskId },
+        actor,
         at,
       );
       return { taskId, outcome: 'preserved', transition };
     }
-    const transition = applyTransition(
-      db,
-      { taskId, to: 'READY', actor, reason: `lease expired; released${note}` },
-      at,
-    );
+    const reason = `lease expired; released${note}`;
+    if (task.state === 'REVISION' && lastLease) {
+      exec(db, 'UPDATE leases SET release_reason = ? WHERE id = ?', reason, lastLease.id);
+      recordTransition(
+        db,
+        {
+          type: 'lease.reconciled',
+          actor,
+          projectId: task.projectId,
+          taskId,
+          payload: { generation: lastLease.generation, state: task.state, reason },
+        },
+        { action: 'lease.reconcile', input: { taskId, ...input, actor: undefined }, decision: 'released' },
+        at,
+      );
+      return { taskId, outcome: 'released', transition: null };
+    }
+    const transition = applyTransition(db, { taskId, to: 'READY', actor, reason }, at);
     return { taskId, outcome: 'released', transition };
   });
 }

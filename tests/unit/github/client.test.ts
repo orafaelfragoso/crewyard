@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   apiBaseUrlForHost,
   assertRemoteMatches,
+  type ConditionalEntry,
   forgetCachedTokens,
   GitHubClient,
   ghTokenProvider,
@@ -206,6 +207,28 @@ describe('credentials and repository identity', () => {
       forgetCachedTokens();
     },
   );
+
+  test('a merged pull request without its merge commit is never served from the ETag cache', async () => {
+    const entries = new Map<string, ConditionalEntry>();
+    let mergeCommitSha: string | null = null;
+    const etag = 'W/"unchanged"';
+    const c = new GitHubClient({
+      repository: { host: 'github.com', owner: 'acme', name: 'widgets' },
+      token: staticTokenProvider('t'),
+      baseUrl: 'https://api.test',
+      cache: { get: (key) => entries.get(key) ?? null, set: (key, entry) => void entries.set(key, entry) },
+      fetch: async (url, init) => {
+        if (new Headers(init.headers).get('if-none-match') === etag) return new Response(null, { status: 304 });
+        const body = url.endsWith('/pulls/1')
+          ? { number: 1, state: 'closed', merged_at: '2026-11-03T16:22:46Z', merge_commit_sha: mergeCommitSha }
+          : { full_name: 'acme/widgets' };
+        return Response.json(body, { headers: { etag } });
+      },
+    });
+    expect(await c.getPullRequest(1)).toMatchObject({ state: 'merged', mergeCommitSha: null });
+    mergeCommitSha = 'd'.repeat(40);
+    expect((await c.getPullRequest(1)).mergeCommitSha).toBe(mergeCommitSha);
+  });
 
   test('remote validation refuses another repository', () => {
     const expected = { host: 'github.com', owner: 'acme', name: 'widgets' };
