@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { buildProgram, VERSION } from '../apps/cli/src/cli.ts';
+import { buildProgram } from '../apps/cli/src/cli.ts';
 
 type Command = ReturnType<typeof buildProgram>;
 
@@ -30,7 +30,7 @@ const program = buildProgram();
 const out = [
   '# CLI reference',
   '',
-  `Generated from the \`crew\` ${VERSION} command tree by \`bun scripts/gen-cli-reference.ts\`. Do not edit by hand.`,
+  `Generated from the \`crew\` command tree by \`bun scripts/gen-cli-reference.ts\`. Do not edit by hand.`,
   '',
   '## Global conventions',
   '',

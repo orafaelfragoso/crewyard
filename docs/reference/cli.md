@@ -1,6 +1,6 @@
 # CLI reference
 
-Generated from the `crew` 0.1.0 command tree by `bun scripts/gen-cli-reference.ts`. Do not edit by hand.
+Generated from the `crew` command tree by `bun scripts/gen-cli-reference.ts`. Do not edit by hand.
 
 ## Global conventions
 
