@@ -23,6 +23,7 @@ import {
 } from '@crewyard/tasks';
 import { collectCommits } from '@crewyard/workspaces';
 import { contextPack } from './retrieval.ts';
+import { sessionTooling } from './session-tooling.ts';
 import { claimAndPrepare, type PreparedClaim } from './work.ts';
 
 export const PLAN_SCHEMA: Record<string, unknown> = {
@@ -114,16 +115,20 @@ export async function planGoalWithAgent(
       : '',
     `\n## JSON schema\n${JSON.stringify(PLAN_SCHEMA)}`,
   ].join('\n');
-  const session = await startManagedSession(ctx, {
-    agentId: agent.id,
-    projectId: goal.projectId,
-    cwd: repo.canonicalPath,
-    prompt,
-    mode: 'plan',
-    outputSchema: PLAN_SCHEMA,
-    timeoutMinutes: input.timeoutMinutes ?? 20,
-    actor: input.actor,
-  });
+  const session = await startManagedSession(
+    ctx,
+    {
+      agentId: agent.id,
+      projectId: goal.projectId,
+      cwd: repo.canonicalPath,
+      prompt,
+      mode: 'plan',
+      outputSchema: PLAN_SCHEMA,
+      timeoutMinutes: input.timeoutMinutes ?? 20,
+      actor: input.actor,
+    },
+    { tooling: sessionTooling(ctx) },
+  );
   const record = await awaitSession(ctx, session.sessionId);
   if (record.state !== 'completed') {
     throw new CrewError(
@@ -265,19 +270,23 @@ export async function dispatchTask(
     const packText = pack
       ? pack.excerpts.map((e) => `### ${e.path}:${e.startLine}-${e.endLine}\n${e.text}`).join('\n')
       : null;
-    const session = await startManagedSession(ctx, {
-      agentId: agent.id,
-      taskId: task.id,
-      projectId: task.projectId,
-      cwd: claim.worktreePath ?? primaryRepository(ctx, task.projectId).canonicalPath,
-      prompt: executionPrompt(task, claim, packText),
-      mode: 'execute',
-      ...(input.model ? { model: input.model } : {}),
-      leaseBinding: { projectId: task.projectId, taskId: task.id, leaseGeneration: claim.leaseGeneration },
-      workspaceId: claim.workspaceId,
-      claimToken: claim.claimToken,
-      actor: input.actor,
-    });
+    const session = await startManagedSession(
+      ctx,
+      {
+        agentId: agent.id,
+        taskId: task.id,
+        projectId: task.projectId,
+        cwd: claim.worktreePath ?? primaryRepository(ctx, task.projectId).canonicalPath,
+        prompt: executionPrompt(task, claim, packText),
+        mode: 'execute',
+        ...(input.model ? { model: input.model } : {}),
+        leaseBinding: { projectId: task.projectId, taskId: task.id, leaseGeneration: claim.leaseGeneration },
+        workspaceId: claim.workspaceId,
+        claimToken: claim.claimToken,
+        actor: input.actor,
+      },
+      { tooling: sessionTooling(ctx) },
+    );
     const { claimToken: _secret, ...publicClaim } = claim;
     try {
       startTask(ctx, {

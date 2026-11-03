@@ -15,6 +15,7 @@ import {
 import { appendEvent, type CrewContext } from '@crewyard/storage';
 import { showTask, transitionTask } from '@crewyard/tasks';
 import { extractJson, sessionResultText } from './agents.ts';
+import { sessionTooling } from './session-tooling.ts';
 
 export const INTEGRATION_ACTOR: Actor = { kind: 'service', id: 'crew-integration' };
 
@@ -157,16 +158,20 @@ export class AgentReviewer implements Reviewer {
     ]
       .filter(Boolean)
       .join('\n');
-    const session = await startManagedSession(this.ctx, {
-      agentId: this.agentRef,
-      projectId: this.projectId,
-      cwd: this.cwd,
-      prompt,
-      mode: 'review',
-      outputSchema: FINDINGS_SCHEMA,
-      timeoutMinutes: 20,
-      actor: INTEGRATION_ACTOR,
-    });
+    const session = await startManagedSession(
+      this.ctx,
+      {
+        agentId: this.agentRef,
+        projectId: this.projectId,
+        cwd: this.cwd,
+        prompt,
+        mode: 'review',
+        outputSchema: FINDINGS_SCHEMA,
+        timeoutMinutes: 20,
+        actor: INTEGRATION_ACTOR,
+      },
+      { tooling: sessionTooling(this.ctx) },
+    );
     const record = await awaitSession(this.ctx, session.sessionId);
     if (record.state !== 'completed') {
       throw new CrewError(

@@ -12,6 +12,11 @@ opencode run --standalone --format json [--model provider/model] [--agent plan|<
   service, which ignores the profile's isolated directories and outlives cancellation.
 - `plan`/`review` use the built-in `plan` agent; `execute` adds `--auto` unless `settings.autoApprove` is `false`.
 - System instructions are prepended to the prompt. Output schemas are not supported (`UNSUPPORTED_CAPABILITY`).
+- **Crewyard MCP server.** `OPENCODE_CONFIG_CONTENT` in the child environment adds a local `crewyard` server (`crew mcp`)
+  for this run only. OpenCode merges inline config over the user and project config, and the server inherits the session
+  variables from the OpenCode process. (`opencode mcp list` in 2.2.5 does not show inline or project servers.)
+- **Skills.** For accounts with their own directories, the `crew-*` Skills are copied to the profile's
+  `config/opencode/skills` before launch. Accounts using your default configuration get them from `crew install`.
 
 ## Isolation and authentication
 

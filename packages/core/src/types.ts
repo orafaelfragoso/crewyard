@@ -89,6 +89,13 @@ export interface ProfileHealth {
   rateLimitedUntil?: string | null;
 }
 
+export interface CrewMcpLaunch {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  forwardEnv: string[];
+}
+
 export interface AgentLaunch {
   sessionId: string;
   profile: AccountProfile;
@@ -102,6 +109,8 @@ export interface AgentLaunch {
   logPath: string;
   mode: 'execute' | 'plan' | 'review';
   outputSchema?: Record<string, unknown>;
+  crewMcp?: CrewMcpLaunch;
+  skillsDir?: string;
 }
 
 export type AgentEvent =

@@ -7,7 +7,8 @@ Package: `@crewyard/provider-claude`. Verified against Claude Code `2.1.316`; re
 
 ```text
 claude --print --output-format stream-json --verbose --permission-prompts none --permission-mode <mode> \
-  [--model <m>] [--append-system-prompt <instructions>] [--json-schema <schema>] [--bare] [--allowedTools a,b]
+  [--model <m>] [--append-system-prompt <instructions>] [--json-schema <schema>] [--bare] [--allowedTools a,b] \
+  --mcp-config '{"mcpServers":{"crewyard":{...}}}' --plugin-dir <data>/runtime/agent-skills
 ```
 
 - The prompt is written to stdin.
@@ -15,6 +16,13 @@ claude --print --output-format stream-json --verbose --permission-prompts none -
   `plan`/`review` use `plan`.
 - `--permission-prompts none` makes unattended runs deny anything that would prompt instead of hanging.
 - `settings.bare: true` adds `--bare` (recommended for API-key profiles; it never reads OAuth or the keychain).
+- **Crewyard MCP server.** `--mcp-config` registers `crew mcp` as `crewyard` for this run only, with `CREW_DATA_DIR` and
+  `CREW_CONFIG_DIR` set; the session variables reach it through the Claude process environment, never argv. This works
+  for any account, including one with its own `CLAUDE_CONFIG_DIR`, and in `--bare` mode.
+- **Skills.** `--plugin-dir` loads the `crew-*` Skills as the `crewyard` plugin (`crewyard:crew-execution`, …).
+- **Allowed tools.** Crewyard always adds `mcp__crewyard` (its own tools) and, for `execute`, `Bash(git status:*)`,
+  `Bash(git diff:*)`, `Bash(git log:*)`, `Bash(git add:*)` and `Bash(git commit:*)`, so an unattended engineer can commit.
+  Anything else, such as running tests, still needs `settings.allowedTools` or a broader `permissionMode`.
 
 ## Isolation and authentication
 

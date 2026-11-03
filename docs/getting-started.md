@@ -98,7 +98,7 @@ crew config set review.reviewer_agent reviewer --yes
 
 ## 6. Connect your own agent tools (optional)
 
-This step is for the Claude Code, Codex and OpenCode sessions **you** start yourself: it lets them see Crewyard's tasks and tools. Agents that Crewyard launches in steps 8 and 9 work without it.
+This step is for the Claude Code, Codex and OpenCode sessions **you** start yourself: it lets them see Crewyard's tasks and tools. Agents that Crewyard launches in steps 8 and 9 don't need it: Crewyard gives every session it starts its MCP server for that run, whichever account it uses.
 
 ```bash
 crew install --dry-run      # shows every file it would change
@@ -125,7 +125,15 @@ With `--scope project` (shared with your team through the repository):
 
 `crew hosts` shows what is registered where. Exact file contents are in [MCP host setup](mcp-hosts.md), and what each Skill does is in [Skills](skills.md).
 
-An agent that Crewyard launches with an account added with `--use-default-config` reads the same configuration, so with a user-scope install it also gets Crewyard's tools and Skills. Agents on a [separate login](accounts.md#a-separate-login) use their own configuration directory and don't get them yet: they still work, and Crewyard renews their task lease and submits their commits when the session ends.
+**What agents launched by Crewyard get:**
+
+| | MCP server (`crew_*` tools) | Skills |
+|---|---|---|
+| Claude Code | Added for the run (`--mcp-config`) | Added for the run as a plugin (`--plugin-dir`) |
+| Codex | Added for the run (`-c mcp_servers.crewyard…`) | Separate login: copied into its `CODEX_HOME/skills`. Default login: from `crew install` |
+| OpenCode | Added for the run (`OPENCODE_CONFIG_CONTENT`) | Separate login: copied into its config directory. Default login: from `crew install` |
+
+Crewyard never writes into your own tool configuration for this; that only happens when you run `crew install`. Details per tool are in the [provider adapter docs](provider-adapters/overview.md).
 
 ## 7. Give Crewyard a goal
 

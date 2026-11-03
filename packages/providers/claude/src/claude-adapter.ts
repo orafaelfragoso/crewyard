@@ -14,6 +14,7 @@ import {
 import {
   type AdapterOptions,
   arr,
+  CREW_MCP_SERVER_NAME,
   childEnv,
   classifyFailureText,
   classifyHttpStatus,
@@ -66,6 +67,14 @@ function permissionMode(launch: AgentLaunch): string {
   return configured;
 }
 
+const EXECUTE_GIT_TOOLS = [
+  'Bash(git status:*)',
+  'Bash(git diff:*)',
+  'Bash(git log:*)',
+  'Bash(git add:*)',
+  'Bash(git commit:*)',
+];
+
 export interface ClaudeInvocation {
   argv: string[];
   env: Record<string, string>;
@@ -91,8 +100,20 @@ export function buildClaudeInvocation(
   if (launch.systemInstructions) argv.push('--append-system-prompt', launch.systemInstructions);
   if (launch.outputSchema) argv.push('--json-schema', JSON.stringify(launch.outputSchema));
   if (settingBool(launch.profile, 'bare')) argv.push('--bare');
-  const allowedTools = settingStrings(launch.profile, 'allowedTools');
-  if (allowedTools.length > 0) argv.push('--allowedTools', allowedTools.join(','));
+  const allowedTools = [
+    ...settingStrings(launch.profile, 'allowedTools'),
+    ...(launch.crewMcp ? [`mcp__${CREW_MCP_SERVER_NAME}`] : []),
+    ...(launch.mode === 'execute' ? EXECUTE_GIT_TOOLS : []),
+  ];
+  if (allowedTools.length > 0) argv.push('--allowedTools', [...new Set(allowedTools)].join(','));
+  if (launch.crewMcp) {
+    const { command, args, env } = launch.crewMcp;
+    argv.push(
+      '--mcp-config',
+      JSON.stringify({ mcpServers: { [CREW_MCP_SERVER_NAME]: { type: 'stdio', command, args, env } } }),
+    );
+  }
+  if (launch.skillsDir) argv.push('--plugin-dir', launch.skillsDir);
   const env = childEnv(input.options ?? {}, launch.profile.configRoot ? [] : [CLAUDE_CONFIG_DIR_ENV], {
     ...claudeIsolationEnv(launch.profile),
     ...launch.env,

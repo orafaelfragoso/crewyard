@@ -89,11 +89,17 @@ export interface StartedSession {
   routing: string[];
 }
 
+export interface SessionTooling {
+  crewCommand: string[];
+  skillsDir: string | null;
+}
+
 export interface SupervisorOptions {
   config?: AgentRuntimeConfig;
   secrets?: SecretStore;
   registry?: ProviderRegistry;
   baseEnv?: NodeJS.ProcessEnv;
+  tooling?: SessionTooling;
 }
 
 interface Supervised {
@@ -168,6 +174,7 @@ export class SessionSupervisor {
   readonly registry: ProviderRegistry;
   private readonly sessions = new Map<string, Supervised>();
   private heartbeat: ReturnType<typeof setInterval> | null = null;
+  private tooling: SessionTooling | null;
 
   constructor(
     private readonly ctx: CrewContext,
@@ -181,6 +188,11 @@ export class SessionSupervisor {
         ...(options.secrets ? { secrets: options.secrets } : {}),
         ...(options.baseEnv ? { baseEnv: options.baseEnv } : {}),
       });
+    this.tooling = options.tooling ?? null;
+  }
+
+  useTooling(tooling: SessionTooling): void {
+    this.tooling = tooling;
   }
 
   supervising(): string[] {
@@ -294,6 +306,18 @@ export class SessionSupervisor {
 
     const { agent, profile, decision, binding } = prepared;
     const adapter = this.registry.get(profile.providerId);
+    const sessionEnv: Record<string, string> = {
+      CREW_SESSION_TOKEN: token,
+      CREW_SESSION_ID: sessionId,
+      CREW_AGENT_ID: agent.id,
+      ...(binding.taskId ? { CREW_TASK_ID: binding.taskId } : {}),
+      ...(binding.projectId ? { CREW_PROJECT_ID: binding.projectId } : {}),
+      ...(input.claimToken && input.leaseBinding
+        ? { CREW_CLAIM_TOKEN: input.claimToken, CREW_LEASE_GENERATION: String(input.leaseBinding.leaseGeneration) }
+        : {}),
+    };
+    const tooling = this.tooling;
+    const [crewExecutable, ...crewArgs] = tooling?.crewCommand ?? [];
     const launch: AgentLaunch = {
       sessionId,
       profile,
@@ -301,16 +325,18 @@ export class SessionSupervisor {
       prompt: input.prompt,
       systemInstructions: agent.systemInstructions,
       cwd,
-      env: {
-        CREW_SESSION_TOKEN: token,
-        CREW_SESSION_ID: sessionId,
-        CREW_AGENT_ID: agent.id,
-        ...(binding.taskId ? { CREW_TASK_ID: binding.taskId } : {}),
-        ...(binding.projectId ? { CREW_PROJECT_ID: binding.projectId } : {}),
-        ...(input.claimToken && input.leaseBinding
-          ? { CREW_CLAIM_TOKEN: input.claimToken, CREW_LEASE_GENERATION: String(input.leaseBinding.leaseGeneration) }
-          : {}),
-      },
+      env: sessionEnv,
+      ...(crewExecutable
+        ? {
+            crewMcp: {
+              command: crewExecutable,
+              args: [...crewArgs, 'mcp'],
+              env: { CREW_DATA_DIR: this.ctx.dirs.data, CREW_CONFIG_DIR: this.ctx.dirs.config },
+              forwardEnv: Object.keys(sessionEnv),
+            },
+          }
+        : {}),
+      ...(tooling?.skillsDir ? { skillsDir: tooling.skillsDir } : {}),
       timeoutMs: prepared.timeoutMs,
       maxOutputBytes: agent.budget?.maxOutputBytes ?? this.config.agents.max_output_bytes,
       logPath,
@@ -654,6 +680,8 @@ export function sessionSupervisor(ctx: CrewContext, options: SupervisorOptions =
   if (!supervisor) {
     supervisor = new SessionSupervisor(ctx, options);
     DEFAULT_SUPERVISORS.set(ctx, supervisor);
+  } else if (options.tooling) {
+    supervisor.useTooling(options.tooling);
   }
   return supervisor;
 }

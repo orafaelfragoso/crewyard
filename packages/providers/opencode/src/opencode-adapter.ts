@@ -6,6 +6,7 @@ import {
   type AgentSessionHandle,
   type Capabilities,
   CrewError,
+  type CrewMcpLaunch,
   type ProfileHealth,
   type ProviderAdapter,
   run,
@@ -13,9 +14,11 @@ import {
 import {
   type AdapterOptions,
   arr,
+  CREW_MCP_SERVER_NAME,
   childEnv,
   classifyFailureText,
   createUsageAccumulator,
+  crewSkillsSource,
   type DecoderSummary,
   health,
   num,
@@ -30,6 +33,7 @@ import {
   settingBool,
   settingString,
   str,
+  syncCrewSkills,
   truncate,
   unsupported,
 } from '@crewyard/provider-generic';
@@ -69,6 +73,14 @@ function apiKeyEnvName(profile: AccountProfile): string {
   return name;
 }
 
+export function opencodeMcpConfig(server: CrewMcpLaunch): string {
+  return JSON.stringify({
+    mcp: {
+      [CREW_MCP_SERVER_NAME]: { type: 'local', command: [server.command, ...server.args], environment: server.env },
+    },
+  });
+}
+
 export interface OpencodeInvocation {
   argv: string[];
   env: Record<string, string>;
@@ -90,6 +102,7 @@ export function buildOpencodeInvocation(
   const env = childEnv(input.options ?? {}, [], {
     ...opencodeIsolationEnv(launch.profile),
     ...launch.env,
+    ...(launch.crewMcp ? { OPENCODE_CONFIG_CONTENT: opencodeMcpConfig(launch.crewMcp) } : {}),
     ...(input.apiKey ? { [apiKeyEnvName(launch.profile)]: input.apiKey } : {}),
   });
   return { argv, env };
@@ -230,6 +243,9 @@ export class OpencodeAdapter implements ProviderAdapter {
     const apiKey = await resolveApiKey(input.profile, this.options.resolveSecret);
     const invocation = buildOpencodeInvocation(input, { executable, apiKey, options: this.options });
     ensureIsolationDirs(input.profile);
+    const skills = crewSkillsSource(input);
+    const configHome = opencodeIsolationEnv(input.profile).XDG_CONFIG_HOME;
+    if (skills && configHome) syncCrewSkills(skills, join(configHome, 'opencode', 'skills'));
     return this.sessions.launch(input, {
       argv: invocation.argv,
       env: invocation.env,
