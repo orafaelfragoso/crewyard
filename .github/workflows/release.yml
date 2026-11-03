@@ -228,10 +228,10 @@ jobs:
           version=$(node -p "require('./packages.json')[0].version")
           case "$version" in *-*) dist_tag=next ;; *) dist_tag=latest ;; esac
           node -e "for (const p of require('./packages.json')) console.log(p.name, p.tarball)" | while read -r name tarball; do
-            if [ "$DRY_RUN" = true ]; then
-              npm publish "./$tarball" --tag "$dist_tag" --dry-run
-            elif npm view "$name@$version" version >/dev/null 2>&1; then
+            if npm view "$name@$version" version >/dev/null 2>&1; then
               echo "$name@$version is already on npm; skipping."
+            elif [ "$DRY_RUN" = true ]; then
+              npm publish "./$tarball" --tag "$dist_tag" --dry-run
             else
               npm publish "./$tarball" --tag "$dist_tag"
             fi
