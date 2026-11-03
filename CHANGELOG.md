@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.5](https://github.com/orafaelfragoso/crewyard/compare/v0.4.4...v0.4.5) (2026-11-03)
+
+
+### Bug Fixes
+
+* **queue:** hold integration-conflict revisions until the head changes ([4d5fe68](https://github.com/orafaelfragoso/crewyard/commit/4d5fe6810a5275ab4229d264efc827eb4a29d049))
+* **queue:** hold integration-conflict revisions until the head changes ([#40](https://github.com/orafaelfragoso/crewyard/issues/40)) ([4d5fe68](https://github.com/orafaelfragoso/crewyard/commit/4d5fe6810a5275ab4229d264efc827eb4a29d049))
+
 ## [0.4.4](https://github.com/orafaelfragoso/crewyard/compare/v0.4.3...v0.4.4) (2026-11-03)
 
 
