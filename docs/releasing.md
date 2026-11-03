@@ -25,7 +25,7 @@ Pull requests are squash-merged, so each PR title becomes one commit on `main`. 
 | `docs: …` | Documentation | patch |
 | `refactor`, `test`, `build`, `ci`, `chore` | not listed | — |
 
-After each merge to `main`, release-please opens or updates one release PR. It bumps `version` in `package.json` and every workspace package, updates the version in `docs/installation.md`, and adds the release's entries to `CHANGELOG.md`. Because pull requests opened by GitHub Actions do not trigger workflows, the release job starts CI on the release PR itself so the required checks run.
+After each merge to `main`, release-please opens or updates one release PR. It bumps `version` in `package.json` and every workspace package, updates the version in `docs/installation.md`, and adds the release's entries to `CHANGELOG.md`. The release job authenticates as the `Crewyard Release` GitHub App (secrets `RELEASE_APP_CLIENT_ID` and `RELEASE_APP_PRIVATE_KEY`), so the release PR triggers CI and CodeQL like any other pull request, without a maintainer approving the runs.
 
 To force a specific version, add a `Release-As: 1.0.0` footer to a commit on `main`.
 
