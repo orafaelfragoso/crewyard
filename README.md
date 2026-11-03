@@ -144,7 +144,7 @@ npm install --global crewyard
 crew version
 ```
 
-npm installs a prebuilt binary for your platform; Node.js 20+ is only needed for the small launcher. Standalone binaries that need neither Node.js nor Bun are attached to every [GitHub release](https://github.com/orafaelfragoso/crewyard/releases).
+npm installs a prebuilt binary for your platform; Node.js 22+ is only needed for the small launcher. Standalone binaries that need neither Node.js nor Bun are attached to every [GitHub release](https://github.com/orafaelfragoso/crewyard/releases).
 
 ### Install from source
 
