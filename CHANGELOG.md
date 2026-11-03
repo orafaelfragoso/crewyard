@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.1](https://github.com/orafaelfragoso/crewyard/compare/v0.4.0...v0.4.1) (2026-11-03)
+
+
+### Features
+
+* **cli:** set codex and opencode permission modes with account set ([311b124](https://github.com/orafaelfragoso/crewyard/commit/311b124b21931abde780b2a7244ced29e6c5ccfe))
+* **codex:** allow danger-full-access when a profile opts in ([311b124](https://github.com/orafaelfragoso/crewyard/commit/311b124b21931abde780b2a7244ced29e6c5ccfe))
+* **codex:** let engineers fetch dependencies and opt into full access ([#27](https://github.com/orafaelfragoso/crewyard/issues/27)) ([311b124](https://github.com/orafaelfragoso/crewyard/commit/311b124b21931abde780b2a7244ced29e6c5ccfe))
+
+
+### Bug Fixes
+
+* **service:** keep the database open until running sessions settle ([bdac4b1](https://github.com/orafaelfragoso/crewyard/commit/bdac4b1e91dc581198d47821209f6944f2340f8b))
+* **service:** stop running sessions and requeue tasks on shutdown ([#26](https://github.com/orafaelfragoso/crewyard/issues/26)) ([bdac4b1](https://github.com/orafaelfragoso/crewyard/commit/bdac4b1e91dc581198d47821209f6944f2340f8b))
+
 ## [0.4.0](https://github.com/orafaelfragoso/crewyard/compare/v0.3.4...v0.4.0) (2026-11-03)
 
 
