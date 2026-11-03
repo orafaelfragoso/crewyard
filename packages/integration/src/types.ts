@@ -19,7 +19,7 @@ export interface TaskHookEvent {
 }
 
 export interface TaskHooks {
-  onQueued?(event: TaskHookEvent & { entryId: string }): void | Promise<void>;
+  onQueued?(event: TaskHookEvent & { entryId: string; revived?: boolean }): void | Promise<void>;
   onValidating?(event: TaskHookEvent & { candidateId: string }): void | Promise<void>;
   onMerged?(event: TaskHookEvent & { mergeCommitSha: string }): void | Promise<void>;
   onBlocked?(event: TaskHookEvent & { reason: string; blockers: Blocker[] }): void | Promise<void>;

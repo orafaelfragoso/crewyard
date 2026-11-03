@@ -26,8 +26,8 @@ import { sessionTooling } from './session-tooling.ts';
 
 export const INTEGRATION_ACTOR: Actor = { kind: 'service', id: 'crew-integration' };
 
-const REQUEUEABLE: ReadonlySet<TaskState> = new Set(['SUBMITTED', 'REVIEWING', 'BLOCKED', 'REVISION', 'ESCALATED']);
-const MERGE_PENDING: readonly TaskState[] = [...REQUEUEABLE, 'QUEUED', 'VALIDATING', 'MERGED'];
+const REQUEUEABLE: ReadonlySet<TaskState> = new Set(['SUBMITTED', 'REVIEWING', 'BLOCKED', 'REVISION']);
+const MERGE_PENDING: readonly TaskState[] = [...REQUEUEABLE, 'ESCALATED', 'QUEUED', 'VALIDATING', 'MERGED'];
 
 function advance(
   ctx: CrewContext,
@@ -62,17 +62,16 @@ function advance(
 }
 
 export function taskHooks(ctx: CrewContext): TaskHooks {
-  const pre = (e: TaskHookEvent): TaskState[] => {
+  const requeue = (e: TaskHookEvent, leaveEscalated: boolean, then: TaskState[], reason: string): void => {
     const state = showTask(ctx, e.taskId).task.state;
-    return REQUEUEABLE.has(state) ? ['QUEUED'] : [];
+    if (state === 'DONE' || (state === 'ESCALATED' && !leaveEscalated)) return;
+    const pre: TaskState[] = REQUEUEABLE.has(state) || state === 'ESCALATED' ? ['QUEUED'] : [];
+    advance(ctx, e.taskId, [...pre, ...then], reason);
   };
   return {
-    onQueued: (e) => advance(ctx, e.taskId, pre(e), `PR #${e.prNumber} queued for integration`),
-    onValidating: (e) => advance(ctx, e.taskId, [...pre(e), 'VALIDATING'], `candidate ${e.candidateId} validating`),
-    onMerged: (e) => {
-      if (showTask(ctx, e.taskId).task.state === 'DONE') return;
-      advance(ctx, e.taskId, [...pre(e), 'MERGED', 'DONE'], `PR #${e.prNumber} merged as ${e.mergeCommitSha}`);
-    },
+    onQueued: (e) => requeue(e, e.revived === true, [], `PR #${e.prNumber} queued for integration`),
+    onValidating: (e) => requeue(e, false, ['VALIDATING'], `candidate ${e.candidateId} validating`),
+    onMerged: (e) => requeue(e, true, ['MERGED', 'DONE'], `PR #${e.prNumber} merged as ${e.mergeCommitSha}`),
     onBlocked: (e) => advance(ctx, e.taskId, ['BLOCKED'], `PR #${e.prNumber} blocked`, e.reason),
     onEscalated: (e) => advance(ctx, e.taskId, ['ESCALATED'], `PR #${e.prNumber} escalated`, e.reason),
     onRevisionRequired: (e) => advance(ctx, e.taskId, ['REVISION'], `PR #${e.prNumber} needs revision: ${e.reason}`),

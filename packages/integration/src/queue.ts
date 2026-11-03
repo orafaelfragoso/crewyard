@@ -68,7 +68,14 @@ function retryEntryInTx(
   if (pr.taskId) {
     hooks.push({
       name: 'onQueued',
-      event: { taskId: pr.taskId, prId: pr.id, prNumber: pr.number, repositoryId: pr.repositoryId, entryId: entry.id },
+      event: {
+        taskId: pr.taskId,
+        prId: pr.id,
+        prNumber: pr.number,
+        repositoryId: pr.repositoryId,
+        entryId: entry.id,
+        revived: true,
+      },
     });
   }
 }

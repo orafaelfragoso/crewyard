@@ -127,6 +127,27 @@ describe('queue entries drive their task', () => {
     expect(showTask(f.ctx, taskId).task.state).toBe('QUEUED');
   }, 60_000);
 
+  test('a manually escalated task ignores queue progress but finishes when its pull request merges', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    const env = { ...f.env, hooks: taskHooks(f.ctx) };
+    const { taskId } = await queuedTask(f, env);
+    const tick = (maxCandidates?: number) =>
+      queueTick(f.ctx, f.repositoryId, {
+        leaderId: 'leader-1',
+        env,
+        ...(maxCandidates === undefined ? {} : { maxCandidates }),
+      });
+    f.mock.requireChecks('main', ['ci', 'security-scan']);
+    await tick(0);
+    transitionTask(f.ctx, { taskId, to: 'ESCALATED', actor: operator, reason: 'hold', blockerReason: 'hold' });
+    f.mock.passChecks(1, ['ci', 'security-scan']);
+    await tick(0);
+    expect(showTask(f.ctx, taskId).task.state).toBe('ESCALATED');
+    for (let i = 0; i < 4 && showTask(f.ctx, taskId).task.state !== 'DONE'; i++) await tick();
+    expect(showTask(f.ctx, taskId).task.state).toBe('DONE');
+  }, 60_000);
+
   test('retrying an escalated entry requeues its task through to DONE', async () => {
     fx = await createGitHubFixture();
     const f = fx;
