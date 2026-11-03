@@ -551,6 +551,10 @@ provider account profiles (credentials live in the OS secret store)
 | `--command <cmd...>` | generic provider: executable and arguments |
 | `--endpoint <url>` | ollama endpoint |
 
+#### `crew account login <ref>`
+
+log a cli-login profile in through the provider's own CLI, in the profile's configuration directory
+
 #### `crew account list`
 
 

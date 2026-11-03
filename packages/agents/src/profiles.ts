@@ -466,5 +466,50 @@ export async function testProfile(
     );
     return viewOf(db, row);
   });
-  return { profile: updated, health, capabilities, login: profileLoginCommand(updated) };
+  const login = profileLoginCommand(updated);
+  const guided =
+    health.status === 'unauthenticated' && updated.authMechanism === 'cli-login' && login
+      ? { ...health, detail: `${health.detail}; run: crew account login ${updated.ref}` }
+      : health;
+  return { profile: updated, health: guided, capabilities, login };
+}
+
+async function runInteractive(command: LoginCommand): Promise<number> {
+  const child = Bun.spawn(command.argv, {
+    env: { ...process.env, ...command.env },
+    stdio: ['inherit', 'inherit', 'inherit'],
+  });
+  return child.exited;
+}
+
+export async function loginProfile(
+  ctx: CrewContext,
+  ref: string,
+  options: {
+    registry?: ProviderRegistry;
+    secrets?: SecretStore;
+    runLogin?: (command: LoginCommand) => Promise<number>;
+  } = {},
+): ReturnType<typeof testProfile> {
+  const profile = getProfile(ctx, ref);
+  const login = profile.authMechanism === 'cli-login' ? profileLoginCommand(profile) : null;
+  if (!login) {
+    throw new CrewError(
+      'INVALID_INPUT',
+      `${profile.ref} uses ${profile.authMechanism} authentication, not a CLI login`,
+      {
+        suggestion: `Run \`crew account test ${profile.ref}\` to check it.`,
+      },
+    );
+  }
+  const before = await testProfile(ctx, ref, options);
+  if (before.health.status === 'healthy') return before;
+  if (profile.configRoot) ensureDir(profile.configRoot);
+  const exitCode = await (options.runLogin ?? runInteractive)(login);
+  if (exitCode !== 0) {
+    throw new CrewError('EXTERNAL_FAILURE', `${login.argv.join(' ')} exited ${exitCode}`, {
+      suggestion: `Fix the problem shown above, then run \`crew account login ${profile.ref}\` again.`,
+    });
+  }
+  return testProfile(ctx, ref, options);
 }

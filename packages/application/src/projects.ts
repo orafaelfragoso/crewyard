@@ -160,7 +160,7 @@ export async function readinessReport(ctx: CrewContext, projectId: string): Prom
     ok: (ctx.store.db.query('SELECT COUNT(*) AS n FROM agents').get() as { n: number }).n > 0,
     message: 'agent definitions',
     action:
-      'crew account add --provider codex --name personal && crew agent create --name engineer --provider codex --account personal',
+      'crew account add --provider claude --name personal --use-default-config && crew agent create --name engineer --provider claude --account claude/personal (see docs/getting-started.md)',
   });
   const service = serviceStatus(ctx);
   items.push({
