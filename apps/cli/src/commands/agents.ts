@@ -485,7 +485,7 @@ export function registerAgentCommands(program: Command): void {
       action((ctx, opts, sessionId: string) => {
         const log = readSessionLog(ctx, sessionId, { tailBytes: Number(opts.tail) });
         if (opts.json) return emit(opts, log, () => '');
-        process.stdout.write(typeof log === 'string' ? log : String((log as { text?: string }).text ?? ''));
+        process.stdout.write(log.content);
       }),
     );
 

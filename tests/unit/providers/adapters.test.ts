@@ -86,6 +86,15 @@ describe('generic process adapter', () => {
     expect(JSON.stringify(events)).not.toContain(TOKEN);
   });
 
+  test('keeps the full final result so structured output still parses', async () => {
+    const plan = JSON.stringify({ tasks: Array.from({ length: 300 }, (_, i) => ({ key: `task-${i}` })) });
+    const adapter = createGenericAdapter();
+    const handle = await adapter.launch(launchInput(genericProfile(), `FAKE:${JSON.stringify(['--result', plan])}`));
+    const [events] = await Promise.all([drain(handle), handle.done]);
+    expect(plan.length).toBeGreaterThan(4_000);
+    expect(events.at(-1)).toMatchObject({ type: 'completed', result: plan });
+  });
+
   test('AT-20: missing usage stays unknown, never zero', async () => {
     const adapter = createGenericAdapter();
     const handle = await adapter.launch(launchInput(genericProfile(), 'no usage please'));
