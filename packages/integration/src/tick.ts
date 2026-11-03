@@ -251,14 +251,15 @@ function evaluateQueue(
       continue;
     }
     const next: QueueEntry['status'] = hard.length === 0 ? 'eligible' : 'blocked';
-    if (next === 'blocked' && entry.status !== 'blocked') {
-      const base = hookBase(pr);
-      if (base) {
-        scope.hooks.push({
-          name: 'onBlocked',
-          event: { ...base, reason: hard[0]!.message, blockers: evaluation.blockers },
-        });
-      }
+    const base = hookBase(pr);
+    if (base && next === 'blocked' && entry.status !== 'blocked') {
+      scope.hooks.push({
+        name: 'onBlocked',
+        event: { ...base, reason: hard[0]!.message, blockers: evaluation.blockers },
+      });
+    }
+    if (base && next === 'eligible' && entry.status === 'blocked') {
+      scope.hooks.push({ name: 'onQueued', event: { ...base, entryId: entry.id } });
     }
     if (hard.some((b) => APPROVAL_CODES.has(b.code))) {
       requestInterventionInTx(

@@ -1,5 +1,6 @@
 import type { HandoffKind } from '@crewyard/core';
 import { CrewError, nowIso } from '@crewyard/core';
+import { requestInterventionInTx } from '@crewyard/reviews';
 import type { CrewContext } from '@crewyard/storage';
 import { type LeaseCredentials, verifyLeaseInTx } from './leases.ts';
 import { type Handoff, requiresPullRequest, type TaskArtifacts, type TestEvidence } from './model.ts';
@@ -87,6 +88,7 @@ export function report(ctx: CrewContext, input: ReportInput): ReportResult {
     };
     const transitions: TransitionResult[] = [];
     if (input.kind === 'blocked') {
+      const reasons = [handoff.summary, ...handoff.remainingIssues];
       transitions.push(
         applyTransition(
           db,
@@ -94,11 +96,17 @@ export function report(ctx: CrewContext, input: ReportInput): ReportResult {
             ...base,
             to: 'BLOCKED',
             reason: 'reported_blocked',
-            blockerReason: [handoff.summary, ...handoff.remainingIssues].join('\n'),
+            blockerReason: reasons.join('\n'),
             releaseReservations: input.policy?.releaseReservationsOnBlock ?? true,
           },
           at,
         ),
+      );
+      requestInterventionInTx(
+        db,
+        { projectId: task.projectId, title: `Task ${task.id} blocked`, reasons, taskId: task.id },
+        actor,
+        at,
       );
     } else {
       transitions.push(applyTransition(db, { ...base, to: 'SUBMITTED', reason: `reported_${input.kind}` }, at));

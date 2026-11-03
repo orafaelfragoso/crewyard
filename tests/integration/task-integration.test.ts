@@ -100,3 +100,19 @@ describe('merged pull requests finish their task', () => {
     expect(await reconcileMergedTasks(f.ctx, f.repositoryId, env)).toEqual([]);
   }, 60_000);
 });
+
+describe('queue entries drive their task', () => {
+  test('a blocked entry that becomes eligible returns its task to QUEUED', async () => {
+    fx = await createGitHubFixture();
+    const f = fx;
+    const env = { ...f.env, hooks: taskHooks(f.ctx) };
+    const { taskId } = await queuedTask(f, env);
+    const tick = () => queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env, maxCandidates: 0 });
+    f.mock.requireChecks('main', ['ci', 'security-scan']);
+    await tick();
+    expect(showTask(f.ctx, taskId).task.state).toBe('BLOCKED');
+    f.mock.passChecks(1, ['ci', 'security-scan']);
+    await tick();
+    expect(showTask(f.ctx, taskId).task.state).toBe('QUEUED');
+  }, 60_000);
+});

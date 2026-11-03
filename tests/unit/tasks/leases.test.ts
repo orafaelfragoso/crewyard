@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { CrewError } from '@crewyard/core';
+import { all } from '@crewyard/storage';
 import {
   addTask,
   claimTask,
@@ -36,6 +37,9 @@ function errorOf(fn: () => unknown): CrewError {
   }
   throw new Error('expected a CrewError');
 }
+
+const interventions = (c: TestContext, taskId: string) =>
+  all<{ title: string; level: string }>(c.store.db, 'SELECT title, level FROM notifications WHERE task_id = ?', taskId);
 
 function setup(clock = new ManualClock()) {
   ctx = createTestContext({ clock });
@@ -100,6 +104,7 @@ describe('leases', () => {
     const result = reconcileExpiredLease(c, task.id, { processAlive: false, worktreeDirty: true });
     expect(result.outcome).toBe('preserved');
     expect(showTask(c, task.id).task).toMatchObject({ state: 'BLOCKED' });
+    expect(interventions(c, task.id)).toEqual([{ title: `Task ${task.id} blocked`, level: 'action_required' }]);
   });
 
   test('exclusive reservations conflict transactionally and are held until merge', () => {
@@ -170,6 +175,7 @@ describe('leases', () => {
     expect(detail.task.state).toBe('BLOCKED');
     expect(detail.task.blockerReason).toContain('need API key');
     expect(detail.reservations).toEqual([]);
+    expect(interventions(c, blocked.id)).toEqual([{ title: `Task ${blocked.id} blocked`, level: 'action_required' }]);
   });
 
   test('voluntary release returns the task; force release is operator-only and audited', () => {
