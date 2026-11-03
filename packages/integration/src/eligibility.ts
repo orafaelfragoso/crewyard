@@ -175,11 +175,7 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityResult 
       }
     }
     if (input.mode === 'crew-managed' && requirements.strictChecks && pr.mergeStateStatus === 'BEHIND') {
-      add(
-        'BRANCH_BEHIND_BASE',
-        'github',
-        'Branch protection requires the branch to be up to date; a revision is needed',
-      );
+      add('BRANCH_BEHIND_BASE', 'github', 'Branch protection requires the branch to be up to date with its base');
     }
     if (
       input.mode === 'crew-managed' &&

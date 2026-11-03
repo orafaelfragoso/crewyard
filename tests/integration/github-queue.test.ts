@@ -8,6 +8,7 @@ import {
   listPullRequests,
   queueTick,
   requestIntegration,
+  setExpectedRemoteHead,
   showPullRequest,
   syncRepository,
 } from '@crewyard/integration';
@@ -409,4 +410,37 @@ describe('github-managed integration queue', () => {
       { attempts: 2 },
     ]);
   }, 60_000);
+});
+
+describe('branches behind a strict base', () => {
+  for (const rebasing of ['only_when_required', 'never'] as const) {
+    test(`a branch behind a strict base is ${rebasing === 'never' ? 'left alone' : 'updated by GitHub'} when rebasing is ${rebasing}`, async () => {
+      fx = await createGitHubFixture({ config: { integration: { rebasing } } });
+      const f = fx;
+      f.mock.requireChecks('main', ['ci'], true);
+      const head = await f.pushBranch('behind', { 'src/b.ts': 'export const b = 1;\n' });
+      const pr = f.mock.addPull({ headRef: 'behind', baseRef: 'main' });
+      f.mock.passChecks(pr.number);
+      await f.advanceBase({ 'docs/base.md': 'moved\n' });
+      await queueAll(f, [pr.number]);
+      const record = showPullRequest(f.ctx, { repositoryId: f.repositoryId, number: pr.number });
+      setExpectedRemoteHead(f.ctx, record.id, head, agent);
+      await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+      expect(explainPullRequest(f.ctx, record.id, f.env).blockers.map((b) => b.code)).toContain('BRANCH_BEHIND_BASE');
+      await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
+      await syncRepository(f.ctx, f.repositoryId, f.env);
+
+      const updates = f.mock.countCalls('PUT', /\/pulls\/\d+\/update-branch$/);
+      const after = showPullRequest(f.ctx, { prId: record.id });
+      if (rebasing === 'never') {
+        expect(updates).toBe(0);
+        expect(after.headSha).toBe(head);
+        return;
+      }
+      expect(updates).toBe(1);
+      const merged = f.mock.branchSha('behind')!;
+      expect(merged).not.toBe(head);
+      expect(after).toMatchObject({ headSha: merged, expectedRemoteHead: merged, externalDivergence: null });
+    }, 60_000);
+  }
 });

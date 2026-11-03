@@ -4,7 +4,15 @@ import { type Actor, type AutonomyMode, CrewError, type FailureClass, gitText, n
 import type { GitHubClient } from '@crewyard/github';
 import type { Repository } from '@crewyard/projects';
 import { requestInterventionInTx } from '@crewyard/reviews';
-import { acquireLeadership, type CrewContext, getOutbox, isLeader, one, recordTransition } from '@crewyard/storage';
+import {
+  acquireLeadership,
+  type CrewContext,
+  enqueueOutbox,
+  getOutbox,
+  isLeader,
+  one,
+  recordTransition,
+} from '@crewyard/storage';
 import { buildAndValidateCandidate, createCandidate, fetchIntegrationRefs } from './candidates.ts';
 import { eligibilityInputFor, evaluateEligibility, mergeApprovalSubject } from './eligibility.ts';
 import {
@@ -25,6 +33,7 @@ import {
   mergeIdempotencyKey,
   type OutboxReport,
   processIntegrationOutbox,
+  type UpdateBranchIntent,
   type UpdatePullRequestIntent,
 } from './outbox.ts';
 import { type OrderItem, orderQueue, resolveQueueMode, unmergedDependencies } from './queue.ts';
@@ -692,6 +701,42 @@ function retargetChildren(db: Database, queue: IntegrationQueue, guard: { genera
   }
 }
 
+function updateBehindBranches(
+  db: Database,
+  scope: TickScope,
+  queue: IntegrationQueue,
+  guard: { generation: number },
+  at: string,
+): void {
+  if (scope.config.integration.rebasing === 'never' || scope.autonomy === 'observe') return;
+  for (const entry of activeEntries(db, queue.id)) {
+    if (entry.status !== 'blocked') continue;
+    const hard = entry.blockers.filter((b) => !b.soft);
+    if (!hard.some((b) => b.code === 'BRANCH_BEHIND_BASE')) continue;
+    if (hard.some((b) => b.code !== 'BRANCH_BEHIND_BASE' && !WAITING_CODES.has(b.code))) continue;
+    const pr = pullRequestById(db, entry.prId);
+    if (pr?.state !== 'open') continue;
+    const intent: UpdateBranchIntent = {
+      repositoryId: pr.repositoryId,
+      prId: pr.id,
+      number: pr.number,
+      headSha: pr.headSha,
+      baseRef: queue.baseBranch,
+    };
+    enqueueOutbox(
+      db,
+      {
+        kind: 'github.update_branch',
+        subjectId: pr.id,
+        intent,
+        idempotencyKey: `update-branch:${pr.repositoryId}:${pr.id}:${pr.headSha}`,
+        leaderGeneration: guard.generation,
+      },
+      at,
+    );
+  }
+}
+
 export async function queueTick(
   ctx: CrewContext,
   repositoryId: string,
@@ -746,7 +791,10 @@ export async function queueTick(
     const queue = ctx.store.immediate((db) => {
       const q = refreshMode(db, scope, initial, at);
       evaluateQueue(db, scope, q, at, result);
-      if (!offline && !q.paused) retargetChildren(db, q, guard, at);
+      if (!offline && !q.paused) {
+        retargetChildren(db, q, guard, at);
+        updateBehindBranches(db, scope, q, guard, at);
+      }
       return q;
     });
     result.mode = queue.mode;

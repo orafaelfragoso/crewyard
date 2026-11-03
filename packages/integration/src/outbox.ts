@@ -43,6 +43,7 @@ export const GITHUB_OUTBOX_KINDS = [
   'github.enqueue',
   'github.create_pr',
   'github.update_pr',
+  'github.update_branch',
 ] as const;
 export type GitHubOutboxKind = (typeof GITHUB_OUTBOX_KINDS)[number];
 
@@ -96,6 +97,14 @@ export interface UpdatePullRequestIntent extends Record<string, unknown> {
   prId: string;
   number: number;
   patch: UpdatePullRequestInput;
+}
+
+export interface UpdateBranchIntent extends Record<string, unknown> {
+  repositoryId: string;
+  prId: string;
+  number: number;
+  headSha: string;
+  baseRef: string;
 }
 
 export function enqueueOrReviveInTx(
@@ -784,12 +793,66 @@ async function handleUpdatePullRequest(hc: HandlerContext, op: OutboxOperation):
   }
 }
 
+async function handleUpdateBranch(hc: HandlerContext, op: OutboxOperation): Promise<void> {
+  const intent = op.intent as UpdateBranchIntent;
+  const guard = await leaderGuard(hc, op);
+  if (!guard) return;
+  const repository = repositoryFor(hc.ctx, intent.repositoryId);
+  let client: GitHubClient | null = null;
+  try {
+    client = await clientFor(hc.ctx, hc.env, repository);
+    if (!stillLeader(hc, guard)) return defer(hc, op, new CrewError('LEASE_CONFLICT', 'leadership lost'));
+    await client.updatePullRequestBranch(intent.number, intent.headSha);
+    remote(hc.ctx, op, client, 'PUT', `pulls/${intent.number}/update-branch`, intent, { status: 202 });
+    const observed = await client.getPullRequest(intent.number);
+    const updated =
+      observed.headSha !== intent.headSha && (await client.getCommit(observed.headSha)).parents[0] === intent.headSha;
+    settle(hc, op, { status: 'succeeded', remoteCorrelation: { headSha: observed.headSha } }, (db, at) => {
+      if (!updated) return;
+      const pr = pullRequestById(db, intent.prId);
+      if (!pr || pr.expectedRemoteHead !== intent.headSha) return;
+      db.query('UPDATE pull_requests SET expected_remote_head = ?, updated_at = ? WHERE id = ?').run(
+        observed.headSha,
+        at,
+        pr.id,
+      );
+      recordTransition(
+        db,
+        {
+          type: 'pr.expected_head_set',
+          actor: OUTBOX_ACTOR,
+          prId: pr.id,
+          taskId: pr.taskId,
+          payload: { headSha: observed.headSha, reason: 'update_branch' },
+        },
+        { action: 'pr.expect_head', input: { prId: pr.id, headSha: observed.headSha }, decision: 'accepted' },
+        at,
+      );
+      if (pr.taskId) {
+        hc.hooks.push({
+          name: 'onRemoteHeadAccepted',
+          event: {
+            taskId: pr.taskId,
+            prId: pr.id,
+            prNumber: pr.number,
+            repositoryId: pr.repositoryId,
+            headSha: observed.headSha,
+          },
+        });
+      }
+    });
+  } catch (error) {
+    handleError(hc, op, client, error, () => {});
+  }
+}
+
 const HANDLERS: Record<GitHubOutboxKind, (hc: HandlerContext, op: OutboxOperation) => Promise<void>> = {
   'github.merge': handleMerge,
   'github.merge_async': handleMergeAsync,
   'github.enqueue': handleEnqueue,
   'github.create_pr': handleCreatePullRequest,
   'github.update_pr': handleUpdatePullRequest,
+  'github.update_branch': handleUpdateBranch,
 };
 
 export interface ProcessOutboxOptions {
