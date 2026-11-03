@@ -109,7 +109,11 @@ export interface ServiceUnitPlan {
 
 export function planServiceUnit(ctx: CrewContext, home = homedir()): ServiceUnitPlan {
   const command = [...crewInvocation(), 'service', 'run'];
-  const env = { CREW_DATA_DIR: ctx.dirs.data, CREW_CONFIG_DIR: ctx.dirs.config };
+  const env = {
+    CREW_DATA_DIR: ctx.dirs.data,
+    CREW_CONFIG_DIR: ctx.dirs.config,
+    ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
+  };
   if (process.platform === 'darwin') {
     const file = join(home, 'Library', 'LaunchAgents', `${SERVICE_LABEL}.plist`);
     const args = command.map((c) => `    <string>${escapeXml(c)}</string>`).join('\n');
@@ -178,7 +182,7 @@ After=network-online.target
 Type=simple
 ExecStart=${command.map((c) => (/\s/.test(c) ? `"${c}"` : c)).join(' ')}
 ${Object.entries(env)
-  .map(([k, v]) => `Environment=${k}=${v}`)
+  .map(([k, v]) => `Environment="${k}=${v.replaceAll('"', '\\"')}"`)
   .join('\n')}
 Restart=on-failure
 RestartSec=10
