@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.4.3](https://github.com/orafaelfragoso/crewyard/compare/v0.4.2...v0.4.3) (2026-11-03)
+
+
+### Bug Fixes
+
+* **agents:** retry tasks after transient session failures ([c4a228f](https://github.com/orafaelfragoso/crewyard/commit/c4a228f9593071a74e8be555632f5cd235f9f986))
+* **application:** resume tasks stranded in REVIEWING ([d22179e](https://github.com/orafaelfragoso/crewyard/commit/d22179e90ed4b0bebdaa4a45bfd452e2f1a84a9b))
+* **cli:** acknowledge external branch changes with crew pr acknowledge ([c4a228f](https://github.com/orafaelfragoso/crewyard/commit/c4a228f9593071a74e8be555632f5cd235f9f986))
+* **integration:** accept GitHub update-branch merges as the expected ([c4a228f](https://github.com/orafaelfragoso/crewyard/commit/c4a228f9593071a74e8be555632f5cd235f9f986))
+* **integration:** advance merged, blocked and escalated tasks instead of stranding them ([#34](https://github.com/orafaelfragoso/crewyard/issues/34)) ([d22179e](https://github.com/orafaelfragoso/crewyard/commit/d22179e90ed4b0bebdaa4a45bfd452e2f1a84a9b))
+* **integration:** advance tasks whose pull requests merged ([d22179e](https://github.com/orafaelfragoso/crewyard/commit/d22179e90ed4b0bebdaa4a45bfd452e2f1a84a9b))
+* **integration:** let escalated tasks rejoin the queue ([d22179e](https://github.com/orafaelfragoso/crewyard/commit/d22179e90ed4b0bebdaa4a45bfd452e2f1a84a9b))
+* **integration:** respect GitHub rate limits across service cycles ([38ecf4f](https://github.com/orafaelfragoso/crewyard/commit/38ecf4fe01f07df8d4dc76dcc72dbc6a96815ac8))
+* **publish:** reconcile acknowledged branch changes instead of retrying ([c4a228f](https://github.com/orafaelfragoso/crewyard/commit/c4a228f9593071a74e8be555632f5cd235f9f986))
+* **publish:** recover from outside branch changes, failed sessions and stale worktrees ([#35](https://github.com/orafaelfragoso/crewyard/issues/35)) ([c4a228f](https://github.com/orafaelfragoso/crewyard/commit/c4a228f9593071a74e8be555632f5cd235f9f986))
+* **queue:** keep stuck entries from halting the project and route reviews and revisions ([#36](https://github.com/orafaelfragoso/crewyard/issues/36)) ([38ecf4f](https://github.com/orafaelfragoso/crewyard/commit/38ecf4fe01f07df8d4dc76dcc72dbc6a96815ac8))
+* **queue:** revise, re-evaluate and escalate blocked entries instead of ([38ecf4f](https://github.com/orafaelfragoso/crewyard/commit/38ecf4fe01f07df8d4dc76dcc72dbc6a96815ac8))
+* **queue:** route failing checks to revision on high-risk PRs awaiting ([38ecf4f](https://github.com/orafaelfragoso/crewyard/commit/38ecf4fe01f07df8d4dc76dcc72dbc6a96815ac8))
+* **queue:** update branches that strict protection holds behind their ([c4a228f](https://github.com/orafaelfragoso/crewyard/commit/c4a228f9593071a74e8be555632f5cd235f9f986))
+* **reviews:** derive review status from blocking finding severity ([38ecf4f](https://github.com/orafaelfragoso/crewyard/commit/38ecf4fe01f07df8d4dc76dcc72dbc6a96815ac8))
+* **reviews:** run reviews in the PR checkout without blocking service ([38ecf4f](https://github.com/orafaelfragoso/crewyard/commit/38ecf4fe01f07df8d4dc76dcc72dbc6a96815ac8))
+* **scheduler:** measure queue age only over progressing entries ([38ecf4f](https://github.com/orafaelfragoso/crewyard/commit/38ecf4fe01f07df8d4dc76dcc72dbc6a96815ac8))
+* **service:** clean worktrees of finished tasks automatically ([c4a228f](https://github.com/orafaelfragoso/crewyard/commit/c4a228f9593071a74e8be555632f5cd235f9f986))
+* **tasks:** keep revision tasks in REVISION when their lease expires ([d22179e](https://github.com/orafaelfragoso/crewyard/commit/d22179e90ed4b0bebdaa4a45bfd452e2f1a84a9b))
+* **tasks:** surface blocked tasks and requeue them when unblocked ([d22179e](https://github.com/orafaelfragoso/crewyard/commit/d22179e90ed4b0bebdaa4a45bfd452e2f1a84a9b))
+
 ## [0.4.2](https://github.com/orafaelfragoso/crewyard/compare/v0.4.1...v0.4.2) (2026-11-03)
 
 
