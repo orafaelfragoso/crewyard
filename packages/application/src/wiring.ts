@@ -11,6 +11,7 @@ import type { RemoteRecovery } from '@crewyard/recovery';
 import type { CrewContext } from '@crewyard/storage';
 import type { QueueActions } from './dashboard-actions.ts';
 import { INTEGRATION_ACTOR, integrationEnv, reconcileMergedTasks } from './integration.ts';
+import { cleanFinishedWorkspaces } from './maintenance.ts';
 import { blockDivergedPublication, publishTask, tasksAwaitingPublication } from './publish.ts';
 import type { ProjectCycle, ServiceOptions } from './service-loop.ts';
 import { resumeSessionRetries } from './session-retries.ts';
@@ -84,6 +85,15 @@ export function maintenanceCycles(): ProjectCycle[] {
       async run(ctx, input) {
         const resumed = resumeSessionRetries(ctx, input.projectId, MAINTENANCE_ACTOR);
         return resumed.length ? { resumed } : {};
+      },
+    },
+    {
+      name: 'workspace-cleanup',
+      intervalSeconds: () => 3_600,
+      async run(ctx, input) {
+        const repo = primaryRepository(ctx, input.projectId);
+        const removed = await cleanFinishedWorkspaces(ctx, { repositoryId: repo.id, actor: MAINTENANCE_ACTOR });
+        return removed.length ? { removed: removed.map((r) => r.workspace.id) } : {};
       },
     },
   ];

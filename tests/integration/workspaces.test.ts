@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { cleanFinishedWorkspaces } from '@crewyard/application';
 import { type Actor, CrewError, gitText, sha256 } from '@crewyard/core';
 import { registerProject } from '@crewyard/projects';
 import { addTask, decideApproval, transitionTask } from '@crewyard/tasks';
@@ -118,6 +119,30 @@ describe('workspaces', () => {
     const preview = await previewCleanup(ctx, { config });
     expect(preview.items[0]).toMatchObject({ eligible: false });
     expect(preview.items[0]?.blockedBy).toContain('NEEDS_RECONCILIATION');
+  });
+
+  test('periodic cleanup removes worktrees of finished tasks and keeps unfinished or dirty ones', async () => {
+    const { ctx, repository, newTask, config } = await setup();
+    const allocate = async (title: string) => {
+      const task = newTask(title);
+      return {
+        task,
+        workspace: (await allocateWorkspace(ctx, { taskId: task.id, actor: operator, config })).workspace,
+      };
+    };
+    const finished = await allocate('Finished');
+    const dirty = await allocate('Dirty');
+    const ongoing = await allocate('Ongoing');
+    writeFiles(dirty.workspace.path, { 'untracked.txt': 'keep me\n' });
+    for (const { task } of [finished, dirty]) {
+      transitionTask(ctx, { taskId: task.id, to: 'CANCELLED', actor: operator, reason: 'abandoned' });
+    }
+
+    const removed = await cleanFinishedWorkspaces(ctx, { repositoryId: repository.id, actor: operator });
+    expect(removed.map((r) => r.workspace.id)).toEqual([finished.workspace.id]);
+    expect((await inspectWorkspace(ctx, dirty.workspace.id)).exists).toBe(true);
+    expect((await inspectWorkspace(ctx, ongoing.workspace.id)).exists).toBe(true);
+    expect(await cleanFinishedWorkspaces(ctx, { repositoryId: repository.id, actor: operator })).toEqual([]);
   });
 
   test('cleanup previews first, refuses dirty work without authorization and saves recoverable backups', async () => {
