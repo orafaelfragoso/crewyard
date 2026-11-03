@@ -1,0 +1,70 @@
+name: Bug report
+description: Something in Crewyard does not work as documented.
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Report security vulnerabilities privately as described in [SECURITY.md](https://github.com/orafaelfragoso/crewyard/blob/main/SECURITY.md), not here.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. crew init --repo .
+        2. crew task claim ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: version
+    attributes:
+      label: crew version --json
+      render: json
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installed from
+      options:
+        - npm (crewyard)
+        - Release binary
+        - Source checkout
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - CLI
+        - MCP server
+        - Skills
+        - Service / scheduler
+        - Agents and providers
+        - Index and context
+        - Reviews
+        - GitHub integration and merge queue
+        - Storage and recovery
+        - Dashboard
+        - Installation and packaging
+  - type: textarea
+    id: doctor
+    attributes:
+      label: crew doctor --json
+      description: Remove anything you consider private. Crewyard redacts credentials, but check before posting.
+      render: json
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error output
+      render: shell
