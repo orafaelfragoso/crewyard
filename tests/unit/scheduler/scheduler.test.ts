@@ -57,6 +57,7 @@ function snapshot(tasks: SchedulerTask[], extra: Partial<SchedulerSnapshot> = {}
     recoveryDemand: tasks.filter((t) => t.state === 'REVISION').length,
     budgets: [],
     providerCapacity: null,
+    freeDiskBytes: null,
     projectShare: 0,
     ...extra,
   };
@@ -93,6 +94,26 @@ describe('scheduler admission', () => {
     expect(first.admitted.map((a) => [a.taskId, a.workClass])).toEqual([['TASK-2', 'recovery']]);
     expect(first.deferred.map((d) => [d.taskId, d.code])).toEqual([['TASK-1', 'BACKPRESSURE_OPEN_PRS']]);
     expect(admitTasks(snap, config)).toEqual(first);
+  });
+
+  test('low free disk admits no implementation or recovery work; at the threshold or with it off nothing changes', () => {
+    const GB = 1024 ** 3;
+    const tasks = [task('TASK-1'), task('TASK-2', { state: 'REVISION' })];
+    const config = testConfig({ scheduler: { min_free_disk_gb: 10 } });
+    const low = admitTasks(snapshot(tasks, { freeDiskBytes: 9.5 * GB }), config);
+    expect(low.admitted).toEqual([]);
+    expect(low.capacity).toMatchObject({ total: 0, implementation: 0, recovery: 0 });
+    expect(low.deferred.map((d) => [d.taskId, d.code])).toEqual([
+      ['TASK-1', 'DISK_SPACE_LOW'],
+      ['TASK-2', 'DISK_SPACE_LOW'],
+    ]);
+    expect(low.deferred[0]?.message).toBe(
+      'Free disk space 9.5 GB is below scheduler.min_free_disk_gb 10 GB; no new sessions start',
+    );
+    const admitted = (freeDiskBytes: number, cfg: typeof config) =>
+      admitTasks(snapshot(tasks, { freeDiskBytes }), cfg).admitted.map((a) => a.taskId);
+    expect(admitted(10 * GB, config)).toEqual(['TASK-2', 'TASK-1']);
+    expect(admitted(0, testConfig({ scheduler: { min_free_disk_gb: 0 } }))).toEqual(['TASK-2', 'TASK-1']);
   });
 
   test('WIP, capacity reservation, exclusive scopes and budgets produce exact reason codes', () => {

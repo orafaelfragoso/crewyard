@@ -45,7 +45,14 @@ import {
   startTask,
   transitionTask,
 } from '@crewyard/tasks';
-import { applyCleanup, getWorkspace, inspectWorkspace, listWorkspaces, previewCleanup } from '@crewyard/workspaces';
+import {
+  applyCleanup,
+  freeDiskBytes,
+  getWorkspace,
+  inspectWorkspace,
+  listWorkspaces,
+  previewCleanup,
+} from '@crewyard/workspaces';
 import type { Command } from 'commander';
 import { confirm, emit, emitChange, keyValues, progress, table } from '../output.ts';
 import { action, mutate, operatorActor, previewContext, withMutationOptions } from '../program.ts';
@@ -572,7 +579,9 @@ export function registerWorkCommands(program: Command): void {
     .description('explain exactly why a task was or was not dispatched')
     .action(
       action((ctx, opts, taskId: string) =>
-        emit(opts, explainDispatch(ctx, taskId), (e) => JSON.stringify(e, null, 2)),
+        emit(opts, explainDispatch(ctx, taskId, { freeDiskBytes: freeDiskBytes(ctx.dirs.worktrees) }), (e) =>
+          JSON.stringify(e, null, 2),
+        ),
       ),
     );
   task

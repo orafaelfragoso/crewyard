@@ -113,6 +113,7 @@ export const crewConfigSchema = z.strictObject({
       integration_capacity_per_branch: z.int().min(1).max(32).default(1),
       reserve_recovery_capacity: z.int().min(0).max(16).default(1),
       tick_interval_seconds: z.int().min(1).max(3_600).default(15),
+      min_free_disk_gb: z.number().min(0).default(10),
     })
     .prefault({}),
   index: z
@@ -187,6 +188,16 @@ export const crewConfigSchema = z.strictObject({
       timeout_seconds: z.int().min(1).max(7_200).default(600),
       cleanup: z.enum(['after_merge', 'manual', 'retention']).default('after_merge'),
       retention_days: z.int().min(0).default(14),
+      build_output: z
+        .array(
+          z
+            .string()
+            .regex(
+              /^(?![/\\])(?!(?:.*[/\\])?\.\.?(?:[/\\]|$)).+$/,
+              'workspace.build_output entries must be relative paths inside the worktree',
+            ),
+        )
+        .default([]),
     })
     .prefault({}),
   validation: z

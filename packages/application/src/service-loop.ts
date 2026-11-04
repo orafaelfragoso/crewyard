@@ -15,6 +15,7 @@ import {
 } from '@crewyard/storage';
 import { showTask } from '@crewyard/tasks';
 import { type Dispatch, dispatchTask } from './agents.ts';
+import { guardDiskSpace } from './disk-guard.ts';
 import { buildIndex, indexState } from './retrieval.ts';
 
 export interface ProjectCycle {
@@ -36,6 +37,7 @@ export interface ServiceOptions {
   remoteRecovery?: readonly RemoteRecovery[];
   tickSeconds?: number;
   dispatch?: boolean;
+  freeDiskBytes?: (path: string) => number;
 }
 
 const SERVICE_ACTOR: Actor = { kind: 'service', id: `crew-service@${hostname()}` };
@@ -72,6 +74,7 @@ export class CrewService {
   private readonly inflight = new Set<Promise<unknown>>();
   private readonly dispatches = new Set<Dispatch>();
   private readonly leaders = new Map<string, number>();
+  private readonly diskLow = new Set<string>();
 
   constructor(
     private readonly ctx: CrewContext,
@@ -192,7 +195,16 @@ export class CrewService {
 
     if (workersPaused || intakePaused || this.options.dispatch === false) return;
     if (loaded.config.project.autonomy === 'observe') return;
-    const plan = planDispatch(this.ctx, projectId, { config: loaded.config });
+    const guard = await guardDiskSpace(this.ctx, {
+      projectId,
+      config: loaded.config,
+      actor: SERVICE_ACTOR,
+      alert: !this.diskLow.has(projectId),
+      ...(this.options.freeDiskBytes ? { measure: this.options.freeDiskBytes } : {}),
+    });
+    if (guard.disk.low) this.diskLow.add(projectId);
+    else this.diskLow.delete(projectId);
+    const plan = planDispatch(this.ctx, projectId, { config: loaded.config, freeDiskBytes: guard.freeDiskBytes });
     for (const admission of plan.admitted) {
       if (this.stopping) return;
       const agent = selectAgentForTask(this.ctx, admission.taskId);

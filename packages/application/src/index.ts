@@ -3,6 +3,7 @@ export * from './agents.ts';
 export * from './caller.ts';
 export * from './context.ts';
 export * from './dashboard-actions.ts';
+export * from './disk-guard.ts';
 export * from './doctor.ts';
 export * from './events.ts';
 export * from './integration.ts';
