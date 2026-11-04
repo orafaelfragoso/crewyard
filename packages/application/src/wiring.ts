@@ -10,6 +10,7 @@ import {
 import { listProjects, loadProjectConfig, primaryRepository, type Repository } from '@crewyard/projects';
 import type { RemoteRecovery } from '@crewyard/recovery';
 import type { CrewContext } from '@crewyard/storage';
+import { pruneBuildOutput } from '@crewyard/workspaces';
 import type { QueueActions } from './dashboard-actions.ts';
 import { INTEGRATION_ACTOR, integrationEnv, reconcileMergedTasks, reviewPullRequest } from './integration.ts';
 import { cleanFinishedWorkspaces } from './maintenance.ts';
@@ -117,7 +118,11 @@ export function maintenanceCycles(): ProjectCycle[] {
       async run(ctx, input) {
         const repo = primaryRepository(ctx, input.projectId);
         const removed = await cleanFinishedWorkspaces(ctx, { repositoryId: repo.id, actor: MAINTENANCE_ACTOR });
-        return removed.length ? { removed: removed.map((r) => r.workspace.id) } : {};
+        const pruned = await pruneBuildOutput(ctx, { repositoryId: repo.id, actor: MAINTENANCE_ACTOR });
+        return {
+          ...(removed.length ? { removed: removed.map((r) => r.workspace.id) } : {}),
+          ...(pruned.length ? { pruned } : {}),
+        };
       },
     },
   ];

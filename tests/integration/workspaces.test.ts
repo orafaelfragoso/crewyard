@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { cleanFinishedWorkspaces } from '@crewyard/application';
 import { type Actor, CrewError, gitText, sha256 } from '@crewyard/core';
 import { registerProject } from '@crewyard/projects';
-import { addTask, decideApproval, transitionTask } from '@crewyard/tasks';
+import { listEvents } from '@crewyard/storage';
+import { addTask, claimTask, decideApproval, transitionTask } from '@crewyard/tasks';
 import {
   allocateWorkspace,
   applyCleanup,
@@ -16,6 +17,7 @@ import {
   markWorkspacesForReconciliation,
   platformLimitations,
   previewCleanup,
+  pruneBuildOutput,
   removeWorkspace,
   resolveWorkspacePath,
   runBounded,
@@ -29,7 +31,7 @@ import {
   tempDir,
   writeFiles,
 } from '../helpers/index.ts';
-import { testConfig } from '../unit/tasks/fixtures.ts';
+import { agent, testConfig } from '../unit/tasks/fixtures.ts';
 
 const operator: Actor = { kind: 'operator', id: 'rafael' };
 const cleanups: (() => void)[] = [];
@@ -162,6 +164,36 @@ describe('workspaces', () => {
       .run(repository.id, workspace.branch, head, task.id, at, at);
     const removed = await cleanFinishedWorkspaces(ctx, { repositoryId: repository.id, actor: operator });
     expect(removed.map((r) => [r.workspace.id, r.backup])).toEqual([[workspace.id, null]]);
+  });
+
+  test('build output is pruned only in idle worktrees and only where Git ignores and does not track it', async () => {
+    const { ctx, repo, repository, newTask } = await setup();
+    const config = testConfig({ workspace: { build_output: ['target', 'build'] } });
+    await commitFiles(repo, { 'build/keep.txt': 'tracked\n' }, 'tracked build file');
+    await commitFiles(repo, { '.gitignore': 'target/\nbuild/\n' }, 'ignore build output');
+    const allocate = async (title: string) => {
+      const task = newTask(title);
+      const { workspace } = await allocateWorkspace(ctx, { taskId: task.id, actor: operator, config });
+      writeFiles(workspace.path, { 'target/debug/app': 'binary\n' });
+      return { task, workspace };
+    };
+    const idle = await allocate('Idle');
+    const leased = await allocate('Leased');
+    const unignored = await allocate('Unignored');
+    writeFiles(idle.workspace.path, { 'src/app.ts': 'export const v = 2;\n' });
+    writeFiles(unignored.workspace.path, { '.gitignore': 'build/\n' });
+    claimTask(ctx, { taskId: leased.task.id, holder: agent('a'), config });
+
+    const pruned = await pruneBuildOutput(ctx, { repositoryId: repository.id, actor: operator, config });
+    expect(pruned.map((p) => [p.workspaceId, p.paths])).toEqual([[idle.workspace.id, ['target']]]);
+    expect(existsSync(join(idle.workspace.path, 'target'))).toBe(false);
+    expect(listEvents(ctx.store, { types: ['workspace.build_output_pruned'] }).map((e) => e.payload)).toMatchObject([
+      { workspaceId: idle.workspace.id, paths: ['target'] },
+    ]);
+    expect(readFileSync(join(idle.workspace.path, 'build/keep.txt'), 'utf8')).toBe('tracked\n');
+    expect((await inspectWorkspace(ctx, idle.workspace.id)).dirtyFiles).toEqual([{ status: 'M', path: 'src/app.ts' }]);
+    expect(existsSync(join(leased.workspace.path, 'target/debug/app'))).toBe(true);
+    expect(existsSync(join(unignored.workspace.path, 'target/debug/app'))).toBe(true);
   });
 
   test('cleanup previews first, refuses dirty work without authorization and saves recoverable backups', async () => {

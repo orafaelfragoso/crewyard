@@ -52,7 +52,7 @@ describe('autonomous pipeline', () => {
       actor: { kind: 'operator', id: 'op' },
     });
     const cycles = integrationCycles(envFor).map((c) => ({ ...c, intervalSeconds: () => 0 }));
-    const service = new CrewService(ctx, { cycles });
+    const service = new CrewService(ctx, { cycles, freeDiskBytes: () => Number.POSITIVE_INFINITY });
     const deadline = Date.now() + 45_000;
     while (showTask(ctx, first.id).task.state !== 'DONE' && Date.now() < deadline) {
       await service.tick();

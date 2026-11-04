@@ -36,6 +36,7 @@ scheduler:
   max_queue_age_minutes: 120
   protect_high_risk_scopes: true
   fairness: weighted
+  min_free_disk_gb: 10
 
 index:
   enabled: true
