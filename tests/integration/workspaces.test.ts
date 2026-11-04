@@ -145,6 +145,25 @@ describe('workspaces', () => {
     expect(await cleanFinishedWorkspaces(ctx, { repositoryId: repository.id, actor: operator })).toEqual([]);
   });
 
+  test('a finished worktree whose commits shipped in a merged PR is cleaned after the PR branch is deleted', async () => {
+    const { ctx, repository, newTask, config } = await setup();
+    const task = newTask('Shipped');
+    const { workspace } = await allocateWorkspace(ctx, { taskId: task.id, actor: operator, config });
+    const head = await commitFiles(workspace.path, { 'src/shipped.ts': 'export const s = 1;\n' }, 'shipped work');
+    transitionTask(ctx, { taskId: task.id, to: 'CANCELLED', actor: operator, reason: 'merged elsewhere' });
+    expect(await cleanFinishedWorkspaces(ctx, { repositoryId: repository.id, actor: operator })).toEqual([]);
+
+    const at = new Date().toISOString();
+    ctx.store.db
+      .query(
+        `INSERT INTO pull_requests (id, repository_id, number, title, head_ref, head_sha, base_ref, state, task_id, created_at, updated_at)
+         VALUES ('pr_shipped', ?, 7, 'Shipped', ?, ?, 'main', 'merged', ?, ?, ?)`,
+      )
+      .run(repository.id, workspace.branch, head, task.id, at, at);
+    const removed = await cleanFinishedWorkspaces(ctx, { repositoryId: repository.id, actor: operator });
+    expect(removed.map((r) => [r.workspace.id, r.backup])).toEqual([[workspace.id, null]]);
+  });
+
   test('cleanup previews first, refuses dirty work without authorization and saves recoverable backups', async () => {
     const { ctx, repo, newTask, config } = await setup();
     const task = newTask('Abandoned');
