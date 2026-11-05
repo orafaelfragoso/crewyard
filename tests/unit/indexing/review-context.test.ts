@@ -41,5 +41,5 @@ test('dependency context fingerprints bodies and exposes depth, node, missing an
   });
   expect(revised.revision).not.toBe(graph.revision);
   expect(revised.contentFingerprint).not.toBe(graph.contentFingerprint);
-  expect(revised.coverage.missingPaths).toContain('a.ts');
+  expect(revised.coverage.incompletePaths).toContain('a.ts');
 });

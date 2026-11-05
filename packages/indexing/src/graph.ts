@@ -5,6 +5,7 @@ import { all } from '@crewyard/storage';
 import { requireSnapshot, type SnapshotRequest } from './freshness.ts';
 import { joinPath, loadPackages, type PackageInfo, type SnapshotFileRow, snapshotFiles } from './manifests.ts';
 import { basenameOf, dirnameOf } from './rules.ts';
+import { DEFAULT_INDEX_CONFIG } from './store.ts';
 import type { Provenance, ResultEnvelope, Snapshot } from './types.ts';
 
 export interface ImportLink {
@@ -396,9 +397,9 @@ export async function dependencyGraph(ctx: CrewContext, input: DependencyGraphIn
         indexStatus: envelope.indexStatus,
       },
     }));
-  const contents = all<{ path: string; blob_sha: string; parse_status: string; parser: string | null }>(
+  const contents = all<{ path: string; blob_sha: string; parse_status: string; parser: string | null; size: number }>(
     ctx.store.db,
-    'SELECT f.path, f.blob_sha, b.parse_status, b.parser FROM files f LEFT JOIN blobs b ON b.sha = f.blob_sha WHERE f.snapshot_id = ? ORDER BY f.path',
+    'SELECT f.path, f.blob_sha, b.parse_status, b.parser, f.size FROM files f LEFT JOIN blobs b ON b.sha = f.blob_sha WHERE f.snapshot_id = ? ORDER BY f.path',
     snapshot.id,
   ).filter((file) => depths.has(file.path));
   const coverage = {
@@ -409,7 +410,11 @@ export async function dependencyGraph(ctx: CrewContext, input: DependencyGraphIn
       ...new Set(links.filter((link) => link.to === null).map((link) => `${link.from}:${link.specifier}`)),
     ].sort(),
     incompletePaths: contents
-      .filter((file) => file.parse_status !== 'parsed' && file.parse_status !== 'text')
+      .filter(
+        (file) =>
+          (file.parse_status !== 'parsed' && file.parse_status !== 'text') ||
+          file.size > (input.config ?? DEFAULT_INDEX_CONFIG).max_file_bytes,
+      )
       .map((file) => file.path),
   };
   const contentFingerprint = fingerprint({
