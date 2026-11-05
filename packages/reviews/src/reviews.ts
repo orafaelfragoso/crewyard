@@ -707,7 +707,7 @@ export function reviewSummary(
     if (!row) continue;
     const artifact = mapReview(db, row);
     const invalid =
-      row.status === 'running' || row.status === 'pending' ? null : reviewEvidenceValidity(artifact, policy);
+      row.status === 'running' || row.status === 'pending' || row.status === 'failed' ? null : reviewEvidenceValidity(artifact, policy);
     byType[type] = {
       reviewId: row.id,
       status: invalid ? 'invalidated' : row.status,
