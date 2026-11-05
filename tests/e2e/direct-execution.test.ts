@@ -124,6 +124,7 @@ test.skipIf(process.platform === 'win32')(
         .query("SELECT operation_id, status, intent FROM outbox WHERE kind = 'execution.launch'")
         .all() as { operation_id: string; status: string; intent: string }[];
       expect(launches.map((row) => JSON.parse(row.intent).operation.kind).sort()).toEqual([
+        'index',
         'queue',
         'review',
         'review',
