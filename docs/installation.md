@@ -28,7 +28,7 @@ crew version
 Each release contains the binaries, `manifest.json`, `sbom.cdx.json` (CycloneDX 1.6) and `SHA256SUMS`, which covers every other asset. While the repository is public, release assets also carry GitHub artifact attestations (SLSA build provenance, plus an SBOM attestation for the binaries) and the npm packages carry npm provenance.
 
 ```bash
-VERSION=v0.5.0                # x-release-please-version
+VERSION=v0.6.0                # x-release-please-version
 ASSET=crew-linux-x64          # crew-linux-arm64, crew-darwin-arm64, crew-darwin-x64, crew-windows-x64.exe
 BASE=https://github.com/orafaelfragoso/crewyard/releases/download/$VERSION
 curl -LO "$BASE/$ASSET" -LO "$BASE/SHA256SUMS"
