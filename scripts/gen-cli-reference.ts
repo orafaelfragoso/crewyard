@@ -18,8 +18,11 @@ function render(cmd: Command, parents: string[], depth: number, out: string[]): 
         ? [
             'Metrics schema version 2 reports `localValidationMinutesPerMerge` and',
             '`localValidationReruns` from local validation runs. `integrationMinutes` includes the',
-            'entire enqueue-to-merge interval. Hosted CI durations remain `unknown` until actual',
-            'execution timing is recorded; observation timestamps are not execution durations.',
+            'entire enqueue-to-merge interval. `observedHostedCheckMinutes` sums recorded provider',
+            'execution timing; observation timestamps are not execution durations.',
+            '`hostedCiMinutesPerMerge` remains `unknown` because partial check observations do not',
+            'establish complete hosted CI usage. Active review joins are separate from cache reuse.',
+            'See [metric definitions](../architecture/overview.md#metrics-and-operation-events).',
           ].join('\n')
         : cmd.description();
     out.push(`${'#'.repeat(Math.min(depth + 2, 5))} \`${commandUsage}\``, '', description, '');

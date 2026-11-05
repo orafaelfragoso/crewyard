@@ -128,5 +128,7 @@ decision carries a disclosure of what the provider receives.
   provider's own sandbox offers (Codex `--sandbox`, Claude permission modes).
 - Prompts for OpenCode are passed as an argument (visible in the process list); Codex, Claude and generic agents read the
   prompt from stdin.
-- Process identity checks use `/proc/<pid>/stat` on Linux and `ps -o lstart` on macOS; on Windows the reaper never
-  kills live orphans.
+- Process birth identity uses Linux boot ID plus `/proc/<pid>/stat` start ticks, `ps -o lstart` on macOS, and
+  PowerShell `Get-Process.StartTime` UTC ticks on Windows. Unknown or legacy unverifiable identities prevent
+  termination/reuse. Linux packaged workers have local acceptance evidence; actual macOS/Windows worker runs
+  remain [open acceptance gates](../acceptance.md#not-yet-demonstrated).

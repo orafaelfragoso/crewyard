@@ -1,6 +1,9 @@
 # `crew doctor`
 
-`crew doctor` checks that this machine can run Crewyard and reports how to fix what is missing. It changes nothing; repairs are printed as commands for you to run.
+`crew doctor` checks that this machine can run Crewyard and prints repair commands. Like other CLI commands, it
+opens local state and applies pending schema migrations, so [quiesce writers before an upgrade](installation.md#upgrade).
+Checks may create data directories and perform temporary database/secret-store probes; doctor does not apply the
+suggested configuration repairs or start agents.
 
 ```bash
 crew doctor            # human-readable report
@@ -8,6 +11,10 @@ crew doctor --json     # { "generatedAt", "status", "checks": [ { "id", "categor
 ```
 
 Each check has a status: `ok`, `warn` (works with reduced capability), `error` (Crewyard cannot work correctly) or `skip` (not applicable, for example a provider CLI that is not installed). The overall status is the worst check status. The process exits non-zero when the overall status is `error`.
+
+`security.execution_isolation` always reports `warn` because Crewyard supplies no OS sandbox. A fully configured
+machine therefore need not have an all-`ok` report. Bounded subprocess workers and attempt directories do not
+remove this warning; resolve actual errors and assess each warning's stated limitation.
 
 ## Checks
 

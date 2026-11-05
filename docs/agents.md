@@ -36,10 +36,24 @@ Useful options:
 | Option | Example | Meaning |
 |---|---|---|
 | `--role` | `--role reviewer` | The agent's job (default `engineer`) |
-| `--model` | `--model opus` | Preferred model; otherwise the CLI's default |
+| `--model` | `--model <provider-model-id>` | Explicit model; required for configured AI reviewers, optional for other roles |
 | `--max-parallel` | `--max-parallel 3` | How many tasks this agent may run at once (default 1) |
 | `--instructions` | `--instructions "Prefer small commits"` | Extra system instructions for every session |
 | `--review-authority` | `--review-authority required` | For reviewers: `advisory` (default) or `required` before merge |
+
+## Configure an AI reviewer
+
+Choose a model supported by the account and permitted by its policy:
+
+```bash
+REVIEW_MODEL='your-provider-model-id' # replace before running
+crew agent create --name reviewer --role reviewer --account claude/personal --model "$REVIEW_MODEL"
+crew config set review.reviewer_agent reviewer --yes
+```
+
+For an existing reviewer, use `crew agent update reviewer --model "$REVIEW_MODEL"`. Switching its provider clears the old model preference; set a model supported by the new provider. A policy's model allowlist does not supply this explicit preference.
+
+Review evidence records provider, model, prompt and agent configuration. Missing explicit identity or execution through a different provider/model is refused with `POLICY_DENIED`. Completed evidence is reused only while source, context, policy and expiry remain acceptable. Forcing a review bypasses completed reuse but may join an equivalent active full review. See [review evidence](architecture/integration.md#review-evidence).
 
 ## Use several accounts: policies
 

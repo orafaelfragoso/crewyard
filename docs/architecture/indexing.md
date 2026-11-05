@@ -16,6 +16,8 @@ A snapshot is the index of one commit SHA of a registered repository (`repositor
    build waits within a bounded budget; expiry alone does not permit reuse while the recorded process remains
    live or unverifiable. Application workers also pin the exact commit and index configuration before admission,
    so moving the selected branch cannot change an already admitted request.
+   A changed index configuration is refused with `CONFLICT`; it cannot reinterpret pinned work. Full SHA-1 and
+   SHA-256 commit identities are supported.
 3. Choose the nearest `available` parent snapshot built with the same rules revision: the first hit walking
    `git rev-list` (up to 1,000 ancestors), otherwise the most recent snapshot whose commit exists locally.
 4. With a parent, load its complete `files` membership and apply `git diff-tree -r -z -M --raw` (adds, modifications, deletes,

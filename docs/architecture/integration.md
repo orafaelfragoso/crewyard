@@ -62,6 +62,19 @@ handler first reads GitHub: a PR already merged is adopted with its real `merge_
 instead of creating a second one. Every first delivery and retry checks current delivery ownership, leadership, expected live base/head/target, project autonomy and approval, pause/mode, policy/config revision, candidate status/expiry, the corresponding prefix evidence, rules, checks, reviews, dependencies and divergence. Retargeting is followed by another guard. Only then does it call GitHub and record the call in `remote_operations`. `MERGED` is recorded only from an observed PR carrying a merge commit SHA.
 A crash at any point leaves the operation `attempted` or `ambiguous`; the next worker reconciles the observed outcome before deciding whether a fresh action is allowed (AT-09, AT-18). An unresolved remote outcome remains blocked; a timeout never proves nonexecution.
 
+## Immutable Git object fetches
+
+`fetchCommit` from `@crewyard/projects` coalesces requests by repository, configured remote identity and full lowercase
+commit OID (40-character SHA-1 or 64-character SHA-256). It fetches into `refs/crew/objects/<oid>` with
+`--no-write-fetch-head`; branch refs and `FETCH_HEAD` are not updated. Concurrent callers share the transfer and its
+failure. A verified dead owner can be recovered before its lease expires; unverifiable ownership does not authorize
+takeover. A changed remote URL returns `CONFLICT`.
+
+An object being present proves only that immutable commit is available. Callers separately observe current remote
+branches, PR heads, rules and checks before authorizing publication or integration. Cached objects cannot substitute
+for those fresh observations. Transfer-byte savings are not measured. See the
+[benchmark decisions](../benchmarks/method.md#decisions-on-repeated-work).
+
 ## Review evidence
 
 `requestReview` admits source evidence v2 from actual Git objects: object format, merge-base/base/head trees and canonical NUL-safe old/new paths, blobs and modes. Binary, rename, deletion and mode changes retain their identity. Patch rendering is byte-preserving and truncation is explicit. Context binds content, extraction/config revision and coverage, including bounded depth/nodes, unresolved imports and missing paths. A syntax graph never proves semantic completeness. Synthetic and unsupported legacy evidence remains historical and cannot authorize integration.

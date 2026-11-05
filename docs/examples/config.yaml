@@ -1,7 +1,8 @@
 # Crewyard repository configuration: .crewyard/config.yaml
 # Safe to commit. Never put secrets here; `crew config validate` rejects secret-like keys.
 # Precedence: CLI flags > CREW_* environment variables > this file > user config > built-in defaults.
-# Every value below is the built-in default unless the comment says otherwise.
+# Defaults are shown except for the example overrides marked below.
+# Execution-pool limits use `crew service run` flags, not YAML keys; see ../architecture/overview.md.
 version: 1
 
 project:
@@ -55,10 +56,10 @@ index:
 review:
   enabled: true
   incremental: true
-  cache_enabled: true             # reuse review evidence only when the fingerprint is unchanged
+  cache_enabled: true             # reuse only current source/context/policy/reviewer evidence within its original TTL
   require_review_for_high_risk: true
   cache_ttl_hours: 168
-  # reviewer_agent: reviewer      # agent definition used for AI review
+  # reviewer_agent: reviewer      # requires an explicit provider/model on the agent definition
   policy_version: '1'             # bump to invalidate cached reviews after a policy change
 
 integration:
@@ -66,7 +67,7 @@ integration:
   auto_merge_eligible: true       # set false for observe/assisted
   require_github_checks: true
   rebasing: only_when_required    # only_when_required | never
-  speculative_validation: true
+  speculative_validation: true   # grouping also needs capacity >1 and evidence for every exposed prefix
   merge_method: squash            # merge | squash | rebase
   branch_name_format: 'crew/{task_id}-{slug}'
   poll_interval_seconds: 60
@@ -78,28 +79,28 @@ security:
     - security-sensitive
     - database-migration
     - deployment-config
-  # sensitive_paths replaces the built-in path classes when set (see docs/policies/default-policies.md).
+  # Example override: replaces the entire built-in path map (see ../policies/default-policies.md).
   sensitive_paths:
     security-sensitive: ['**/auth/**', '**/security/**', '**/*secret*', '**/*credential*', '**/.env*']
     database-migration: ['**/migrations/**', '**/*.sql']
     deployment-config: ['.github/workflows/**', '**/Dockerfile', '**/terraform/**']
     dependency-change: ['**/package.json', '**/bun.lock']
-  data_routing:                   # which provider profiles may receive repository content
+  data_routing:                   # example override; default {} uses the network policy
     codex: allow
     claude: allow
     ollama: allow
 
 workspace:
   setup_commands: []              # read-only setup; repo-defined scripts need operator permission
-  install_commands:
+  install_commands:               # example override; default [] (no shared bootstrap artifacts)
     - bun install --frozen-lockfile
-  env_allowlist: [CI, NODE_ENV]   # extra variables passed to agent processes (names only)
+  env_allowlist: [CI, NODE_ENV]   # example override; default [] (extra environment names)
   secret_refs: []                 # names of secrets in the OS secret store, e.g. npm-token
   timeout_seconds: 600
   cleanup: after_merge            # after_merge | manual | retention
   retention_days: 14
 
-validation:
+validation:                       # example overrides; fast and broad both default to []
   fast:                           # selected by affected paths
     - name: unit
       command: bun test tests/unit
@@ -107,7 +108,7 @@ validation:
       timeout_seconds: 900
     - name: typecheck
       command: bun run typecheck
-  broad:                          # run on integration candidates
+  broad:                          # run on every exposed cumulative integration prefix
     - name: full-test
       command: bun test
       timeout_seconds: 1800
@@ -115,7 +116,7 @@ validation:
 observability:
   local_only: true                # telemetry never leaves the machine (cannot be disabled)
   keep_events_days: 90
-  rates:                          # optional configured rates; costs computed from them are labelled as such
+  rates:                          # example override; default []; costs are labelled configured_rate
     - provider: claude
       model: example-model
       input_per_mtok_usd: 3

@@ -71,12 +71,12 @@ flowchart LR
     class F finish;
 ```
 
-1. **Plan with dependencies.** Turn a goal into a validated task graph and approve the plan before execution.
+1. **Plan with dependencies.** Define contracts, scopes and behavioral acceptance checks, then approve a validated task graph.
 2. **Schedule safely.** Dispatch ready tasks subject to concurrency limits, dependencies, and reservations.
 3. **Run independently.** Assign work to Codex, Claude Code, OpenCode, or another compatible process in isolated worktrees.
-4. **Review with evidence.** Collect structured handoffs, tests, and review findings associated with the work being proposed.
-5. **Integrate deliberately.** Coordinate pull requests and validation without bypassing repository protections.
-6. **Recover and continue.** Persist events, reconcile remote state, re-index the base, and unblock downstream tasks.
+4. **Review with evidence.** Bind findings to Git source objects, context, reviewer identity, policy and expiry. Reuse only evidence that remains valid.
+5. **Integrate deliberately.** Validate every exposed cumulative merge prefix and recheck current policy and GitHub state before each mutation.
+6. **Recover and continue.** Observe the actual merge, track post-merge checks, preserve interrupted work and unblock downstream tasks.
 
 ## Built for real engineering workflows
 
@@ -93,9 +93,9 @@ Use independent coding agents and account profiles without tying the workflow to
 </td>
 <td width="50%" valign="top">
 
-### Parallel work, without collisions
+### Owned execution and worktrees
 
-Atomic task claims, fenced leases, dependency-aware scheduling, and dedicated Git worktrees are designed to keep work isolated and accountable.
+Atomic task claims, fenced execution attempts, bounded subprocess workers and dedicated Git worktrees keep ownership explicit across concurrent callers.
 
 </td>
 </tr>
@@ -104,7 +104,7 @@ Atomic task claims, fenced leases, dependency-aware scheduling, and dedicated Gi
 
 ### Repository-aware context
 
-Build versioned indexes and retrieve code context with symbol, reference, path, and commit provenance.
+Pin indexing and retrieval to exact commits. Durable reader claims protect snapshots while context is assembled; retrieved code carries commit and blob provenance.
 
 </td>
 <td valign="top">
@@ -178,7 +178,9 @@ crew account test claude/personal
 # 3. Create agents that use it, and turn on AI review
 crew agent create --name architect --role architect --account claude/personal
 crew agent create --name engineer  --account claude/personal
-crew agent create --name reviewer  --role reviewer  --account claude/personal
+# Replace this with a model ID supported by your account.
+REVIEW_MODEL='your-provider-model-id'
+crew agent create --name reviewer --role reviewer --account claude/personal --model "$REVIEW_MODEL"
 crew config set review.reviewer_agent reviewer --yes
 
 # 4. Give it a goal, review the plan, approve it
@@ -196,7 +198,7 @@ crew dashboard
 
 To let Claude Code, Codex and OpenCode sessions you start yourself use Crewyard's tasks and tools, run `crew install` (add `--dry-run` first to see the changes). The guide lists [where it installs the MCP server and Skills](docs/getting-started.md#6-connect-your-own-agent-tools-optional).
 
-The background service keeps dispatching ready tasks; the MCP server alone does not keep work running after its host exits.
+Direct CLI and MCP requests drive or join durable operations without a service. The background service keeps scheduling work continuously; closing a calling host does not guarantee continuation. The default worker pool allows six operations globally, four per project and one per project/domain. See [execution limits](docs/architecture/overview.md#execution-limits) for tuning and shutdown behavior.
 
 <p><a href="docs/getting-started.md"><strong>Getting started →</strong></a> &nbsp;·&nbsp; <a href="docs/accounts.md"><strong>Accounts →</strong></a> &nbsp;·&nbsp; <a href="docs/agents.md"><strong>Agents →</strong></a> &nbsp;·&nbsp; <a href="docs/reference/cli.md"><strong>CLI reference →</strong></a></p>
 
@@ -231,6 +233,8 @@ flowchart TB
 
 **The architecture is deliberately provider-agnostic.** The CLI and MCP server are thin interfaces over shared application services. SQLite WAL provides durable coordination; external GitHub and process side effects are reconciled rather than treated as a single database transaction.
 
+Exact commit fetches share immutable objects across processes without moving branch refs. Incremental indexing reuses unchanged blobs; snapshot membership still scales with repository size. Full worktrees and independent bootstrap commands remain the supported execution path. The [benchmark method and results](docs/benchmarks/method.md) record the measurements and decisions.
+
 For an engineering-level explanation, see the [architecture overview](docs/architecture/overview.md), [indexing model](docs/architecture/indexing.md), and [task/lease design](docs/architecture/tasks-and-leases.md).
 
 ## Interfaces
@@ -243,18 +247,18 @@ For an engineering-level explanation, see the [architecture overview](docs/archi
 | **Local service** (`crew service`) | Continuous dispatch, reconciliation, and integration | [Architecture](docs/architecture/overview.md) |
 | **Terminal dashboard** (`crew dashboard`) | Operational visibility into active work and events | [CLI reference](docs/reference/cli.md) |
 
-## Safety is an architectural boundary
+## Safety and recovery
 
-Autonomous agents should not be able to bypass coordination simply by asking for it.
+Crewyard enforces coordination through its application services:
 
 - **Fenced task leases** prevent stale workers from submitting work as the current owner.
 - **Scoped worktrees** separate parallel tasks and protect developer checkouts.
 - **Approval and policy gates** control high-impact transitions.
 - **GitHub branch protections** remain authoritative during integration.
-- **Idempotent outbox operations** support retries and recovery after interruption.
+- **Reconciled outbox operations** check observed outcomes before retrying. Provider work can repeat after a crash; execution is not exactly once.
 - **Local credential handling** keeps secrets out of repository configuration and orchestration event logs.
 
-Security properties depend on configuration and implementation maturity. Read the [security model](docs/policies/security-model.md) and [default policies](docs/policies/default-policies.md) before enabling unattended workflows.
+Workers run as your OS user; worktrees and process boundaries are not an OS sandbox. Recovery verifies process identity before termination or resource reuse and preserves resources when ownership cannot be established. GitHub's head-only merge API cannot reserve the base: an unexpected landed tree is detected after the merge and pauses later local merges. Native merge-group checks remain preferred. Read the [security model](docs/policies/security-model.md) and [integration design](docs/architecture/integration.md) before enabling unattended workflows.
 
 ## Documentation
 
@@ -270,6 +274,8 @@ Security properties depend on configuration and implementation maturity. Read th
 | [Architecture](docs/architecture/overview.md) | Services, storage, scheduling, and system boundaries |
 | [Security model](docs/policies/security-model.md) | Trust boundaries, permissions, and operational safety |
 | [Recovery runbooks](docs/incident-recovery/runbooks.md) | Failures, restarts, and reconciliation |
+| [Metrics definitions](docs/architecture/overview.md#metrics-and-operation-events) | Local validation, hosted check observations, reuse and operation timing |
+| [Acceptance matrix](docs/acceptance.md) | Automated evidence and open GitHub, provider and platform release gates |
 
 ## Development
 
@@ -293,6 +299,8 @@ Contributions are welcome. Read the [contributing guide](CONTRIBUTING.md) and th
 ## Project status & licensing
 
 Crewyard is **under active development toward v1.0**. Releases are cut automatically from `main` with [release-please](https://github.com/googleapis/release-please); every release is listed in the [changelog](CHANGELOG.md) and on the [releases page](https://github.com/orafaelfragoso/crewyard/releases). See the [release process](docs/releasing.md) for how npm packages and platform binaries are built and published.
+
+Local Linux tests cover direct and packaged workers, cancellation, recovery and evidence guards. Real GitHub organization/merge-queue runs, authenticated multi-provider delivery and actual macOS/Windows worker acceptance remain open; the [acceptance matrix](docs/acceptance.md#not-yet-demonstrated) distinguishes those gates from local fixtures.
 
 Licensed under the [MIT License](LICENSE). Copyright © 2026 Rafael Fragoso.
 

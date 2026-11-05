@@ -79,8 +79,15 @@ crew install --target codex,claude,opencode
 crewyard/
   crewyard.sqlite         # state, events, audit (WAL mode)
   cache/index/
+  cache/github/<repository-id>/<body-sha>.json
   worktrees/<workspace-id>/
+  worktrees/reviews/      # attempt-owned disposable review checkouts
+  worktrees/candidates/   # attempt-owned disposable validation checkouts
   artifacts/<artifact-id>/
+  artifacts/executions/<attempt-id>/
+    worker.log
+    processes/           # recorded child process birth identities
+    worktrees/           # disposable-worktree ownership manifests
   logs/<session-id>/
   backups/                  # database backups and host-installer backups
   run/
@@ -106,6 +113,11 @@ Credentials are never in these files: they stay in the OS secret store (macOS Ke
 - A database created by a newer Crewyard is refused with `SCHEMA_TOO_NEW` (exit code 8). Upgrade the executable. Never downgrade to an older evidence engine or restore an older database as routine rollback.
 - `crew doctor` reports pending migrations (`sqlite.schema`).
 
+The current schema is v6: v3 adds execution claims, v4 adds review execution ownership, v5 fences legacy writers,
+and v6 binds GitHub cache ETags to immutable body-content SHAs. Application execution claims and domain evidence
+are retained for recovery; do not remove attempt directories or reuse an old executable to bypass a blocked upgrade.
+See [execution recovery](incident-recovery/runbooks.md#interrupted-execution-or-service-shutdown).
+
 ## Back up and restore
 
 Never copy `crewyard.sqlite` while Crewyard is running: the WAL file holds recent transactions. Use the backups Crewyard writes (they are consistent snapshots), or stop every Crewyard process first.
@@ -115,7 +127,7 @@ A backup restore is disaster recovery. First account for acknowledged writes aft
 Restore a backup:
 
 ```bash
-crew service stop             # and close agent hosts running `crew mcp`
+crew service stop             # also stop direct workers, MCP hosts, dashboards and provider children
 cd ~/.local/share/crewyard  # your data directory
 mkdir -p backups/replaced
 mv crewyard.sqlite crewyard.sqlite-wal crewyard.sqlite-shm backups/replaced/ 2>/dev/null

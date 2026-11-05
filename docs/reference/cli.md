@@ -79,8 +79,11 @@ delivery, efficiency and usage metrics
 
 Metrics schema version 2 reports `localValidationMinutesPerMerge` and
 `localValidationReruns` from local validation runs. `integrationMinutes` includes the
-entire enqueue-to-merge interval. Hosted CI durations remain `unknown` until actual
-execution timing is recorded; observation timestamps are not execution durations.
+entire enqueue-to-merge interval. `observedHostedCheckMinutes` sums recorded provider
+execution timing; observation timestamps are not execution durations.
+`hostedCiMinutesPerMerge` remains `unknown` because partial check observations do not
+establish complete hosted CI usage. Active review joins are separate from cache reuse.
+See [metric definitions](../architecture/overview.md#metrics-and-operation-events).
 
 | Option | Description |
 |---|---|

@@ -31,7 +31,8 @@ security:
 | `integration.rebasing` | `only_when_required` | No blanket rebases; when strict branch protection requires an up-to-date branch, Crewyard asks GitHub to update it (`never` leaves it to a revision) |
 | `integration.auto_merge_eligible` | `true` | Must be `false` for `observe`/`assisted` |
 | `review.require_review_for_high_risk` | `true` | High-risk tasks need a review before integration |
-| `review.cache_enabled` | `true` | Reuse review evidence only for an identical fingerprint |
+| `review.cache_enabled` | `true` | Reuse completed evidence only under current source/context, reviewer, policy, security and TTL acceptance |
+| `review.cache_ttl_hours` | `168` | Attachments keep the source expiry; reuse does not renew the TTL |
 | `agents.max_retries_per_failure` | `2` | Identical failures beyond this go to `ESCALATED` |
 | `agents.allow_profile_fallback` | `false` | No routing to another account profile without opt-in |
 | `scheduler.protect_high_risk_scopes` | `true` | Exclusive reservations for high-risk scopes |
@@ -40,6 +41,15 @@ security:
 | `security.network` | `provider-and-github-only` | Remote calls only to configured providers and GitHub |
 | `index.embedding.consent_external` | `false` | No repository data to external embedding services |
 | `observability.local_only` | `true` | Fixed; telemetry never leaves the machine |
+
+Whole-tree reviews do not carry across changed trees. Scoped reuse requires sufficient context coverage and
+unchanged evidence outside the patch. `--force` bypasses completed and incremental reuse, but may join an
+equivalent active full review. Cache-disabled or high-risk work may join an admissible active attempt; it cannot
+restore completed evidence. Configured AI reviewers require an explicit provider/model. See
+[review evidence](../architecture/integration.md#review-evidence).
+
+Worker-pool defaults are application limits, separate from these repository settings. They are configured with
+[`crew service run` flags](../architecture/overview.md#execution-limits), not YAML keys.
 
 ## Contradictions rejected by `crew config validate`
 

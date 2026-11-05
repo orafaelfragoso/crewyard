@@ -31,6 +31,17 @@ To force a specific version, add a `Release-As: 1.0.0` footer to a commit on `ma
 
 ## Cut a release
 
+Before merging the release PR, review the [acceptance matrix](acceptance.md), not just the presence of CI jobs.
+Record actual runner results for packaged workers on every claimed platform, including process identity,
+cancellation, child drain and recovery. Linux local results do not establish macOS or Windows acceptance.
+Real GitHub protections, native queue checks on the merge-group SHA and authenticated Codex/Claude/OpenCode
+delivery remain open gates until demonstrated; mock fixtures cannot close them.
+
+For a schema-changing release, quiesce service, direct CLI/MCP/dashboard writers and provider children before
+upgrade. Verify supported predecessor migration and legacy open-writer fencing. Follow the
+[upgrade procedure](installation.md#upgrade); rollback retains the corrected schema and guards. A backup restore
+requires acknowledged-write and remote-effect reconciliation and cannot undo a GitHub merge.
+
 Review the release PR, then squash-merge it. That creates the `v<version>` tag and the GitHub Release, and the same workflow run then:
 
 1. builds and tests the tag, cross-compiles the five binaries, and writes the SBOM, checksums and npm tarballs
