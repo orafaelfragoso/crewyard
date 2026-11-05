@@ -1,6 +1,9 @@
 # Incident and recovery runbooks
 
-Crewyard is designed to converge on its own after a restart: the service reconciles processes, leases, the outbox and GitHub state before resuming work. These runbooks are for when you need to see what happened or step in.
+Crewyard is designed to converge after a restart: the service schedules finite workers to reconcile processes,
+leases, the outbox and GitHub state. Startup reporting distinguishes deferred reconciliation from completed
+recovery; current claims and domain guards still control admission. These runbooks are for when you need to
+see what happened or step in.
 
 Start every investigation with:
 

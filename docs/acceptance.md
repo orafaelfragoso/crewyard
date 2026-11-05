@@ -44,4 +44,6 @@ How each PRD release gate is exercised. Run everything with `bun test`. CI is co
 ## Not yet demonstrated
 
 - The §23.3 system demonstration against a real GitHub organization with Codex, Claude Code and OpenCode sessions has not been run; the automated suite uses a mock GitHub API, a bare Git origin and scripted agents.
+- Native merge-queue entitlement, repository protections and required checks executing on a real merge-group SHA remain release gates. Local fixtures and workflow configuration do not establish those host guarantees.
+- Packaged worker execution is tested locally on Linux. Actual macOS and Windows worker/CI results must be recorded before claiming those platforms accepted.
 - Release-tag builds (`.github/workflows/release.yml`) have not run yet; the arm64 Linux and Intel macOS runner labels it uses should be confirmed on the first tag.
