@@ -36,6 +36,7 @@ export function openStore(options: OpenOptions): Store {
     options.path,
     options.readonly ? { readonly: true, strict: true } : { create: true, strict: true },
   );
+  db.function('crewyard_writer_protocol', () => 1);
   db.exec(`PRAGMA busy_timeout = ${options.busyTimeoutMs ?? 5000}`);
   if (!options.readonly) {
     db.exec('PRAGMA journal_mode = WAL');

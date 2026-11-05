@@ -1,11 +1,13 @@
 import type { Database } from 'bun:sqlite';
 import { existsSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { CrewError, ensureDir, nowIso, sha256 } from '@crewyard/core';
+import { CrewError, ensureDir, isProcessAlive, nowIso, sha256 } from '@crewyard/core';
 import initialSql from '../migrations/0001_initial.sql' with { type: 'text' };
 import queueEntryProgressSql from '../migrations/0002_queue_entry_progress.sql' with { type: 'text' };
 import executionClaimsSql from '../migrations/0003_execution_claims.sql' with { type: 'text' };
 import reviewExecutionSql from '../migrations/0004_review_execution.sql' with { type: 'text' };
+import writerProtocolSql from '../migrations/0005_writer_protocol.sql' with { type: 'text' };
 import { all, type Store } from './db.ts';
 
 export interface Migration {
@@ -19,6 +21,7 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 2, name: '0002_queue_entry_progress', sql: queueEntryProgressSql },
   { version: 3, name: '0003_execution_claims', sql: executionClaimsSql },
   { version: 4, name: '0004_review_execution', sql: reviewExecutionSql },
+  { version: 5, name: '0005_writer_protocol', sql: writerProtocolSql },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
@@ -52,7 +55,10 @@ export function migrationStatus(store: Store): MigrationStatus {
     throw new CrewError(
       'SCHEMA_TOO_NEW',
       `Database schema version ${currentVersion} is newer than this crew build supports (${LATEST_SCHEMA_VERSION})`,
-      { suggestion: 'Upgrade crew to a version that supports this database, or restore a backup.', retryable: false },
+      {
+        suggestion: 'Upgrade crew to a version that supports this database. Do not resume an older writer.',
+        retryable: false,
+      },
     );
   }
   for (const row of applied) {
@@ -94,6 +100,7 @@ export function migrate(store: Store, options: { dryRun?: boolean; backupDir?: s
   if (options.dryRun || status.pending.length === 0) {
     return { ...status, dryRun: options.dryRun ?? false, backupPath: null };
   }
+  if (status.currentVersion > 0) assertUpgradeQuiescent(store);
   const backupPath =
     status.currentVersion > 0 && options.backupDir && store.path !== ':memory:'
       ? backupDatabase(store, options.backupDir, `pre-migration-v${status.currentVersion}`)
@@ -117,4 +124,18 @@ export function migrate(store: Store, options: { dryRun?: boolean; backupDir?: s
     });
   }
   return { ...migrationStatus(store), dryRun: false, backupPath };
+}
+
+function assertUpgradeQuiescent(store: Store): void {
+  const processes = all<{ pid: number | null; host: string | null }>(
+    store.db,
+    `SELECT pid, host FROM worker_heartbeats WHERE status != 'stopped'
+     UNION ALL SELECT pid, host FROM sessions WHERE state IN ('starting', 'running', 'stopping', 'orphaned')`,
+  );
+  if (processes.some((record) => record.pid !== null && (record.host !== hostname() || isProcessAlive(record.pid))))
+    throw new CrewError('BUSY', 'Stop recorded Crewyard workers and provider sessions before upgrading the database', {
+      suggestion:
+        'Stop the service and its children, close MCP hosts and direct CLI writers, then retry with the current build.',
+      retryable: false,
+    });
 }

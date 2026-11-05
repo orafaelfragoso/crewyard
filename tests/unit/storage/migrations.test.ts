@@ -1,5 +1,7 @@
+import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { sha256 } from '@crewyard/core';
 import {
@@ -10,26 +12,31 @@ import {
   migrate,
   migrationStatus,
   openStore,
+  type Store,
 } from '@crewyard/storage';
 import { createTestContext, ManualClock } from '../../helpers/index.ts';
+
+function seedSchema(store: Store, version: number): void {
+  migrationStatus(store);
+  for (const migration of MIGRATIONS.filter((migration) => migration.version <= version)) {
+    store.immediate((db) => {
+      db.exec(migration.sql);
+      db.query('INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)').run(
+        migration.version,
+        migration.name,
+        sha256(migration.sql),
+        '2026-11-01T00:00:00Z',
+      );
+    });
+  }
+}
 
 test('v2 migration preserves historical outbox rows and checksum-verified backup', () => {
   const clock = new ManualClock();
   const ctx = createTestContext({ clock });
   const store = openStore({ path: join(ctx.root, 'historical.sqlite'), clock });
   try {
-    migrationStatus(store);
-    for (const migration of MIGRATIONS.filter((m) => m.version <= 2)) {
-      store.immediate((db) => {
-        db.exec(migration.sql);
-        db.query('INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)').run(
-          migration.version,
-          migration.name,
-          sha256(migration.sql),
-          '2026-11-01T00:00:00Z',
-        );
-      });
-    }
+    seedSchema(store, 2);
     for (const status of ['pending', 'attempted', 'ambiguous', 'succeeded'] as const) {
       store.immediate((db) => {
         const op = enqueueOutbox(db, { kind: `legacy.${status}`, intent: { status } }, '2026-11-01T00:00:00Z');
@@ -67,6 +74,58 @@ test('v2 migration preserves historical outbox rows and checksum-verified backup
     expect(migrate(store).pending).toEqual([]);
     store.db.query('UPDATE schema_migrations SET checksum = ? WHERE version = 3').run('tampered');
     expect(() => migrationStatus(store)).toThrow('checksum does not match');
+  } finally {
+    store.close();
+    ctx.cleanup();
+  }
+});
+
+test('upgrades from every supported predecessor fence already-open legacy writers while retaining reads and current writes', () => {
+  const ctx = createTestContext();
+  try {
+    for (const version of [2, 3, 4]) {
+      const path = join(ctx.root, `writer-v${version}.sqlite`);
+      const store = openStore({ path });
+      seedSchema(store, version);
+      store.db
+        .query(
+          "INSERT INTO projects (id,name,created_at,updated_at) VALUES ('p','before','2026-11-01T00:00:00Z','2026-11-01T00:00:00Z')",
+        )
+        .run();
+      const legacy = new Database(path, { strict: true });
+      const prepared = legacy.query("UPDATE projects SET name = 'legacy' WHERE id = 'p'");
+      try {
+        migrate(store);
+        expect(() => prepared.run()).toThrow('crewyard_writer_protocol');
+        expect(legacy.query("SELECT name FROM projects WHERE id = 'p'").get()).toEqual({ name: 'before' });
+        store.immediate((db) => db.query("UPDATE projects SET name = 'current' WHERE id = 'p'").run());
+        expect(legacy.query("SELECT name FROM projects WHERE id = 'p'").get()).toEqual({ name: 'current' });
+      } finally {
+        legacy.close();
+        store.close();
+      }
+    }
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test('upgrade refuses recorded live or unprovable remote writers before creating a backup or changing schema', () => {
+  const ctx = createTestContext();
+  const store = openStore({ path: join(ctx.root, 'active-writer.sqlite') });
+  try {
+    seedSchema(store, 2);
+    store.db
+      .query(
+        "INSERT INTO worker_heartbeats (worker_id,kind,pid,host,status,started_at,last_heartbeat_at) VALUES ('w','service',?,?,'running','2026-11-01T00:00:00Z','2026-11-01T00:00:00Z')",
+      )
+      .run(process.pid, hostname());
+    expect(() => migrate(store, { backupDir: ctx.dirs.backups })).toThrow('Stop recorded Crewyard workers');
+    expect(migrationStatus(store).currentVersion).toBe(2);
+    store.db.query("UPDATE worker_heartbeats SET host = 'other-host'").run();
+    expect(() => migrate(store)).toThrow('Stop recorded Crewyard workers');
+    store.db.query("UPDATE worker_heartbeats SET status = 'stopped'").run();
+    expect(migrate(store).currentVersion).toBe(LATEST_SCHEMA_VERSION);
   } finally {
     store.close();
     ctx.cleanup();
