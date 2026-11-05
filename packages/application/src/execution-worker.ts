@@ -92,10 +92,7 @@ async function execute(
         configurationFingerprint: operation.configurationFingerprint,
       })) as unknown as Record<string, unknown>;
     case 'health':
-      return (await scanPostMergeHealth(ctx, { repositoryId, actor, limit: 20 }, env)) as unknown as Record<
-        string,
-        unknown
-      >;
+      return { health: await scanPostMergeHealth(ctx, { repositoryId, actor, limit: 20 }, env) };
     case 'publish': {
       const published: Record<string, unknown>[] = [];
       for (const taskId of tasksAwaitingPublication(ctx, projectId)) {

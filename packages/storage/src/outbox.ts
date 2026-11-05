@@ -154,6 +154,7 @@ export interface ClaimDueOutboxInput {
   ttlSeconds: number;
   operationIds?: readonly string[];
   process?: ExecutionProcessIdentity;
+  preserveProcessClaims?: boolean;
 }
 
 function outboxInputIdentity(row: OutboxRow): string {
@@ -202,7 +203,7 @@ export function claimDueOutbox(store: Store, input: ClaimDueOutboxInput): Claime
     const params: (string | number)[] = [at, at];
     let sql = `SELECT * FROM outbox WHERE status IN ('pending', 'attempted', 'ambiguous') AND next_attempt_at <= ?
       AND NOT EXISTS (SELECT 1 FROM execution_claims c WHERE c.scope = 'outbox:' || outbox.operation_id
-        AND c.released_at IS NULL AND c.expires_at > ?)`;
+        AND c.released_at IS NULL AND (c.expires_at > ?${input.preserveProcessClaims ? ' OR c.process_pid IS NOT NULL' : ''}))`;
     if (input.operationIds) {
       if (input.operationIds.length === 0) return [];
       sql += ` AND operation_id IN (${input.operationIds.map(() => '?').join(',')})`;
