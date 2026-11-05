@@ -2,9 +2,17 @@ import type { Database } from 'bun:sqlite';
 import type { CrewConfig } from '@crewyard/config';
 import { type Actor, addSeconds, CrewError, fingerprint, newId, nowIso, type Risk, SYSTEM_ACTOR } from '@crewyard/core';
 import { all, type CrewContext, one, parseJson, recordTransition, toJson } from '@crewyard/storage';
-import { type CacheCandidate, type CacheDecisionResult, decideReviewCache, evidenceFingerprint } from './cache.ts';
+import {
+  type CacheCandidate,
+  type CacheDecisionResult,
+  decideReviewCache,
+  evidenceFingerprint,
+  type ReviewAcceptancePolicy,
+  reviewEvidenceValidity,
+  reviewPolicyVersion,
+} from './cache.ts';
 import { classifyPaths } from './classify.ts';
-import { normalizePatch, parseUnifiedDiff } from './patch.ts';
+import { collectReviewSource, normalizePatch, parseUnifiedDiff, type ReviewSource } from './patch.ts';
 import {
   BLOCKING_SEVERITIES,
   type CacheDecision,
@@ -145,6 +153,7 @@ export interface RequestReviewInput {
   commitSha: string;
   baseSha: string;
   patch: string;
+  source?: { kind: 'synthetic' };
   types?: ReviewType[];
   force?: boolean;
   actor?: Actor;
@@ -170,30 +179,28 @@ async function resolveContext(
   input: RequestReviewInput,
   paths: string[],
   provider: ContextFingerprintProvider | undefined,
-): Promise<{ context: ReviewContext; error: string | null }> {
-  if (!provider) {
-    return {
-      context: {
-        dependencyFingerprint: `base:${input.baseSha}`,
-        interfaceFingerprint: null,
-        symbolGraphRevision: null,
-      },
-      error: null,
-    };
+  source: ReviewSource,
+): Promise<ReviewContext> {
+  if (provider) {
+    const context = await provider.collect(input.repositoryId, input.commitSha, paths);
+    if (context.contentFingerprint === null || context.coverage.kind === 'unavailable')
+      throw new CrewError('INDEX_STALE', 'Review context is unavailable');
+    return context;
   }
-  try {
-    const [dependencyFingerprint, interfaceFingerprint, symbolGraphRevision] = await Promise.all([
-      provider.relatedDependencyFingerprint(input.repositoryId, input.commitSha, paths),
-      provider.interfaceFingerprint(input.repositoryId, input.commitSha, paths),
-      provider.symbolGraphRevision(input.repositoryId, input.commitSha),
-    ]);
-    return { context: { dependencyFingerprint, interfaceFingerprint, symbolGraphRevision }, error: null };
-  } catch (error) {
-    return {
-      context: { dependencyFingerprint: null, interfaceFingerprint: null, symbolGraphRevision: null },
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
+  return {
+    contentFingerprint: source.kind === 'git' ? fingerprint(source) : null,
+    dependencyFingerprint: null,
+    interfaceFingerprint: null,
+    symbolGraphRevision: null,
+    coverage: {
+      kind: source.kind === 'git' ? 'whole-tree' : 'unavailable',
+      depth: null,
+      limit: null,
+      truncated: false,
+      missingPaths: [],
+      unresolvedImports: [],
+    },
+  };
 }
 
 function candidate(row: ReviewRow | null, at: string): CacheCandidate | null {
@@ -203,7 +210,7 @@ function candidate(row: ReviewRow | null, at: string): CacheCandidate | null {
     fingerprint: row.fingerprint,
     inputs: parseJson(row.fingerprint_inputs, {} as EvidenceInputs),
     confidence: row.confidence,
-    expired: row.expires_at !== null && row.expires_at <= at,
+    expired: row.expires_at === null || row.expires_at <= at,
   };
 }
 
@@ -259,7 +266,7 @@ function insertFindings(
 
 function carriedFindings(prior: ReviewArtifact, keepPaths: Set<string> | null) {
   return prior.findings
-    .filter((f) => keepPaths === null || (f.path !== null && keepPaths.has(f.path)) || f.path === null)
+    .filter((f) => keepPaths === null || (f.path !== null && keepPaths.has(f.path)))
     .map((f) => ({
       severity: f.severity,
       confidence: f.confidence,
@@ -338,13 +345,40 @@ export async function requestReview(
   deps: ReviewDeps,
 ): Promise<RequestReviewResult> {
   const actor = input.actor ?? SYSTEM_ACTOR;
-  const files = parseUnifiedDiff(input.patch);
+  const repository = one<{ canonical_path: string }>(
+    ctx.store.db,
+    'SELECT canonical_path FROM repositories WHERE id = ?',
+    input.repositoryId,
+  );
+  if (!repository) throw new CrewError('NOT_FOUND', `Repository not found: ${input.repositoryId}`);
+  const collected =
+    input.source?.kind === 'synthetic'
+      ? null
+      : await collectReviewSource(repository.canonical_path, input.baseSha, input.commitSha, 16 * 1024 * 1024);
+  if (collected && collected.patch !== input.patch)
+    throw new CrewError('INVALID_INPUT', 'Review patch does not match the complete Git source');
+  const files = collected?.files ?? parseUnifiedDiff(input.patch);
   const normalized = normalizePatch(input.patch);
-  const paths = normalized.files.map((f) => f.path);
+  const source: ReviewSource = collected?.source ?? { kind: 'synthetic', patchHash: normalized.patchHash };
+  const fileHashes =
+    source.kind === 'git'
+      ? Object.fromEntries(source.changes.map((change) => [change.newPath ?? change.oldPath!, fingerprint(change)]))
+      : Object.fromEntries(normalized.files.map((file) => [file.path, file.hash]));
+  const patchHash = source.kind === 'git' ? fingerprint(source.changes) : normalized.patchHash;
+  const paths =
+    source.kind === 'git'
+      ? [
+          ...new Set(
+            source.changes.flatMap((change) =>
+              [change.oldPath, change.newPath].filter((path): path is string => path !== null),
+            ),
+          ),
+        ].sort()
+      : normalized.files.map((file) => file.path);
   const additions = files.reduce((n, f) => n + f.lines.filter((l) => l.kind === 'add').length, 0);
   const deletions = files.reduce((n, f) => n + f.lines.filter((l) => l.kind === 'del').length, 0);
-  const classification = classifyPaths(deps.config.security, paths, { files: paths.length, additions, deletions });
-  const { context, error: contextError } = await resolveContext(input, paths, deps.context);
+  const classification = classifyPaths(deps.config.security, paths, { files: files.length, additions, deletions });
+  const context = await resolveContext(input, paths, deps.context, source);
   const requested = [...new Set(input.types ?? (['code', 'security'] as ReviewType[]))];
   const outcomes: ReviewOutcome[] = [];
   let integrationRequired = false;
@@ -365,13 +399,18 @@ export async function requestReview(
       continue;
     }
     const inputs: EvidenceInputs = {
+      version: 2,
+      source,
+      context,
+      reviewerScope: reviewer.evidenceScope ?? 'whole-tree',
       repositoryId: input.repositoryId,
       reviewType: type,
-      patchHash: normalized.patchHash,
-      fileHashes: Object.fromEntries(normalized.files.map((f) => [f.path, f.hash])),
-      policyVersion: deps.config.review.policy_version,
+      patchHash,
+      fileHashes,
+      policyVersion: reviewPolicyVersion(deps.config),
       reviewerIdentity: reviewer.identity,
       reviewerModel: reviewer.model,
+      reviewerConfiguration: reviewer.configurationFingerprint ?? null,
       promptVersion: reviewer.promptVersion,
       dependencyContext: context.dependencyFingerprint,
       interfaceContext: context.interfaceFingerprint,
@@ -390,7 +429,6 @@ export async function requestReview(
     const priorRow = priorFor(ctx.store.db, input, type);
     const forbidReuse =
       input.force === true ||
-      contextError !== null ||
       (type === 'security' && classification.classes.length > 0 && deps.config.review.require_review_for_high_risk);
     const decision: CacheDecisionResult = decideReviewCache({
       current: inputs,
@@ -403,13 +441,16 @@ export async function requestReview(
         minConfidence: deps.minConfidence ?? 0.5,
       },
     });
-    if (contextError) decision.reasons.push('context_unavailable');
     if (input.force) decision.reasons.push('forced');
     if (decision.integrationRequired && type !== 'integration') {
       integrationRequired = true;
       if (!requested.includes('integration') && !queue.includes('integration')) queue.push('integration');
     }
-    const expiresAt = addSeconds(at, deps.config.review.cache_ttl_hours * 3600);
+    const ttl = addSeconds(at, deps.config.review.cache_ttl_hours * 3600);
+    const expiresAt =
+      decision.decision === 'incremental' && priorRow?.expires_at && priorRow.expires_at < ttl
+        ? priorRow.expires_at
+        : ttl;
 
     if (decision.decision === 'reuse' && decision.reuseFrom) {
       const id = newId('rev');
@@ -418,6 +459,20 @@ export async function requestReview(
           db,
           one<ReviewRow>(db, 'SELECT * FROM review_artifacts WHERE id = ?', decision.reuseFrom)!,
         );
+        const currentTime = nowIso(ctx.clock);
+        const stillReusable = decideReviewCache({
+          current: inputs,
+          exact: candidate(one<ReviewRow>(db, 'SELECT * FROM review_artifacts WHERE id = ?', source.id), currentTime),
+          prior: null,
+          policy: {
+            cacheEnabled: deps.config.review.cache_enabled,
+            incremental: deps.config.review.incremental,
+            forbidReuse,
+            minConfidence: deps.minConfidence ?? 0.5,
+          },
+        });
+        if (stillReusable.decision !== 'reuse' || inputs.policyVersion !== reviewPolicyVersion(deps.config))
+          throw new CrewError('CONFLICT', 'Review evidence changed before attachment');
         insertArtifact(db, {
           id,
           input,
@@ -430,7 +485,7 @@ export async function requestReview(
           confidence: source.confidence,
           llmInvoked: false,
           reusedFrom: source.id,
-          expiresAt: source.expiresAt ?? expiresAt,
+          expiresAt: source.expiresAt!,
           at,
         });
         insertFindings(db, id, reviewer.identity, input.commitSha, carriedFindings(source, null), at);
@@ -512,6 +567,8 @@ export async function requestReview(
         context,
         reasons: decision.reasons,
       });
+      const completedContext = await resolveContext(input, paths, deps.context, source);
+      const contextChanged = fingerprint(completedContext) !== fingerprint(context);
       const done = nowIso(ctx.clock);
       review = ctx.store.immediate((db) => {
         insertFindings(db, id, reviewer.identity, input.commitSha, result.findings, done);
@@ -523,17 +580,21 @@ export async function requestReview(
           const unchanged = new Set(Object.keys(inputs.fileHashes).filter((p) => !decision.changedPaths.includes(p)));
           insertFindings(db, id, reviewer.identity, input.commitSha, carriedFindings(prior, unchanged), done);
         }
-        const status = statusFromFindings(db, id);
-        db.query('UPDATE review_artifacts SET status = ?, confidence = ?, completed_at = ? WHERE id = ?').run(
+        const stale = contextChanged || done >= expiresAt || inputs.policyVersion !== reviewPolicyVersion(deps.config);
+        const status = stale ? 'invalidated' : statusFromFindings(db, id);
+        db.query(
+          'UPDATE review_artifacts SET status = ?, confidence = ?, completed_at = ?, invalidated_reason = ? WHERE id = ?',
+        ).run(
           status,
           Math.min(1, Math.max(0, result.confidence)),
           done,
+          stale ? 'evidence_expired_or_inputs_changed' : null,
           id,
         );
         recordTransition(
           db,
           {
-            type: 'review.completed',
+            type: stale ? 'review.invalidated' : 'review.completed',
             actor,
             taskId: input.taskId ?? null,
             prId: input.prId ?? null,
@@ -626,7 +687,12 @@ export interface ReviewSummary {
   blockingFindings: number;
 }
 
-export function reviewSummary(db: Database, prId: string, commitSha: string): ReviewSummary {
+export function reviewSummary(
+  db: Database,
+  prId: string,
+  commitSha: string,
+  policy: ReviewAcceptancePolicy,
+): ReviewSummary {
   const byType = Object.fromEntries(REVIEW_TYPES.map((t) => [t, null])) as ReviewSummary['byType'];
   let blockingFindings = 0;
   for (const type of REVIEW_TYPES) {
@@ -639,7 +705,14 @@ export function reviewSummary(db: Database, prId: string, commitSha: string): Re
       type,
     );
     if (!row) continue;
-    byType[type] = { reviewId: row.id, status: row.status, reused: row.reused_from !== null && row.scope === 'reused' };
+    const artifact = mapReview(db, row);
+    const invalid =
+      row.status === 'running' || row.status === 'pending' ? null : reviewEvidenceValidity(artifact, policy);
+    byType[type] = {
+      reviewId: row.id,
+      status: invalid ? 'invalidated' : row.status,
+      reused: row.reused_from !== null && row.scope === 'reused',
+    };
     blockingFindings += one<{ n: number }>(
       db,
       `SELECT COUNT(*) AS n FROM review_findings WHERE review_id = ? AND status IN ('open', 'accepted') AND severity IN (${BLOCKING_SEVERITIES.map(() => '?').join(',')})`,

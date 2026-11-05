@@ -8,9 +8,13 @@ import {
   invalidateReviews,
   listFindings,
   normalizePatch,
+  type RequestReviewInput,
+  type ReviewContext,
+  type ReviewDeps,
   type Reviewer,
   type ReviewInput,
-  requestReview,
+  requestReview as requestReviewWithEvidence,
+  reviewPolicyVersion,
   runValidation,
   StaticAnalysisReviewer,
   type StructuredFindings,
@@ -19,6 +23,10 @@ import {
 } from '@crewyard/reviews';
 import { all } from '@crewyard/storage';
 import { createTestContext, type TestContext, tempDir } from '../../helpers/index.ts';
+
+function requestReview(ctx: TestContext, input: RequestReviewInput, deps: ReviewDeps) {
+  return requestReviewWithEvidence(ctx, { ...input, source: { kind: 'synthetic' } }, deps);
+}
 
 let ctx: TestContext | undefined;
 afterEach(() => ctx?.cleanup());
@@ -41,6 +49,7 @@ class CountingReviewer implements Reviewer {
   readonly identity: string;
   readonly model = 'test-model-1';
   readonly promptVersion = 'p1';
+  readonly evidenceScope = 'patch';
   calls: ReviewInput[] = [];
   constructor(
     identity = 'llm-reviewer',
@@ -56,14 +65,21 @@ class CountingReviewer implements Reviewer {
 
 class Context implements ContextFingerprintProvider {
   schema = 'schema-v1';
-  async interfaceFingerprint(): Promise<string> {
-    return this.schema;
-  }
-  async relatedDependencyFingerprint(): Promise<string> {
-    return `deps:${this.schema}`;
-  }
-  async symbolGraphRevision(): Promise<string | null> {
-    return 'graph-1';
+  async collect(): Promise<ReviewContext> {
+    return {
+      dependencyFingerprint: `deps:${this.schema}`,
+      interfaceFingerprint: this.schema,
+      symbolGraphRevision: 'graph-1',
+      contentFingerprint: this.schema,
+      coverage: {
+        kind: 'whole-tree',
+        depth: null,
+        limit: null,
+        truncated: false,
+        missingPaths: [],
+        unresolvedImports: [],
+      },
+    };
   }
 }
 
@@ -96,11 +112,11 @@ function setup(overrides: Record<string, unknown> = {}): {
 const PATCH = diff('src/service.ts', ['export const a = 1;'], ['export const a = 2;']);
 
 describe('evidence fingerprint and cache', () => {
-  test('normalised patches ignore whitespace and context lines', () => {
+  test('patch identity preserves whitespace and context lines', () => {
     const a = normalizePatch(diff('src/x.ts', ['let a=1;'], ['let a = 2;']));
     const b = normalizePatch(diff('src/x.ts', ['let  a = 1;'], ['let a=2;'], ['  other context']));
     const c = normalizePatch(diff('src/x.ts', ['let a=1;'], ['let a = 3;']));
-    expect(a.patchHash).toBe(b.patchHash);
+    expect(a.patchHash).not.toBe(b.patchHash);
     expect(a.patchHash).not.toBe(c.patchHash);
   });
 
@@ -128,7 +144,7 @@ describe('evidence fingerprint and cache', () => {
     });
     expect(second.outcomes[0]!.review!.fingerprintInputs).toMatchObject({
       patchHash: normalizePatch(PATCH).patchHash,
-      policyVersion: '1',
+      policyVersion: reviewPolicyVersion(config),
     });
   });
 

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { awaitSession, getAgent, startManagedSession } from '@crewyard/agents';
 import { interfaceFingerprint } from '@crewyard/context';
 import { type Actor, CrewError, ensureDir, fingerprint, git, newId, type TaskState, toCrewError } from '@crewyard/core';
-import { dependencyGraph, snapshotByCommit } from '@crewyard/indexing';
+import { dependencyGraph } from '@crewyard/indexing';
 import {
   createClientFactory,
   fetchIntegrationRefs,
@@ -124,10 +124,9 @@ export async function reconcileMergedTasks(
 
 export function contextFingerprints(ctx: CrewContext): ContextFingerprintProvider {
   return {
-    async interfaceFingerprint(repositoryId, sha, paths) {
-      return (await interfaceFingerprint(ctx, { repositoryId, sha, paths: [...paths], onDemand: true })).fingerprint;
-    },
-    async relatedDependencyFingerprint(repositoryId, sha, paths) {
+    async collect(repositoryId, sha, paths) {
+      const repository = getRepository(ctx, repositoryId);
+      const config = loadProjectConfig(ctx, repository.projectId).config.index;
       const graph = await dependencyGraph(ctx, {
         repositoryId,
         sha,
@@ -136,13 +135,29 @@ export function contextFingerprints(ctx: CrewContext): ContextFingerprintProvide
         depth: 1,
         limit: 500,
         onDemand: true,
+        config,
       });
-      const related = [...new Set(graph.nodes.map((n) => n.path))].filter((p) => !paths.includes(p)).sort();
-      if (related.length === 0) return fingerprint({ related: [] });
-      return (await interfaceFingerprint(ctx, { repositoryId, sha, paths: related, onDemand: true })).fingerprint;
-    },
-    async symbolGraphRevision(repositoryId, sha) {
-      return snapshotByCommit(ctx.store.db, repositoryId, sha)?.revision ?? null;
+      const interfaces = await interfaceFingerprint(ctx, {
+        repositoryId,
+        sha,
+        paths: [...paths],
+        onDemand: true,
+        config,
+      });
+      return {
+        contentFingerprint: graph.contentFingerprint,
+        dependencyFingerprint: graph.contentFingerprint,
+        interfaceFingerprint: interfaces.fingerprint,
+        symbolGraphRevision: graph.revision,
+        coverage: {
+          kind: 'bounded',
+          depth: graph.coverage.depth,
+          limit: graph.coverage.limit,
+          truncated: graph.truncated,
+          missingPaths: [...new Set([...graph.coverage.missingPaths, ...graph.coverage.incompletePaths])].sort(),
+          unresolvedImports: graph.coverage.unresolvedImports,
+        },
+      };
     },
   };
 }
@@ -183,7 +198,9 @@ const REVIEW_FOCUS: Record<ReviewType, string> = {
 export class AgentReviewer implements Reviewer {
   readonly identity: string;
   readonly model: string | null;
-  readonly promptVersion = 'crew-review-1';
+  readonly promptVersion = 'crew-review-2';
+  readonly configurationFingerprint: string;
+  private readonly provider: string | null;
 
   constructor(
     private readonly ctx: CrewContext,
@@ -194,10 +211,16 @@ export class AgentReviewer implements Reviewer {
     const agent = getAgent(ctx, agentRef);
     this.identity = `agent:${agent.name}`;
     this.model = agent.providerPreferences[0]?.model ?? null;
+    this.provider = agent.providerPreferences[0]?.provider ?? null;
+    this.configurationFingerprint = fingerprint(agent);
   }
 
   async review(input: ReviewInput): Promise<StructuredFindings> {
-    const patch = input.patch.length > 120_000 ? `${input.patch.slice(0, 120_000)}\n[patch truncated]` : input.patch;
+    if (this.model === null || this.provider === null)
+      throw new CrewError('POLICY_DENIED', 'Review agents require an explicit provider and model');
+    if (input.patch.length > 120_000)
+      throw new CrewError('INVALID_INPUT', 'Review patch exceeds the agent complete-input limit');
+    const patch = input.patch;
     const prompt = [
       `Perform a ${input.scope} ${input.reviewType} review of commit ${input.commitSha} against base ${input.baseSha}.`,
       `Focus on ${REVIEW_FOCUS[input.reviewType]}.`,
@@ -220,6 +243,7 @@ export class AgentReviewer implements Reviewer {
         cwd: this.cwd,
         prompt,
         mode: 'review',
+        model: this.model,
         outputSchema: FINDINGS_SCHEMA,
         timeoutMinutes: 20,
         actor: INTEGRATION_ACTOR,
@@ -227,6 +251,8 @@ export class AgentReviewer implements Reviewer {
       { tooling: sessionTooling(this.ctx) },
     );
     const record = await awaitSession(this.ctx, session.sessionId);
+    if (record.model !== this.model || session.providerId !== this.provider)
+      throw new CrewError('POLICY_DENIED', 'Review execution differs from its admitted provider and model');
     if (record.state !== 'completed') {
       throw new CrewError(
         'EXTERNAL_FAILURE',
@@ -287,6 +313,10 @@ export function integrationEnv(ctx: CrewContext, overrides: Partial<IntegrationE
   return {
     github: createClientFactory(ctx, baseUrl ? { baseUrl } : {}),
     hooks: taskHooks(ctx),
+    reviewAcceptance: (repositoryId: string) => {
+      const repo = getRepository(ctx, repositoryId);
+      return reviewersFor(ctx, repo.projectId, repo.canonicalPath);
+    },
     ...overrides,
   };
 }

@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite';
+import { fingerprint } from '@crewyard/core';
 import type { CrewContext, Store } from '@crewyard/storage';
 import { all } from '@crewyard/storage';
 import { requireSnapshot, type SnapshotRequest } from './freshness.ts';
@@ -301,6 +302,15 @@ export interface DependencyGraphResult extends ResultEnvelope {
   edges: GraphEdge[];
   truncated: boolean;
   note: string;
+  contentFingerprint: string;
+  revision: string | null;
+  coverage: {
+    depth: number;
+    limit: number;
+    missingPaths: string[];
+    unresolvedImports: string[];
+    incompletePaths: string[];
+  };
 }
 
 export const SYNTAX_NOTE =
@@ -316,9 +326,10 @@ export function traverse(
   const depths = new Map<string, number>();
   const links: ImportLink[] = [];
   const seenLinks = new Set<ImportLink>();
-  let frontier = roots.filter((p) => model.byPath.has(p));
+  const knownRoots = [...new Set(roots)].filter((p) => model.byPath.has(p));
+  let frontier = knownRoots.slice(0, Math.max(0, limit));
   for (const root of frontier) depths.set(root, 0);
-  let truncated = false;
+  let truncated = knownRoots.length > frontier.length;
   for (let level = 1; level <= depth && frontier.length > 0; level++) {
     const next: string[] = [];
     for (const path of frontier) {
@@ -341,6 +352,17 @@ export function traverse(
     }
     frontier = next;
   }
+  for (const path of frontier) {
+    const outgoing = direction === 'importedBy' ? [] : (model.imports.get(path) ?? []);
+    const incoming = direction === 'imports' ? [] : (model.importedBy.get(path) ?? []);
+    if (
+      [...outgoing, ...incoming].some((link) => {
+        const neighbour = link.from === path ? link.to : link.from;
+        return neighbour === null || !depths.has(neighbour);
+      })
+    )
+      truncated = true;
+  }
   return { depths, links, truncated };
 }
 
@@ -348,13 +370,9 @@ export async function dependencyGraph(ctx: CrewContext, input: DependencyGraphIn
   const { snapshot, envelope } = await requireSnapshot(ctx, input);
   const model = snapshotModel(ctx.store, snapshot);
   const direction = input.direction ?? 'both';
-  const { depths, links, truncated } = traverse(
-    model,
-    input.paths,
-    direction,
-    Math.min(input.depth ?? 1, 10),
-    input.limit ?? 500,
-  );
+  const depth = Math.min(Math.max(input.depth ?? 1, 0), 10);
+  const limit = Math.max(input.limit ?? 500, 0);
+  const { depths, links, truncated } = traverse(model, input.paths, direction, depth, limit);
   const nodes = [...depths].map(([path, depth]) => {
     const file = model.byPath.get(path);
     return { path, depth, packageRoot: file?.package_root ?? null, kind: file?.kind ?? null };
@@ -378,5 +396,40 @@ export async function dependencyGraph(ctx: CrewContext, input: DependencyGraphIn
         indexStatus: envelope.indexStatus,
       },
     }));
-  return { ...envelope, roots: input.paths, direction, nodes, edges, truncated, note: SYNTAX_NOTE };
+  const contents = all<{ path: string; blob_sha: string; parse_status: string; parser: string | null }>(
+    ctx.store.db,
+    'SELECT f.path, f.blob_sha, b.parse_status, b.parser FROM files f LEFT JOIN blobs b ON b.sha = f.blob_sha WHERE f.snapshot_id = ? ORDER BY f.path',
+    snapshot.id,
+  ).filter((file) => depths.has(file.path));
+  const coverage = {
+    depth,
+    limit,
+    missingPaths: [...new Set(input.paths.filter((path) => !model.byPath.has(path)))].sort(),
+    unresolvedImports: [
+      ...new Set(links.filter((link) => link.to === null).map((link) => `${link.from}:${link.specifier}`)),
+    ].sort(),
+    incompletePaths: contents
+      .filter((file) => file.parse_status !== 'parsed' && file.parse_status !== 'text')
+      .map((file) => file.path),
+  };
+  const contentFingerprint = fingerprint({
+    revision: snapshot.revision,
+    contents,
+    links,
+    coverage,
+    truncated,
+    direction,
+  });
+  return {
+    ...envelope,
+    roots: input.paths,
+    direction,
+    nodes,
+    edges,
+    truncated,
+    note: SYNTAX_NOTE,
+    contentFingerprint,
+    revision: snapshot.revision,
+    coverage,
+  };
 }

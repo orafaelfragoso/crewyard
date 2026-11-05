@@ -22,6 +22,7 @@ export interface GitOptions {
   allowFailure?: boolean;
   env?: Record<string, string>;
   timeoutMs?: number;
+  maxOutputBytes?: number;
 }
 
 export async function git(cwd: string, args: readonly string[], options: GitOptions = {}): Promise<RunResult> {
@@ -30,6 +31,7 @@ export async function git(cwd: string, args: readonly string[], options: GitOpti
     env: gitEnv(options.env),
     allowFailure: true,
     timeoutMs: options.timeoutMs ?? 120_000,
+    ...(options.maxOutputBytes === undefined ? {} : { maxOutputBytes: options.maxOutputBytes }),
     ...(options.input === undefined ? {} : { input: options.input }),
   });
   if (result.exitCode !== 0 && !options.allowFailure) {

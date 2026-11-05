@@ -1,4 +1,4 @@
-import type { DiffFile } from './patch.ts';
+import type { DiffFile, ReviewSource } from './patch.ts';
 
 export type ReviewType = 'code' | 'security' | 'integration';
 export const REVIEW_TYPES: readonly ReviewType[] = ['code', 'security', 'integration'];
@@ -29,7 +29,18 @@ export interface StructuredFindings {
   findings: FindingInput[];
 }
 
+export interface ContextCoverage {
+  kind: 'whole-tree' | 'bounded' | 'unavailable';
+  depth: number | null;
+  limit: number | null;
+  truncated: boolean;
+  missingPaths: string[];
+  unresolvedImports: string[];
+}
+
 export interface ReviewContext {
+  contentFingerprint: string | null;
+  coverage: ContextCoverage;
   dependencyFingerprint: string | null;
   interfaceFingerprint: string | null;
   symbolGraphRevision: string | null;
@@ -53,16 +64,20 @@ export interface Reviewer {
   readonly identity: string;
   readonly model: string | null;
   readonly promptVersion: string;
+  readonly evidenceScope?: 'whole-tree' | 'patch';
+  readonly configurationFingerprint?: string;
   review(input: ReviewInput): Promise<StructuredFindings>;
 }
 
 export interface ContextFingerprintProvider {
-  interfaceFingerprint(repositoryId: string, sha: string, paths: readonly string[]): Promise<string>;
-  relatedDependencyFingerprint(repositoryId: string, sha: string, paths: readonly string[]): Promise<string>;
-  symbolGraphRevision(repositoryId: string, sha: string): Promise<string | null>;
+  collect(repositoryId: string, sha: string, paths: readonly string[]): Promise<ReviewContext>;
 }
 
 export interface EvidenceInputs {
+  version: 2;
+  source: ReviewSource;
+  context: ReviewContext;
+  reviewerScope: 'whole-tree' | 'patch';
   repositoryId: string;
   reviewType: ReviewType;
   patchHash: string;
@@ -70,6 +85,7 @@ export interface EvidenceInputs {
   policyVersion: string;
   reviewerIdentity: string;
   reviewerModel: string | null;
+  reviewerConfiguration: string | null;
   promptVersion: string;
   dependencyContext: string | null;
   interfaceContext: string | null;
