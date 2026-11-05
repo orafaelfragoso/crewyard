@@ -99,6 +99,35 @@ test('durable capacity admits distinct domains without duplicate scopes', async 
   });
 }, 30_000);
 
+test('admission and its telemetry roll back together when the observation cannot be written', async () => {
+  const { ctx: c, project, repository } = await fixture();
+  const request = {
+    projectId: project.id,
+    repositoryId: repository.id,
+    actor,
+    leaderId: actor.id,
+    operation: { kind: 'cleanup' as const },
+  };
+  c.store.db.run(`CREATE TEMP TRIGGER reject_admission_observation BEFORE INSERT ON events
+    WHEN NEW.type = 'operation.completed' BEGIN SELECT RAISE(ABORT, 'injected observation failure'); END`);
+  expect(() => submitExecution(c, request, DEFAULT_EXECUTION_LIMITS)).toThrow('injected observation failure');
+  expect(c.store.db.query("SELECT COUNT(*) AS n FROM outbox WHERE kind = 'execution.launch'").get()).toEqual({ n: 0 });
+  expect(c.store.db.query("SELECT COUNT(*) AS n FROM execution_claims WHERE scope LIKE 'execution:%'").get()).toEqual({
+    n: 0,
+  });
+  c.store.db.run('DROP TRIGGER reject_admission_observation');
+  const admitted = submitExecution(c, request, DEFAULT_EXECUTION_LIMITS)!;
+  expect(getOutbox(c.store.db, admitted.operationId)!.status).toBe('pending');
+  const observations = listEvents(c.store, { types: ['operation.completed'] });
+  expect(observations).toHaveLength(1);
+  expect(observations[0]!.payload.counts).toEqual({ admitted: 1, joined: 0 });
+  expect(
+    c.store.db
+      .query("SELECT COUNT(*) AS n FROM audit_events WHERE event_seq = ? AND action = 'operation.observe'")
+      .get(observations[0]!.seq),
+  ).toEqual({ n: 1 });
+});
+
 test('source worker claims its immutable attempt before writing a domain result', async () => {
   const { ctx: c, project, repository } = await fixture();
   const op = submitExecution(

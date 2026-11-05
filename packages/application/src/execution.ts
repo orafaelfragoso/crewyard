@@ -22,7 +22,7 @@ import {
   type OutboxOperation,
 } from '@crewyard/storage';
 import type { LeaseHolder } from '@crewyard/tasks';
-import { recordOperation } from '@crewyard/telemetry';
+import { recordOperationInTx } from '@crewyard/telemetry';
 
 export type ExecutionOperation =
   | { kind: 'index'; sha: string; ref?: string; worktreePath?: string; force?: boolean; indexRevision: string }
@@ -132,9 +132,22 @@ export function submitExecution(
     throw new CrewError('INVALID_INPUT', 'Index execution requires an exact commit SHA and configuration revision');
   const scope = executionScope(request);
   const started = performance.now();
-  let joined = false;
-  const admitted = ctx.store.immediate((db) => {
+  return ctx.store.immediate((db) => {
     const at = nowIso(ctx.clock);
+    const observeAdmission = (joined: boolean) =>
+      recordOperationInTx(
+        db,
+        {
+          operation: 'controller',
+          projectId: request.projectId,
+          repositoryId: request.repositoryId,
+          durationMs: performance.now() - started,
+          outcome: 'completed',
+          actor: request.actor,
+          counts: { admitted: joined ? 0 : 1, joined: joined ? 1 : 0 },
+        },
+        at,
+      );
     const current = getExecutionClaim(db, scope);
     if (current && current.releasedAt === null) {
       const existing = all<{ operation_id: string }>(
@@ -161,7 +174,7 @@ export function submitExecution(
         ) {
           return null;
         }
-        joined = true;
+        observeAdmission(true);
         return operation as unknown as OutboxOperation<ExecutionLaunch>;
       }
       return null;
@@ -211,7 +224,7 @@ export function submitExecution(
       limits,
       deadlineAt: new Date(Date.parse(at) + limits.timeoutSeconds * 1000).toISOString(),
     };
-    return enqueueOutbox(
+    const admitted = enqueueOutbox(
       db,
       {
         kind: EXECUTION_LAUNCH_KIND,
@@ -227,16 +240,7 @@ export function submitExecution(
       },
       at,
     ) as unknown as OutboxOperation<ExecutionLaunch>;
+    observeAdmission(false);
+    return admitted;
   });
-  if (admitted)
-    recordOperation(ctx, {
-      operation: 'controller',
-      projectId: request.projectId,
-      repositoryId: request.repositoryId,
-      durationMs: performance.now() - started,
-      outcome: 'completed',
-      actor: request.actor,
-      counts: { admitted: joined ? 0 : 1, joined: joined ? 1 : 0 },
-    });
-  return admitted;
 }

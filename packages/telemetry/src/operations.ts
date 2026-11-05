@@ -1,3 +1,4 @@
+import type { Database } from 'bun:sqlite';
 import { type Actor, CrewError, nowIso } from '@crewyard/core';
 import { type CrewContext, recordTransition } from '@crewyard/storage';
 
@@ -33,6 +34,11 @@ export interface OperationMetrics {
 }
 
 export function recordOperation(ctx: CrewContext, observation: OperationObservation): void {
+  ctx.store.immediate((db) => recordOperationInTx(db, observation, nowIso(ctx.clock)));
+}
+
+export function recordOperationInTx(db: Database, observation: OperationObservation, at: string): void {
+  if (!db.inTransaction) throw new CrewError('INTERNAL', 'Operation observations require an active transaction');
   if (!Number.isFinite(observation.durationMs) || observation.durationMs < 0) {
     throw new CrewError('INVALID_INPUT', 'Operation duration must be a finite non-negative number');
   }
@@ -41,20 +47,17 @@ export function recordOperation(ctx: CrewContext, observation: OperationObservat
       throw new CrewError('INVALID_INPUT', `Operation counter ${name} must be a finite non-negative number`);
     }
   }
-  ctx.store.immediate((db) => {
-    const at = nowIso(ctx.clock);
-    const payload = {
-      operation: observation.operation,
-      repositoryId: observation.repositoryId,
-      durationMs: observation.durationMs,
-      outcome: observation.outcome,
-      counts: observation.counts,
-    };
-    recordTransition(
-      db,
-      { type: 'operation.completed', actor: observation.actor, projectId: observation.projectId, payload },
-      { action: 'operation.observe', input: payload, decision: observation.outcome },
-      at,
-    );
-  });
+  const payload = {
+    operation: observation.operation,
+    repositoryId: observation.repositoryId,
+    durationMs: observation.durationMs,
+    outcome: observation.outcome,
+    counts: observation.counts,
+  };
+  recordTransition(
+    db,
+    { type: 'operation.completed', actor: observation.actor, projectId: observation.projectId, payload },
+    { action: 'operation.observe', input: payload, decision: observation.outcome },
+    at,
+  );
 }
