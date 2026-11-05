@@ -5,6 +5,7 @@ import {
   type StartedSession,
   startManagedSession,
   stopSession,
+  systemSecretStore,
 } from '@crewyard/agents';
 import { type Actor, CrewError, LEASED_TASK_STATES } from '@crewyard/core';
 import { repositoryProfile } from '@crewyard/indexing';
@@ -23,7 +24,7 @@ import {
   showTask,
   startTask,
 } from '@crewyard/tasks';
-import { collectCommits, commitWorkspaceChanges, mergeRemoteBranch } from '@crewyard/workspaces';
+import { bootstrapWorkspace, collectCommits, commitWorkspaceChanges, mergeRemoteBranch } from '@crewyard/workspaces';
 import { contextPack } from './retrieval.ts';
 import { clearSessionFailures, type RetryState, recordSessionFailure } from './session-retries.ts';
 import { sessionTooling } from './session-tooling.ts';
@@ -372,6 +373,14 @@ export async function dispatchTask(
     actor: input.actor,
   });
   try {
+    if (claim.workspaceId) {
+      const bootstrap = await bootstrapWorkspace(ctx, claim.workspaceId, {
+        actor: input.actor,
+        resolveSecret: (ref) => systemSecretStore.get(ref),
+      });
+      if (bootstrap.status === 'failed')
+        throw new CrewError('EXTERNAL_FAILURE', `Workspace ${claim.workspaceId} bootstrap failed`);
+    }
     const remote =
       listPullRequests(ctx, { taskId: task.id, state: 'open' }).length > 0
         ? await updateRevisionWorkspace(ctx, claim, input.actor)

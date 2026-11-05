@@ -150,6 +150,7 @@ export interface ClaimDueOutboxInput {
   limit: number;
   kinds: string[];
   ttlSeconds: number;
+  operationIds?: readonly string[];
 }
 
 function outboxInputIdentity(row: OutboxRow): string {
@@ -199,6 +200,11 @@ export function claimDueOutbox(store: Store, input: ClaimDueOutboxInput): Claime
     let sql = `SELECT * FROM outbox WHERE status IN ('pending', 'attempted', 'ambiguous') AND next_attempt_at <= ?
       AND NOT EXISTS (SELECT 1 FROM execution_claims c WHERE c.scope = 'outbox:' || outbox.operation_id
         AND c.released_at IS NULL AND c.expires_at > ?)`;
+    if (input.operationIds) {
+      if (input.operationIds.length === 0) return [];
+      sql += ` AND operation_id IN (${input.operationIds.map(() => '?').join(',')})`;
+      params.push(...input.operationIds);
+    }
     if (input.kinds.length > 0) {
       sql += ` AND kind IN (${input.kinds.map(() => '?').join(',')})`;
       params.push(...input.kinds);

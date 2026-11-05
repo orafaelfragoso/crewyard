@@ -8,6 +8,7 @@ import queueEntryProgressSql from '../migrations/0002_queue_entry_progress.sql' 
 import executionClaimsSql from '../migrations/0003_execution_claims.sql' with { type: 'text' };
 import reviewExecutionSql from '../migrations/0004_review_execution.sql' with { type: 'text' };
 import writerProtocolSql from '../migrations/0005_writer_protocol.sql' with { type: 'text' };
+import cacheBodyIdentitySql from '../migrations/0006_cache_body_identity.sql' with { type: 'text' };
 import { all, type Store } from './db.ts';
 
 export interface Migration {
@@ -22,6 +23,7 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 3, name: '0003_execution_claims', sql: executionClaimsSql },
   { version: 4, name: '0004_review_execution', sql: reviewExecutionSql },
   { version: 5, name: '0005_writer_protocol', sql: writerProtocolSql },
+  { version: 6, name: '0006_cache_body_identity', sql: cacheBodyIdentitySql },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

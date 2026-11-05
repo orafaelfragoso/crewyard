@@ -104,7 +104,18 @@ export async function allocateWorkspace(ctx: CrewContext, input: AllocateInput):
     task.id,
     ...ACTIVE_STATES,
   );
-  if (existing) return { workspace: mapWorkspace(existing), reused: true };
+  if (existing) {
+    const active = one<{ attempt_id: string }>(
+      ctx.store.db,
+      `SELECT c.attempt_id FROM execution_claims c JOIN outbox o ON json_extract(o.intent, '$.claim.attemptId') = c.attempt_id
+       WHERE o.kind = 'execution.launch' AND o.task_id = ? AND c.released_at IS NULL`,
+      task.id,
+    );
+    if (active && active.attempt_id !== ctx.execution?.claim.attemptId) {
+      throw new CrewError('BUSY', `Workspace ${existing.id} still belongs to an active execution`);
+    }
+    return { workspace: mapWorkspace(existing), reused: true };
+  }
 
   const repo = requireRepository(ctx, task.repository_id);
   const config = repositoryConfig(ctx, repo, input.config);

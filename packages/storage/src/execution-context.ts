@@ -11,13 +11,11 @@ export function executionContext(ctx: CrewContext, execution: ExecutionScope): C
       immediate: (fn) =>
         ctx.store.immediate((db) => {
           assertExecutionClaim(db, execution.claim, nowIso(ctx.clock));
-          execution.signal.throwIfAborted();
           return fn(db);
         }),
       preview: (fn) =>
         ctx.store.preview((db) => {
           assertExecutionClaim(db, execution.claim, nowIso(ctx.clock));
-          execution.signal.throwIfAborted();
           return fn(db);
         }),
     },

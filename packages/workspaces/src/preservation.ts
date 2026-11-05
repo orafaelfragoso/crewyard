@@ -422,6 +422,11 @@ function assertAuthorized(
 
 function assertNotLeased(ctx: CrewContext, ws: Workspace): void {
   if (!ws.taskId) return;
+  const execution = ctx.store.db
+    .query(`SELECT 1 FROM execution_claims c JOIN outbox o ON json_extract(o.intent, '$.claim.attemptId') = c.attempt_id
+    WHERE o.kind = 'execution.launch' AND o.task_id = ? AND c.released_at IS NULL`)
+    .get(ws.taskId);
+  if (execution) throw new CrewError('CONFLICT', `Workspace ${ws.id} belongs to an active or unverified execution`);
   const lease = ctx.store.db
     .query('SELECT generation FROM leases WHERE task_id = ? AND released_at IS NULL')
     .get(ws.taskId) as { generation: number } | null;
@@ -463,7 +468,6 @@ export async function removeWorkspace(
       : null;
   const hooks = hooksDisabledArgs(ctx, repo);
   if (inspection.exists) await git(repo.canonicalPath, [...hooks, 'worktree', 'remove', '--force', '--', path]);
-  await git(repo.canonicalPath, ['worktree', 'prune']);
   let branchDeleted = false;
   if (deleteBranch) {
     const result = await git(repo.canonicalPath, ['branch', '-D', '--', ws.branch], { allowFailure: true });

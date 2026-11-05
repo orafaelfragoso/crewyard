@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CrewConfig } from '@crewyard/config';
 import {
@@ -12,6 +12,7 @@ import {
   nowIso,
   redact,
   sha256,
+  writeFileAtomic,
 } from '@crewyard/core';
 import {
   assertRemoteMatches,
@@ -49,32 +50,39 @@ export function coordinates(repository: Repository): RepositoryCoordinates {
 
 export function syncStateCache(ctx: CrewContext, repositoryId: string): ConditionalCache {
   const dir = join(ctx.dirs.data, 'cache', 'github', repositoryId);
-  const fileFor = (key: string) => join(dir, `${sha256(key).slice(0, 40)}.json`);
+  const fileFor = (bodySha: string) => join(dir, `${bodySha}.json`);
   const stateKey = (key: string) => `github:etag:${repositoryId}:${sha256(key).slice(0, 40)}`;
   return {
     get(key) {
-      const row = one<{ etag: string | null }>(
+      const row = one<{ etag: string | null; cache_body_sha: string | null }>(
         ctx.store.db,
-        'SELECT etag FROM sync_state WHERE key = ?',
+        'SELECT etag, cache_body_sha FROM sync_state WHERE key = ?',
         stateKey(key),
       );
-      const file = fileFor(key);
-      if (!row?.etag || !existsSync(file)) return null;
+      if (!row?.etag || !row.cache_body_sha || !/^[a-f0-9]{64}$/.test(row.cache_body_sha)) return null;
+      const file = fileFor(row.cache_body_sha);
+      if (!existsSync(file)) return null;
       try {
-        return { etag: row.etag, body: JSON.parse(readFileSync(file, 'utf8')) as unknown };
+        const body = readFileSync(file, 'utf8');
+        if (sha256(body) !== row.cache_body_sha) return null;
+        return { etag: row.etag, body: JSON.parse(body) as unknown };
       } catch {
         return null;
       }
     },
     set(key, entry) {
       ensureDir(dir);
-      writeFileSync(fileFor(key), JSON.stringify(entry.body), { mode: 0o600 });
+      const body = JSON.stringify(entry.body);
+      if (body === undefined) throw new CrewError('INVALID_INPUT', 'Conditional response body must be JSON');
+      const bodySha = sha256(body);
+      const file = fileFor(bodySha);
+      if (!existsSync(file)) writeFileAtomic(file, body, { mode: 0o600 });
       const at = nowIso(ctx.clock);
       ctx.store.immediate((db) => {
         db.query(
-          `INSERT INTO sync_state (key, etag, last_success_at, last_attempt_at) VALUES (?, ?, ?, ?)
-           ON CONFLICT(key) DO UPDATE SET etag = excluded.etag, last_success_at = excluded.last_success_at, last_attempt_at = excluded.last_attempt_at`,
-        ).run(stateKey(key), entry.etag, at, at);
+          `INSERT INTO sync_state (key, etag, cache_body_sha, last_success_at, last_attempt_at) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET etag = excluded.etag, cache_body_sha = excluded.cache_body_sha, last_success_at = excluded.last_success_at, last_attempt_at = excluded.last_attempt_at`,
+        ).run(stateKey(key), entry.etag, bodySha, at, at);
       });
     },
   };
@@ -95,7 +103,14 @@ export function createClientFactory(ctx: CrewContext, options: ClientFactoryOpti
     const client = new GitHubClient({
       ...rest,
       repository: repo,
-      token: token ?? ghTokenProvider({ host: repo.host, configDir: repository.ghConfigDir }),
+      token:
+        token ??
+        ghTokenProvider({
+          host: repo.host,
+          configDir: repository.ghConfigDir,
+          signal: ctx.execution?.signal,
+          onSpawn: ctx.execution?.onSpawn,
+        }),
       ...(conditional === false ? {} : { cache: syncStateCache(ctx, repository.id) }),
     });
     clients.set(repository.id, client);

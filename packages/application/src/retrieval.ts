@@ -23,6 +23,8 @@ import {
 } from '@crewyard/indexing';
 import { loadProjectConfig, primaryRepository } from '@crewyard/projects';
 import type { CrewContext } from '@crewyard/storage';
+import { DEFAULT_EXECUTION_LIMITS } from './execution.ts';
+import { driveExecution } from './execution-driver.ts';
 
 export interface RevisionSelector {
   projectId: string;
@@ -53,6 +55,26 @@ export async function buildIndex(
   ctx: CrewContext,
   input: RevisionSelector & { force?: boolean; actor: Actor },
 ): Promise<IndexResult> {
+  if (!ctx.execution) {
+    const repo = primaryRepository(ctx, input.projectId);
+    return (await driveExecution(
+      ctx,
+      {
+        projectId: input.projectId,
+        repositoryId: repo.id,
+        actor: input.actor,
+        leaderId: input.actor.id,
+        operation: {
+          kind: 'index',
+          ...(input.sha ? { sha: input.sha } : {}),
+          ...(input.ref ? { ref: input.ref } : {}),
+          ...(input.worktreePath ? { worktreePath: input.worktreePath } : {}),
+          ...(input.force ? { force: true } : {}),
+        },
+      },
+      { ...DEFAULT_EXECUTION_LIMITS },
+    )) as unknown as IndexResult;
+  }
   const { sel } = selector(ctx, input);
   return indexRepository(ctx, { ...sel, ...(input.force ? { force: true } : {}), actor: input.actor });
 }

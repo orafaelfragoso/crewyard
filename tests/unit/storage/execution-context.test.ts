@@ -3,7 +3,7 @@ import { nowIso } from '@crewyard/core';
 import { acquireExecutionClaim, executionContext } from '@crewyard/storage';
 import { createTestContext, ManualClock } from '../../helpers/index.ts';
 
-test('execution context rejects stale and cancelled domain transactions', () => {
+test('execution context rejects stale domain transactions and permits cancellation cleanup', () => {
   const clock = new ManualClock();
   const ctx = createTestContext({ clock });
   try {
@@ -30,10 +30,8 @@ test('execution context rejects stale and cancelled domain transactions', () => 
     expect(ctx.store.db.query('SELECT value FROM sequences').get()).toEqual({ value: 1 });
     clock.advance(-30);
     controller.abort(new Error('cancelled execution'));
-    expect(() => guarded.store.immediate((db) => db.query('UPDATE sequences SET value = 3').run())).toThrow(
-      'cancelled execution',
-    );
-    expect(ctx.store.db.query('SELECT value FROM sequences').get()).toEqual({ value: 1 });
+    guarded.store.immediate((db) => db.query('UPDATE sequences SET value = 3').run());
+    expect(ctx.store.db.query('SELECT value FROM sequences').get()).toEqual({ value: 3 });
   } finally {
     ctx.cleanup();
   }

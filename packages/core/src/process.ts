@@ -1,4 +1,5 @@
 import { CrewError } from './errors.ts';
+import { processLifecycle } from './process-lifecycle.ts';
 
 export const DEFAULT_ENV_ALLOWLIST: readonly string[] = [
   'PATH',
@@ -81,6 +82,8 @@ async function readLimited(
 }
 
 export async function run(cmd: readonly string[], options: RunOptions = {}): Promise<RunResult> {
+  const lifecycle = processLifecycle(options);
+  lifecycle.signal?.throwIfAborted();
   const started = performance.now();
   const limit = options.maxOutputBytes ?? 16 * 1024 * 1024;
   let proc: Bun.Subprocess<'pipe' | 'ignore', 'pipe', 'pipe'>;
@@ -101,15 +104,15 @@ export async function run(cmd: readonly string[], options: RunOptions = {}): Pro
     });
   }
   try {
-    options.onSpawn?.(proc.pid);
+    lifecycle.onSpawn?.(proc.pid);
   } catch (error) {
     killTree(proc.pid, 'SIGKILL');
     await proc.exited;
     throw error;
   }
   const onAbort = () => killTree(proc.pid, 'SIGTERM');
-  if (options.signal?.aborted) onAbort();
-  else options.signal?.addEventListener('abort', onAbort, { once: true });
+  if (lifecycle.signal?.aborted) onAbort();
+  else lifecycle.signal?.addEventListener('abort', onAbort, { once: true });
   if (options.input !== undefined && proc.stdin && typeof proc.stdin !== 'number') {
     proc.stdin.write(options.input);
     await proc.stdin.end();
@@ -128,8 +131,8 @@ export async function run(cmd: readonly string[], options: RunOptions = {}): Pro
     proc.exited,
   ]);
   if (timer) clearTimeout(timer);
-  options.signal?.removeEventListener('abort', onAbort);
-  options.signal?.throwIfAborted();
+  lifecycle.signal?.removeEventListener('abort', onAbort);
+  lifecycle.signal?.throwIfAborted();
   const result: RunResult = {
     exitCode,
     stdout: stdout.text,

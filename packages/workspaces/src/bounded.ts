@@ -1,5 +1,13 @@
 import { existsSync, statSync } from 'node:fs';
-import { CrewError, canonicalPath, DEFAULT_ENV_ALLOWLIST, isWithin, sanitizeEnv, terminateTree } from '@crewyard/core';
+import {
+  CrewError,
+  canonicalPath,
+  DEFAULT_ENV_ALLOWLIST,
+  isWithin,
+  processLifecycle,
+  sanitizeEnv,
+  terminateTree,
+} from '@crewyard/core';
 
 export type NetworkPolicy = 'provider-and-github-only' | 'unrestricted' | 'offline';
 
@@ -75,6 +83,8 @@ export function assertWithinRoots(path: string, roots: readonly string[]): strin
 }
 
 export async function runBounded(cmd: readonly string[], options: BoundedOptions): Promise<BoundedResult> {
+  const lifecycle = processLifecycle(options);
+  lifecycle.signal?.throwIfAborted();
   if (cmd.length === 0) throw new CrewError('INVALID_INPUT', 'Command is empty');
   if (!(options.timeoutMs > 0) || !(options.maxOutputBytes > 0)) {
     throw new CrewError('INVALID_INPUT', 'timeoutMs and maxOutputBytes must be positive');
@@ -109,7 +119,7 @@ export async function runBounded(cmd: readonly string[], options: BoundedOptions
     throw new CrewError('UNAVAILABLE', `Cannot execute ${cmd[0]}`, { cause: error });
   }
   try {
-    options.onSpawn?.(proc.pid);
+    lifecycle.onSpawn?.(proc.pid);
   } catch (error) {
     await terminateTree(proc.pid, 0);
     await proc.exited;
@@ -131,8 +141,8 @@ export async function runBounded(cmd: readonly string[], options: BoundedOptions
     cancelled = true;
     stop();
   };
-  if (options.signal?.aborted) onAbort();
-  else options.signal?.addEventListener('abort', onAbort, { once: true });
+  if (lifecycle.signal?.aborted) onAbort();
+  else lifecycle.signal?.addEventListener('abort', onAbort, { once: true });
   const budget = { remaining: options.maxOutputBytes, truncated: false };
   try {
     const [stdout, stderr, exitCode] = await Promise.all([
@@ -156,7 +166,7 @@ export async function runBounded(cmd: readonly string[], options: BoundedOptions
     };
   } finally {
     clearTimeout(timer);
-    options.signal?.removeEventListener('abort', onAbort);
+    lifecycle.signal?.removeEventListener('abort', onAbort);
   }
 }
 

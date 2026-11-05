@@ -1,6 +1,7 @@
 import { existsSync, openSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   CrewError,
   ensureDir,
@@ -20,7 +21,11 @@ export function crewInvocation(
   options: { execPath?: string; main?: string; which?: (binary: string) => string | null } = {},
 ): string[] {
   const execPath = options.execPath ?? process.execPath;
-  const main = options.main ?? Bun.main;
+  const main =
+    options.main ??
+    (Bun.main.includes('$bunfs') || Bun.main.includes('~BUN')
+      ? Bun.main
+      : fileURLToPath(new URL('../../../apps/cli/src/main.ts', import.meta.url)));
   if (!main.includes('$bunfs') && !main.includes('~BUN')) return [execPath, main];
   if (existsSync(execPath)) return [execPath];
   return [(options.which ?? Bun.which)('crew') ?? execPath];
