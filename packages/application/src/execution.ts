@@ -62,6 +62,7 @@ export interface ExecutionLaunch extends ExecutionRequest {
 }
 
 export const EXECUTION_LAUNCH_KIND = 'execution.launch';
+export const EXECUTION_CANCEL_KIND = 'execution.cancel';
 
 export function executionScope(request: ExecutionRequest): string {
   const subject = request.operation.kind === 'dispatch' ? request.operation.taskId : 'project';
@@ -112,7 +113,7 @@ export function submitExecution(
         const operation = getOutbox(db, existing.operation_id)!;
         const launch = operation.intent as unknown as ExecutionLaunch;
         if (fingerprint(launch.operation) !== fingerprint(request.operation)) {
-          throw new CrewError('CONFLICT', `A different ${request.operation.kind} execution is active`);
+          return null;
         }
         return operation as unknown as OutboxOperation<ExecutionLaunch>;
       }

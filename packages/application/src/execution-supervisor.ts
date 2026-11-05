@@ -23,6 +23,7 @@ import {
   releaseExecutionClaim,
 } from '@crewyard/storage';
 import {
+  EXECUTION_CANCEL_KIND,
   EXECUTION_LAUNCH_KIND,
   type ExecutionLaunch,
   type ExecutionLimits,
@@ -95,8 +96,72 @@ export class ExecutionSupervisor {
     }
   }
 
+  private processCancellations(): void {
+    const cancellations = claimDueOutbox(this.ctx.store, {
+      ownerId: this.ownerId,
+      kinds: [EXECUTION_CANCEL_KIND],
+      limit: 16,
+      ttlSeconds: this.limits.leaseSeconds,
+    });
+    for (const cancellation of cancellations) {
+      const operationId = cancellation.intent.operationId as string;
+      const target = getOutbox(this.ctx.store.db, operationId);
+      const launch = target?.intent as unknown as ExecutionLaunch | undefined;
+      const claim = launch ? getExecutionClaim(this.ctx.store.db, launch.claim.scope) : null;
+      let status: 'succeeded' | 'ambiguous' | 'failed' = 'succeeded';
+      let error: string | undefined;
+      if (
+        target &&
+        !['succeeded', 'failed', 'cancelled'].includes(target.status) &&
+        claim !== null &&
+        claim.attemptId === launch?.claim.attemptId &&
+        claim.releasedAt === null
+      ) {
+        const state = executionProcessState(claim);
+        if (claim.process && state === 'live') killTree(claim.process.pid, 'SIGTERM');
+        else if (state === 'unknown') {
+          status = 'failed';
+          error = 'Cannot verify execution process identity for cancellation';
+        } else {
+          const [delivery] = claim.process
+            ? []
+            : claimDueOutbox(this.ctx.store, {
+                ownerId: this.ownerId,
+                kinds: [EXECUTION_LAUNCH_KIND],
+                limit: 1,
+                ttlSeconds: this.limits.leaseSeconds,
+                operationIds: [operationId],
+              });
+          if (!delivery || claim.process) {
+            status = 'ambiguous';
+            error = 'Execution is starting or awaiting exit reconciliation';
+          } else
+            this.ctx.store.immediate((db) => {
+              const at = nowIso(this.ctx.clock);
+              completeOutbox(db, delivery, { status: 'cancelled', error: cancellation.intent.reason as string }, at);
+              if (claim.expiresAt > at) releaseExecutionClaim(db, claim, at);
+              else abandonExecutionClaim(db, claim, at);
+            });
+        }
+      }
+      this.ctx.store.immediate((db) =>
+        completeOutbox(
+          db,
+          cancellation,
+          status === 'succeeded'
+            ? { status }
+            : status === 'failed'
+              ? { status, error: error! }
+              : { status, error: error!, nextAttemptAt: new Date(Date.now() + 1_000).toISOString() },
+          nowIso(this.ctx.clock),
+        ),
+      );
+    }
+  }
+
   pump(operationId?: string): void {
     if (this.stopping) return;
+    this.processCancellations();
     for (const worker of this.running.values()) {
       if (Date.now() < Date.parse(worker.launch.deadlineAt)) continue;
       if (matchesRecordedProcess(worker.process.pid, worker.startIdentity) !== true) continue;

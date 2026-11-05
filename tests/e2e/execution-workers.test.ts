@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from 'node:path';
 import {
   buildIndex,
+  cancelExecution,
   DEFAULT_EXECUTION_LIMITS,
   ExecutionSupervisor,
   initRepository,
@@ -251,3 +252,24 @@ test('production dispatch worker tracks the provider through handoff without dup
     await supervisor.stop();
   }
 }, 20_000);
+
+test('durable cancellation prevents a pending launch without spawning a process', async () => {
+  const { ctx: c, project, repository } = await fixture();
+  const limits = { ...DEFAULT_EXECUTION_LIMITS };
+  const op = submitExecution(
+    c,
+    { projectId: project.id, repositoryId: repository.id, actor, leaderId: actor.id, operation: { kind: 'index' } },
+    limits,
+  )!;
+  cancelExecution(c, op.operationId, 'operator cancelled pending work');
+  const supervisor = new ExecutionSupervisor(c, 'cancel-test', limits);
+  try {
+    supervisor.pump();
+    expect(getOutbox(c.store.db, op.operationId)!.status).toBe('cancelled');
+    const claim = getExecutionClaim(c.store.db, op.intent.claim.scope)!;
+    expect(claim.process).toBeNull();
+    expect(claim.releasedAt).not.toBeNull();
+  } finally {
+    await supervisor.stop();
+  }
+});

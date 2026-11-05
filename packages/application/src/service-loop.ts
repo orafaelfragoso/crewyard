@@ -116,9 +116,14 @@ export class CrewService {
 
   async start(): Promise<void> {
     const recovery = this.executions
-      ? { ok: true }
+      ? null
       : await runRecovery(this.ctx, { actor: SERVICE_ACTOR, remote: this.options.remoteRecovery ?? [] });
-    this.log('service.started', { workerId: this.workerId, recoveryOk: recovery.ok });
+    this.log('service.started', {
+      workerId: this.workerId,
+      ...(recovery
+        ? { recoveryState: 'completed', recoveryOk: recovery.ok }
+        : { recoveryState: 'deferred_to_workers' }),
+    });
     const beat = () =>
       heartbeatWorker(this.ctx.store, this.workerId, 'running', {
         inflight: this.inflight.size,

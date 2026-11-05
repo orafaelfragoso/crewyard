@@ -1,36 +1,74 @@
-import { CrewError, newId } from '@crewyard/core';
-import { type CrewContext, getOutbox } from '@crewyard/storage';
-import { type ExecutionLimits, type ExecutionRequest, submitExecution } from './execution.ts';
+import { CrewError, newId, nowIso, redact } from '@crewyard/core';
+import { type CrewContext, enqueueOutbox, getOutbox } from '@crewyard/storage';
+import { EXECUTION_CANCEL_KIND, type ExecutionLimits, type ExecutionRequest, submitExecution } from './execution.ts';
 import { ExecutionSupervisor } from './execution-supervisor.ts';
+
+export interface StartedExecution {
+  operationId: string;
+  result: Promise<Record<string, unknown>>;
+}
+
+export async function startExecution(
+  ctx: CrewContext,
+  request: ExecutionRequest,
+  limits: ExecutionLimits,
+): Promise<StartedExecution> {
+  const supervisor = new ExecutionSupervisor(ctx, newId('wrk'), limits);
+  const deadline = performance.now() + limits.timeoutSeconds * 1000;
+  let operationId: string | null = null;
+  while (!operationId && performance.now() < deadline) {
+    operationId = submitExecution(ctx, request, limits)?.operationId ?? null;
+    if (!operationId) await Bun.sleep(25);
+  }
+  if (!operationId) throw new CrewError('BUSY', 'Execution capacity did not become available before its deadline');
+  const admittedId = operationId;
+  const result = (async () => {
+    try {
+      while (performance.now() < deadline) {
+        supervisor.pump(admittedId);
+        const current = getOutbox(ctx.store.db, admittedId)!;
+        if (current.status === 'succeeded') {
+          const output = current.remoteCorrelation?.result;
+          if (!output || typeof output !== 'object' || Array.isArray(output))
+            throw new CrewError('INTERNAL', `Execution ${admittedId} has no result`);
+          return output as Record<string, unknown>;
+        }
+        if (current.status === 'failed' || current.status === 'cancelled') {
+          throw new CrewError('EXTERNAL_FAILURE', current.lastError ?? `Execution ${admittedId} ${current.status}`);
+        }
+        await Bun.sleep(25);
+      }
+      throw new CrewError('BUSY', 'Execution did not finish before its configured deadline');
+    } finally {
+      await supervisor.stop();
+    }
+  })();
+  return { operationId: admittedId, result };
+}
 
 export async function driveExecution(
   ctx: CrewContext,
   request: ExecutionRequest,
   limits: ExecutionLimits,
 ): Promise<Record<string, unknown>> {
-  const supervisor = new ExecutionSupervisor(ctx, newId('wrk'), limits);
-  const deadline = performance.now() + limits.timeoutSeconds * 1000;
-  let operationId: string | null = null;
-  try {
-    while (performance.now() < deadline) {
-      if (!operationId) operationId = submitExecution(ctx, request, limits)?.operationId ?? null;
-      if (operationId) {
-        supervisor.pump(operationId);
-        const current = getOutbox(ctx.store.db, operationId)!;
-        if (current.status === 'succeeded') {
-          const result = current.remoteCorrelation?.result;
-          if (!result || typeof result !== 'object' || Array.isArray(result))
-            throw new CrewError('INTERNAL', `Execution ${operationId} has no result`);
-          return result as Record<string, unknown>;
-        }
-        if (current.status === 'failed' || current.status === 'cancelled') {
-          throw new CrewError('EXTERNAL_FAILURE', current.lastError ?? `Execution ${operationId} ${current.status}`);
-        }
-      }
-      await Bun.sleep(25);
-    }
-    throw new CrewError('BUSY', 'Execution did not finish before its configured deadline');
-  } finally {
-    await supervisor.stop();
-  }
+  return (await startExecution(ctx, request, limits)).result;
+}
+
+export function cancelExecution(ctx: CrewContext, operationId: string, reason: string): void {
+  const target = getOutbox(ctx.store.db, operationId);
+  if (target?.kind !== 'execution.launch') throw new CrewError('NOT_FOUND', 'Execution not found');
+  ctx.store.immediate((db) =>
+    enqueueOutbox(
+      db,
+      {
+        kind: EXECUTION_CANCEL_KIND,
+        projectId: target.projectId,
+        taskId: target.taskId,
+        subjectId: operationId,
+        intent: { operationId, reason: redact(reason) },
+        idempotencyKey: `execution-cancel:${operationId}`,
+      },
+      nowIso(ctx.clock),
+    ),
+  );
 }
