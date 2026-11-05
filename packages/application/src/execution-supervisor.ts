@@ -155,6 +155,15 @@ export class ExecutionSupervisor {
       (!observed.process && observed.expiresAt > nowIso(this.ctx.clock))
     )
       return null;
+    const observedDelivery = getExecutionClaim(this.ctx.store.db, `outbox:${operationId}`);
+    if (
+      observedDelivery?.releasedAt === null &&
+      observedDelivery.process &&
+      executionProcessState(observedDelivery) !== 'dead'
+    )
+      return null;
+    const identity = processIdentity(process.pid);
+    if (!identity) throw new CrewError('UNAVAILABLE', 'Cannot verify execution recovery process identity');
     const recovered = this.ctx.store.immediate((db) => {
       const current = getExecutionClaim(db, observed.scope);
       const operation = getOutbox(db, operationId);
@@ -167,6 +176,7 @@ export class ExecutionSupervisor {
       )
         return false;
       const delivery = getExecutionClaim(db, `outbox:${operationId}`);
+      if (delivery?.attemptId !== observedDelivery?.attemptId) return false;
       if (delivery?.releasedAt === null) {
         if (delivery.expiresAt > at) {
           assertOutboxClaim(db, { ...operation, claim: delivery }, at);
@@ -195,6 +205,7 @@ export class ExecutionSupervisor {
         limit: 1,
         ttlSeconds: this.limits.leaseSeconds,
         operationIds: [operationId],
+        process: { host: hostname(), pid: process.pid, startIdentity: identity },
       })[0] ?? null
     );
   }
@@ -314,7 +325,8 @@ export class ExecutionSupervisor {
       if (Date.now() < Date.parse(worker.launch.deadlineAt)) continue;
       if (matchesRecordedProcess(worker.process.pid, worker.startIdentity) !== true) continue;
       worker.deadlineSignaledAt ??= performance.now();
-      const graceElapsed = performance.now() - worker.deadlineSignaledAt >= this.limits.shutdownGraceSeconds * 1000;
+      const graceElapsed =
+        performance.now() - worker.deadlineSignaledAt >= worker.launch.limits.shutdownGraceSeconds * 1000;
       stopExecutionProcesses(worker.launch.directory);
       killTree(worker.process.pid, graceElapsed ? 'SIGKILL' : 'SIGTERM');
     }
@@ -430,18 +442,21 @@ export class ExecutionSupervisor {
         worker.process.kill('SIGTERM');
       }
     }
-    const deadline = Date.now() + this.limits.shutdownGraceSeconds * 1000;
-    while (this.running.size > 0 && Date.now() < deadline) await Bun.sleep(25);
-    for (const worker of workers) {
-      if (!this.running.has(worker.op.operationId)) continue;
-      stopExecutionProcesses(worker.launch.directory);
-      const claim = getExecutionClaim(this.ctx.store.db, worker.launch.claim.scope);
-      if (
-        claim?.attemptId === worker.launch.claim.attemptId &&
-        claim.process &&
-        matchesRecordedProcess(claim.process.pid, claim.process.startIdentity) === true
-      )
-        killTree(claim.process.pid, 'SIGKILL');
+    const stoppingAt = performance.now();
+    while (this.running.size > 0) {
+      let waiting = false;
+      for (const worker of workers) {
+        if (!this.running.has(worker.op.operationId)) continue;
+        if (performance.now() - stoppingAt < worker.launch.limits.shutdownGraceSeconds * 1000) {
+          waiting = true;
+          continue;
+        }
+        stopExecutionProcesses(worker.launch.directory);
+        if (matchesRecordedProcess(worker.process.pid, worker.startIdentity) === true)
+          killTree(worker.process.pid, 'SIGKILL');
+      }
+      if (!waiting) break;
+      await Bun.sleep(25);
     }
     await Promise.race([Promise.all([...workers.map((worker) => worker.done), ...this.reconciling]), Bun.sleep(1_000)]);
   }

@@ -14,7 +14,9 @@ import { recordTransition } from './events.ts';
 import {
   acquireExecutionClaim,
   assertExecutionClaim,
+  bindExecutionProcess,
   type ExecutionClaim,
+  type ExecutionProcessIdentity,
   releaseExecutionClaim,
   renewExecutionClaim,
 } from './execution-claims.ts';
@@ -151,6 +153,7 @@ export interface ClaimDueOutboxInput {
   kinds: string[];
   ttlSeconds: number;
   operationIds?: readonly string[];
+  process?: ExecutionProcessIdentity;
 }
 
 function outboxInputIdentity(row: OutboxRow): string {
@@ -212,7 +215,7 @@ export function claimDueOutbox(store: Store, input: ClaimDueOutboxInput): Claime
     sql += ' ORDER BY next_attempt_at, operation_id LIMIT ?';
     params.push(input.limit);
     return all<OutboxRow>(db, sql, ...params).map((row) => {
-      const claim = acquireExecutionClaim(
+      let claim = acquireExecutionClaim(
         db,
         {
           scope: `outbox:${row.operation_id}`,
@@ -224,6 +227,7 @@ export function claimDueOutbox(store: Store, input: ClaimDueOutboxInput): Claime
         at,
       );
       if (!claim) throw new CrewError('INTERNAL', 'Due outbox operation already has an active delivery claim');
+      if (input.process) claim = bindExecutionProcess(db, claim, input.process, at);
       const updated = one<OutboxRow>(
         db,
         `UPDATE outbox SET status = CASE WHEN status = 'pending' THEN 'attempted' ELSE status END,
