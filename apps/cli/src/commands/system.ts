@@ -186,9 +186,9 @@ export function registerSystemCommands(program: Command, version: string): void 
             window: `${r.window.since} → ${r.window.until}`,
             mergedPrs: r.throughput.mergedPrs,
             leadTimeP50h: r.leadTimeHours.p50.value ?? 'unknown',
-            queueWaitP95m: r.queueWaitMinutes.p95.value ?? 'unknown',
+            integrationP95m: r.integrationMinutes.p95.value ?? 'unknown',
             reviewCacheHit: r.reviewCache.hitRatio.value ?? 'unknown',
-            ciMinutesPerMerge: r.ciMinutesPerMerge.value ?? 'unknown',
+            localValidationMinutesPerMerge: r.localValidationMinutesPerMerge.value ?? 'unknown',
             escalations: r.escalations,
             usage:
               r.usage

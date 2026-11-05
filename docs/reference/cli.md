@@ -77,6 +77,11 @@ delivery, efficiency and usage metrics
 
 #### `crew metrics show`
 
+Metrics schema version 2 reports `localValidationMinutesPerMerge` and
+`localValidationReruns` from local validation runs. `integrationMinutes` includes the
+entire enqueue-to-merge interval. Hosted CI durations remain `unknown` until actual
+execution timing is recorded; observation timestamps are not execution durations.
+
 
 
 | Option | Description |

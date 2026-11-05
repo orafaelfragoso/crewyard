@@ -1,6 +1,6 @@
 # Acceptance matrix
 
-How each PRD release gate is exercised. Run everything with `bun test`. CI runs every suite (unit, contract, concurrency, integration, resilience, end-to-end) on Linux, macOS and Windows.
+How each PRD release gate is exercised. Run everything with `bun test`. CI is configured to run the suites on Linux, macOS and Windows for pull requests, merge groups and pushes to `main`. Configured jobs are not evidence that a platform run has passed; record the actual runner results before claiming platform acceptance.
 
 ## Mandatory scenarios (PRD §23.2)
 
