@@ -27,6 +27,16 @@ How each PRD release gate is exercised. Run everything with `bun test`. CI is co
 | AT-19 | Context request for a branch-specific SHA | `tests/integration/indexing-freshness.test.ts` |
 | AT-20 | Metrics across mixed provider adapters | `tests/unit/telemetry/metrics.test.ts`, `tests/unit/providers/adapters.test.ts` |
 
+## Durable execution and evidence
+
+| Contract | Local evidence |
+|---|---|
+| Cross-process claims, stale-owner refusal and bounded SQLite acquisition | `tests/concurrency/execution-claims.test.ts`, `tests/unit/storage/execution-claims.test.ts` |
+| Atomic review joining with current source/context/policy acceptance | `tests/concurrency/review-admission.test.ts`, `tests/unit/reviews/source-evidence.test.ts`, `tests/integration/integration-review-context.test.ts` |
+| Unrelated progress during held validation, capacity-one fairness and leadership after SQLite contention | `tests/e2e/service-execution.test.ts` |
+| Direct CLI/MCP, packaged workers, process drain, cancellation before/after provider launch and preserved work | `tests/e2e/direct-execution.test.ts`, `tests/e2e/execution-workers.test.ts`, `tests/e2e/execution-recovery.test.ts` |
+| Exact-commit index ownership, reader/GC barriers and shared-extraction invalidation | `tests/concurrency/index-execution.test.ts`, `tests/unit/indexing/execution.test.ts` |
+
 ## Success criteria (PRD §2.3)
 
 | Criterion | Evidence |

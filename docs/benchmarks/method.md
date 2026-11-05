@@ -100,14 +100,24 @@ Only disposable, attempt-owned worktrees were created and removed; bootstrap/pro
 
 Reproduce cold/query runs with the commands above. `--warm-runs 30` adds warm index samples and a scratch
 SQL membership-copy comparison; `--warm-concurrency 6` runs each warm batch at the configured default global
-capacity, alternating available base/head snapshots. The schema permits larger explicit operator limits, but
-the experiment does not increase any operator limit. JSON now records exact source commit/tree identities and
+capacity, alternating available base/head snapshots. The experiment does not increase any operator limit.
+JSON now records exact source commit/tree identities and
 warm concurrency. Cold means a fresh index/database, not a flushed operating-system page cache.
 
 A separate 30-batch run at concurrency six alternated two indexed commits (180 exact-SHA requests):
 0.1–0.7 ms per cached batch, 3.766 s for its 100-file update and 13.6 ms hybrid p95 (200 queries).
 These calls omit Git ref resolution; they are a different route from the earlier warm ref-based samples,
 so their difference is not an optimization comparison.
+
+After durable build ownership and snapshot reader pins were installed, one final 50k verification on the same
+disk with `FULL` durability measured 48.129 s cold and 5.150 s for the 100-file update. With 200 queries per
+mode, p95 was 31.2 ms FTS, 22.2 ms symbol, 39.6 ms exact and 64.4 ms hybrid; 50 context packs had p95 85.5 ms.
+Thirty warm batches at concurrency six measured 47.9–82.9 ms. Membership load was 159.6 ms and incremental
+membership row writes 1.989 s; all 50,101 membership rows were still written. The database was 155.2 MiB and
+peak process RSS was 413 MiB. Durable claims add write work even to cached operations. Both declared budgets
+still pass; these unpaired, shared-machine observations establish neither a speedup nor an isolated overhead
+percentage. An earlier verification process was killed with signal 9 and produced no measurements; its cause
+was not established and it is excluded from the reported results.
 
 ### Decisions on repeated work
 
