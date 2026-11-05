@@ -40,7 +40,7 @@ The `hosts`, `github` and `index` checks run when a project is selected (inside 
 | `sqlite.wal` or `sqlite.locking` error | Data directory on a network share, a synced folder or a virtual filesystem | Move it to a local disk with `CREW_DATA_DIR`. |
 | `sqlite.schema` warn: pending migrations | Crewyard was upgraded | Stop all service/CLI/MCP writers and provider children first; the current build backs up before migrating. |
 | `SCHEMA_TOO_NEW` (exit 8) | Database written by a newer Crewyard | Upgrade Crewyard to the supported schema; never resume an older writer. |
-| `security.execution_isolation` | security | Explicitly reports that worktrees, attempt directories and scrubbing are not an OS sandbox |
+| `security.execution_isolation` warn | No OS sandbox is enforced | Run only trusted commands, or provide isolation outside Crewyard when required. |
 | `security.secret_store` error | No Secret Service on Linux (headless or minimal desktop), locked keychain | Install and unlock a Secret Service provider (for example GNOME Keyring or KeePassXC), or set `security.credential_store: encrypted-file` explicitly. |
 | `provider.<id>` skip | That CLI is not installed | Install it only if you plan to use that provider. |
 | Crewyard tools missing in an agent host | MCP server not registered, host not restarted, or project-level config not trusted | `crew install --target <host> --dry-run`, then install; restart the host. See [mcp-hosts.md](mcp-hosts.md). |
