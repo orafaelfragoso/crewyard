@@ -104,6 +104,11 @@ capacity, alternating available base/head snapshots. The schema permits larger e
 the experiment does not increase any operator limit. JSON now records exact source commit/tree identities and
 warm concurrency. Cold means a fresh index/database, not a flushed operating-system page cache.
 
+A separate 30-batch run at concurrency six alternated two indexed commits (180 exact-SHA requests):
+0.1–0.7 ms per cached batch, 3.766 s for its 100-file update and 13.6 ms hybrid p95 (200 queries).
+These calls omit Git ref resolution; they are a different route from the earlier warm ref-based samples,
+so their difference is not an optimization comparison.
+
 ### Decisions on repeated work
 
 | Finding | Evidence and decision |
