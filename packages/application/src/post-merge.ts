@@ -5,13 +5,13 @@ import { getRepository } from '@crewyard/projects';
 import { all, type CrewContext, one, recordTransition } from '@crewyard/storage';
 import { insertTaskInTx } from '@crewyard/tasks';
 
-export type MergeHealth = 'unknown' | 'pending' | 'passed' | 'failed' | 'superseded';
+export type MergeHealth = 'unknown' | 'pending' | 'passed' | 'failed' | 'superseded' | 'branch_unavailable';
 
 export interface MergeHealthObservation {
   repositoryId: string;
   mergeCommitSha: string;
   baseBranch: string;
-  currentBaseSha: string;
+  currentBaseSha: string | null;
   requirements: BranchRequirements | null;
   checks: readonly CheckResult[];
   actor: Actor;
@@ -26,9 +26,12 @@ export interface MergeHealthResult {
 }
 
 export function mergeHealthState(observation: MergeHealthObservation): MergeHealth {
+  if (observation.requirements && observation.requirements.branch !== observation.baseBranch)
+    throw new CrewError('INVALID_INPUT', 'Post-merge requirements must refer to the observed target branch');
   if (observation.checks.some((check) => check.headSha !== observation.mergeCommitSha)) {
     throw new CrewError('INVALID_INPUT', 'Post-merge checks must refer to the observed merge commit');
   }
+  if (observation.currentBaseSha === null) return 'branch_unavailable';
   if (observation.currentBaseSha !== observation.mergeCommitSha) return 'superseded';
   if (!observation.requirements?.protectionVisible) return 'unknown';
   const required = observation.requirements?.requiredChecks;
@@ -228,12 +231,17 @@ export async function scanPostMergeHealth(
     input.limit,
   );
   const results: MergeHealthResult[] = [];
-  const targets = new Map<string, { sha: string; requirements: BranchRequirements }>();
+  const targets = new Map<string, { sha: string | null; requirements: BranchRequirements | null }>();
   for (const merge of merges) {
     let target = targets.get(merge.base_ref);
     if (!target) {
-      const branch = await client.getBranch(merge.base_ref);
-      target = { sha: branch.sha, requirements: await client.getBranchRequirements(merge.base_ref) };
+      try {
+        const branch = await client.getBranch(merge.base_ref);
+        target = { sha: branch.sha, requirements: await client.getBranchRequirements(merge.base_ref) };
+      } catch (error) {
+        if (!(error instanceof CrewError) || error.code !== 'NOT_FOUND') throw error;
+        target = { sha: null, requirements: null };
+      }
       targets.set(merge.base_ref, target);
     }
     results.push(

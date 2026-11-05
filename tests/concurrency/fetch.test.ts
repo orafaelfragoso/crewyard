@@ -27,9 +27,10 @@ async function setup() {
   return { ctx, remote, local, repository, sha: await gitText(remote, ['rev-parse', 'HEAD']) };
 }
 
-function worker(input: { data: string; repositoryId: string; sha: string }) {
+function worker(input: { data: string; repositoryId: string; sha: string }, env?: NodeJS.ProcessEnv) {
   const child = spawn(process.execPath, [join(import.meta.dir, 'fetch-worker.ts'), JSON.stringify(input)], {
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    env,
   });
   let output = '';
   let error = '';
@@ -47,7 +48,7 @@ function worker(input: { data: string; repositoryId: string; sha: string }) {
     child.once('close', (code) => (code === 0 ? resolve(JSON.parse(output)) : reject(new Error(error))));
     child.once('error', reject);
   });
-  return { ready, done, start: () => child.send('go'), stop: () => child.kill() };
+  return { pid: child.pid!, ready, done, start: () => child.send('go'), stop: () => child.kill() };
 }
 
 async function barrier(path: string): Promise<void> {
@@ -120,3 +121,107 @@ test('different OIDs remain distinct; a failed fetch is visible and can be retri
   expect(await fetchCommit(f.ctx, input)).toMatchObject({ commitSha: f.sha, reused: true });
   await expect(fetchCommit(f.ctx, { ...input, commitSha: 'main' })).rejects.toMatchObject({ code: 'INVALID_INPUT' });
 });
+
+test.skipIf(process.platform === 'win32')(
+  'joined waiters receive owner failure after objects arrive',
+  async () => {
+    const f = await setup();
+    const control = tempDir('crew-fetch-outcome-');
+    directories.push(control);
+    const realGit = Bun.which('git')!;
+    const upload = Bun.which('git-upload-pack')!;
+    const started = join(control, 'started');
+    const release = join(control, 'release');
+    const postReady = join(control, 'post-ready');
+    const postRelease = join(control, 'post-release');
+    const script = join(control, 'upload');
+    writeFileSync(
+      script,
+      `#!/bin/sh\ntouch '${started}'\nwhile [ ! -f '${release}' ]; do sleep 0.01; done\nexec '${upload}' "$@"\n`,
+    );
+    chmodSync(script, 0o700);
+    await git(f.local, ['config', 'remote.origin.uploadpack', script]);
+    const wrapper = join(control, 'git');
+    writeFileSync(
+      wrapper,
+      `#!/bin/sh\nowner=$(cat '${control}/owner' 2>/dev/null)\nif [ "$3" = remote ] && [ "$4" = get-url ] && [ "$PPID" = "$owner" ]; then\n f='${control}/url-'$PPID\n n=0; [ -f "$f" ] && n=$(cat "$f"); n=$((n+1)); echo "$n" > "$f"\n if [ "$n" -ge 2 ]; then touch '${postReady}'; while [ ! -f '${postRelease}' ]; do sleep 0.01; done; fi\nfi\nexec '${realGit}' "$@"\n`,
+    );
+    chmodSync(wrapper, 0o700);
+    const input = { data: f.ctx.dirs.data, repositoryId: f.repository.id, sha: f.sha };
+    const owner = worker(input, { ...process.env, PATH: `${control}:${process.env.PATH}` });
+    let waiter: ReturnType<typeof worker> | undefined;
+    try {
+      writeFileSync(join(control, 'owner'), String(owner.pid));
+      await owner.ready;
+      owner.start();
+      await barrier(started);
+      waiter = worker(input);
+      await waiter.ready;
+      waiter.start();
+      const deadline = performance.now() + 10_000;
+      while (!f.ctx.store.db.query("SELECT 1 FROM events WHERE type = 'repository.fetch_joined'").get()) {
+        if (performance.now() > deadline) throw new Error('Waiter did not join');
+        await Bun.sleep(5);
+      }
+      writeFileSync(release, 'go');
+      await barrier(postReady);
+      await git(f.local, ['remote', 'set-url', 'origin', f.local]);
+      writeFileSync(postRelease, 'go');
+      expect(await owner.done).toEqual({ error: 'CONFLICT' });
+      expect(await waiter.done).toEqual({ error: 'EXTERNAL_FAILURE' });
+    } finally {
+      writeFileSync(release, 'go');
+      writeFileSync(postRelease, 'go');
+      owner.stop();
+      waiter?.stop();
+    }
+  },
+  20_000,
+);
+
+test.skipIf(process.platform === 'win32')(
+  'a joined caller recovers a verified dead owner before the claim TTL',
+  async () => {
+    const f = await setup();
+    const control = tempDir('crew-fetch-death-');
+    directories.push(control);
+    const started = join(control, 'started');
+    const release = join(control, 'release');
+    const script = join(control, 'upload');
+    writeFileSync(
+      script,
+      `#!/bin/sh\ntouch '${started}'\nwhile [ ! -f '${release}' ]; do sleep 0.01; done\nexec git-upload-pack "$@"\n`,
+    );
+    chmodSync(script, 0o700);
+    await git(f.local, ['config', 'remote.origin.uploadpack', script]);
+    const input = { data: f.ctx.dirs.data, repositoryId: f.repository.id, sha: f.sha };
+    const owner = worker(input);
+    const ownerExit = owner.done.catch(() => ({ error: 'terminated' }));
+    let waiter: ReturnType<typeof worker> | undefined;
+    try {
+      await owner.ready;
+      owner.start();
+      await barrier(started);
+      waiter = worker(input);
+      await waiter.ready;
+      waiter.start();
+      const deadline = performance.now() + 10_000;
+      while (!f.ctx.store.db.query("SELECT 1 FROM events WHERE type = 'repository.fetch_joined'").get()) {
+        if (performance.now() > deadline) throw new Error('Waiter did not join');
+        await Bun.sleep(5);
+      }
+      owner.stop();
+      await ownerExit;
+      writeFileSync(release, 'go');
+      expect(await waiter.done).toMatchObject({ result: { commitSha: f.sha, joined: true } });
+      expect(
+        f.ctx.store.db.query("SELECT COUNT(*) AS n FROM events WHERE type = 'repository.fetch_interrupted'").get(),
+      ).toEqual({ n: 1 });
+    } finally {
+      writeFileSync(release, 'go');
+      owner.stop();
+      waiter?.stop();
+    }
+  },
+  20_000,
+);

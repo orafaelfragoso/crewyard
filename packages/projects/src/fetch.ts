@@ -1,6 +1,18 @@
 import { hostname } from 'node:os';
-import { type Actor, CrewError, fingerprint, git, gitText, newId, nowIso, processIdentity } from '@crewyard/core';
 import {
+  type Actor,
+  CrewError,
+  fingerprint,
+  git,
+  gitText,
+  isProcessAlive,
+  matchesRecordedProcess,
+  newId,
+  nowIso,
+  processIdentity,
+} from '@crewyard/core';
+import {
+  abandonExecutionClaim,
   acquireExecutionClaim,
   assertExecutionClaim,
   bindExecutionProcess,
@@ -56,8 +68,48 @@ export async function fetchCommit(ctx: CrewContext, input: FetchCommitInput): Pr
         throw new CrewError('EXTERNAL_FAILURE', 'The shared commit fetch failed; retry after checking the remote', {
           retryable: true,
         });
+      if (!outcome) {
+        const owner = getExecutionClaim(ctx.store.db, scope);
+        if (
+          owner?.attemptId === joinedAttempt &&
+          owner.releasedAt === null &&
+          owner.process?.host === hostname() &&
+          (!isProcessAlive(owner.process.pid) ||
+            matchesRecordedProcess(owner.process.pid, owner.process.startIdentity) === false)
+        ) {
+          ctx.store.immediate((db) => {
+            const current = getExecutionClaim(db, scope);
+            if (current?.attemptId !== owner.attemptId || current.releasedAt !== null) return;
+            const at = nowIso(ctx.clock);
+            if (current.expiresAt <= at) abandonExecutionClaim(db, current, at);
+            else releaseExecutionClaim(db, current, at);
+            recordTransition(
+              db,
+              {
+                type: 'repository.fetch_interrupted',
+                actor: input.actor,
+                projectId: repository.projectId,
+                correlationId: owner.attemptId,
+                payload: { repositoryId: repository.id, commitSha: input.commitSha, reason: 'verified_owner_gone' },
+              },
+              { action: 'repository.fetch_recover', input: { attemptId: owner.attemptId }, decision: 'retry' },
+              at,
+            );
+          });
+          continue;
+        }
+        if (owner?.attemptId === joinedAttempt && owner.releasedAt === null && owner.expiresAt > nowIso(ctx.clock)) {
+          if (performance.now() >= deadline)
+            throw new CrewError('BUSY', 'Timed out waiting for the shared commit fetch', { retryable: true });
+          await Bun.sleep(50);
+          continue;
+        }
+      }
     }
     if (await commitExists(repository.canonicalPath, input.commitSha)) {
+      const observedRemote = fingerprint(await gitText(repository.canonicalPath, ['remote', 'get-url', input.remote]));
+      if (observedRemote !== remoteIdentity)
+        throw new CrewError('CONFLICT', 'Remote identity changed during commit fetch');
       return { commitSha: input.commitSha, reused: true, joined: joinedAttempt !== null };
     }
     const claim = ctx.store.immediate((db) =>
@@ -74,7 +126,24 @@ export async function fetchCommit(ctx: CrewContext, input: FetchCommitInput): Pr
       ),
     );
     if (!claim) {
-      joinedAttempt = getExecutionClaim(ctx.store.db, scope)?.attemptId ?? joinedAttempt;
+      const owner = getExecutionClaim(ctx.store.db, scope);
+      if (owner && owner.attemptId !== joinedAttempt) {
+        joinedAttempt = owner.attemptId;
+        ctx.store.immediate((db) =>
+          recordTransition(
+            db,
+            {
+              type: 'repository.fetch_joined',
+              actor: input.actor,
+              projectId: repository.projectId,
+              correlationId: owner.attemptId,
+              payload: { repositoryId: repository.id, commitSha: input.commitSha },
+            },
+            { action: 'repository.fetch_join', input: { attemptId: joinedAttempt }, decision: 'joined' },
+            nowIso(ctx.clock),
+          ),
+        );
+      }
       if (performance.now() >= deadline)
         throw new CrewError('BUSY', 'Timed out waiting for the shared commit fetch', { retryable: true });
       await Bun.sleep(50);

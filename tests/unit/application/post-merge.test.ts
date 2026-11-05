@@ -86,6 +86,17 @@ describe('post-merge health', () => {
       );
       expect(result).toEqual([expect.objectContaining({ state: 'failed', repairTaskId: expect.any(String) })]);
       expect(f.ctx.store.db.query('SELECT base_branch FROM tasks').get()).toEqual({ base_branch: 'release' });
+      f.ctx.store.db
+        .query(`INSERT INTO pull_requests
+        (id, repository_id, number, title, head_ref, head_sha, base_ref, state, merge_commit_sha, merged_at, created_at, updated_at)
+        SELECT 'gone', repository_id, 2, title, head_ref, head_sha, 'deleted-target', state, merge_commit_sha, merged_at, created_at, updated_at FROM pull_requests WHERE id = 'pr'`)
+        .run();
+      const repeated = await scanPostMergeHealth(
+        f.ctx,
+        { repositoryId: f.repositoryId, actor: operator, limit: 10 },
+        { ...f.env, github: () => client },
+      );
+      expect(repeated.map((result) => result.state).sort()).toEqual(['branch_unavailable', 'failed']);
     } finally {
       mock.stop();
     }
@@ -102,6 +113,10 @@ describe('post-merge health', () => {
     expect(mergeHealthState({ ...obs, requirements: { ...requirements, requiredChecks: [] } })).toBe('unknown');
     expect(mergeHealthState({ ...obs, checks: [{ ...check('success'), appId: 2 }] })).toBe('unknown');
     expect(mergeHealthState({ ...obs, currentBaseSha: 'b'.repeat(40) })).toBe('superseded');
+    expect(mergeHealthState({ ...obs, currentBaseSha: null })).toBe('branch_unavailable');
+    expect(() => mergeHealthState({ ...obs, requirements: { ...requirements, branch: 'release' } })).toThrow(
+      'observed target branch',
+    );
     expect(() => mergeHealthState({ ...obs, checks: [{ ...check('success'), headSha: 'other' }] })).toThrow(
       'observed merge commit',
     );
