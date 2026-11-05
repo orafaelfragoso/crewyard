@@ -2,7 +2,15 @@ import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { sha256 } from '@crewyard/core';
-import { claimDueOutbox, enqueueOutbox, MIGRATIONS, migrate, migrationStatus, openStore } from '@crewyard/storage';
+import {
+  claimDueOutbox,
+  enqueueOutbox,
+  LATEST_SCHEMA_VERSION,
+  MIGRATIONS,
+  migrate,
+  migrationStatus,
+  openStore,
+} from '@crewyard/storage';
 import { createTestContext, ManualClock } from '../../helpers/index.ts';
 
 test('v2 migration preserves historical outbox rows and checksum-verified backup', () => {
@@ -40,7 +48,7 @@ test('v2 migration preserves historical outbox rows and checksum-verified backup
     const before = store.db.query('SELECT * FROM outbox ORDER BY kind').all();
     const checksums = migrationStatus(store).applied;
     const migrated = migrate(store, { backupDir: ctx.dirs.backups });
-    expect(migrated.currentVersion).toBe(3);
+    expect(migrated.currentVersion).toBe(LATEST_SCHEMA_VERSION);
     expect(migrated.applied.slice(0, 2)).toEqual(checksums);
     expect(store.db.query('SELECT * FROM outbox ORDER BY kind').all()).toEqual(before);
     expect(store.db.query('SELECT * FROM execution_claims').all()).toEqual([]);
