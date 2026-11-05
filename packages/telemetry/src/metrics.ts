@@ -35,6 +35,7 @@ export interface MetricsReport {
   localValidationMinutesPerMerge: Measured<number>;
   localValidationReruns: number;
   hostedCiMinutesPerMerge: Measured<number>;
+  observedHostedCheckMinutes: Measured<number>;
   invalidatedValidationMinutes: Measured<number>;
   operations: OperationMetrics[];
   usage: UsageBreakdown[];
@@ -180,6 +181,13 @@ export function computeMetrics(
     since,
     ...p,
   );
+  const hosted = one<{ ms: number | null }>(
+    db,
+    `SELECT SUM(json_extract(payload, '$.durationMs')) AS ms FROM events
+     WHERE type = 'postmerge.check_recorded' AND at >= ? ${projectId ? 'AND project_id = ?' : ''}`,
+    since,
+    ...p,
+  )!;
 
   return {
     schemaVersion: 2,
@@ -206,7 +214,9 @@ export function computeMetrics(
         ? unknown(merged.length === 0 ? 'no merges in window' : 'no validation runs recorded')
         : measured(round(ci.ms / 60_000 / merged.length)),
     localValidationReruns: reruns,
-    hostedCiMinutesPerMerge: unknown('hosted execution durations have not been recorded'),
+    hostedCiMinutesPerMerge: unknown('observed check executions do not establish complete hosted CI usage'),
+    observedHostedCheckMinutes:
+      hosted.ms === null ? unknown('no hosted check execution timing recorded') : measured(round(hosted.ms / 60_000)),
     invalidatedValidationMinutes:
       wasted.ms === null
         ? unknown('no invalidated validation durations recorded')

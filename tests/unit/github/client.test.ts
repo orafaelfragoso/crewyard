@@ -85,6 +85,22 @@ describe('GitHub client', () => {
     expect(after.fingerprint).not.toBe(before.fingerprint);
   });
 
+  test('preserves provider execution timing and leaves missing timing unknown', async () => {
+    mock = startMockGitHub();
+    const sha = 'a'.repeat(40);
+    mock.setCheck(sha, 'timed', 'success');
+    mock.setCheck(sha, 'untimed', 'success');
+    mock.checks[0]!.startedAt = '2026-11-05T10:00:00Z';
+    mock.checks[0]!.completedAt = '2026-11-05T10:02:00Z';
+    const checks = await client(mock).listChecks(sha);
+    expect(checks.find((check) => check.name === 'timed')?.execution).toEqual({
+      id: mock.checks[0]!.id,
+      startedAt: '2026-11-05T10:00:00Z',
+      completedAt: '2026-11-05T10:02:00Z',
+    });
+    expect(checks.find((check) => check.name === 'untimed')).not.toHaveProperty('execution');
+  });
+
   test('follows Link pagination within the repository only', async () => {
     mock = startMockGitHub({ pageSize: 2 });
     for (let i = 0; i < 5; i++) mock.addPull({ headRef: `b${i}` });

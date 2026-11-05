@@ -7,6 +7,7 @@ export * from './doctor.ts';
 export * from './events.ts';
 export * from './integration.ts';
 export * from './maintenance.ts';
+export * from './post-merge.ts';
 export * from './projects.ts';
 export * from './publish.ts';
 export * from './retrieval.ts';

@@ -59,6 +59,7 @@ export function metricsCsv(report: MetricsReport): string {
     ['local_validation_minutes_per_merge', String(report.localValidationMinutesPerMerge.value ?? 'unknown')],
     ['local_validation_reruns', String(report.localValidationReruns)],
     ['hosted_ci_minutes_per_merge', String(report.hostedCiMinutesPerMerge.value ?? 'unknown')],
+    ['observed_hosted_check_minutes', String(report.observedHostedCheckMinutes.value ?? 'unknown')],
   ];
   for (const u of report.usage) {
     const key = `${u.providerId}/${u.profileId ?? '-'}/${u.model ?? 'default'}`;

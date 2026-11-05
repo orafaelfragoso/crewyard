@@ -131,6 +131,9 @@ function checkRunState(status: string | null, conclusion: string | null): CheckS
 
 export function toCheckRun(value: unknown): CheckResult & { id: number } {
   const raw = asRecord(value);
+  const startedAt = asString(raw.started_at);
+  const completedAt = asString(raw.completed_at);
+  const id = asNumber(raw.id);
   return {
     id: asNumber(raw.id) ?? 0,
     name: asString(raw.name) ?? '',
@@ -139,6 +142,7 @@ export function toCheckRun(value: unknown): CheckResult & { id: number } {
     appId: asNumber(field(raw, 'app', 'id')),
     headSha: asString(raw.head_sha) ?? '',
     detailsUrl: asString(raw.details_url),
+    ...(id !== null && startedAt !== null && completedAt !== null ? { execution: { id, startedAt, completedAt } } : {}),
   };
 }
 

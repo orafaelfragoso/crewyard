@@ -77,6 +77,7 @@ export interface CheckResult {
   appId: number | null;
   headSha: string;
   detailsUrl: string | null;
+  execution?: { id: number; startedAt: string; completedAt: string };
 }
 
 export interface WorkflowRun {
