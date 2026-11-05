@@ -324,7 +324,9 @@ describe('crew-managed integration queue', () => {
   }, 60_000);
 
   test('GitHub-native stacks merge contiguously through the asynchronous merge API', async () => {
-    fx = await createGitHubFixture();
+    fx = await createGitHubFixture({
+      config: { validation: { broad: [{ name: 'prefix', command: check('present', 'stack/one.ts') }] } },
+    });
     const f = fx;
     await f.pushBranch('n1', { 'stack/one.ts': '1\n' });
     await f.pushBranch('n2', { 'stack/two.ts': '2\n' }, 'n1');

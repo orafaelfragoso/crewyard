@@ -643,6 +643,8 @@ function checkCandidate(
         return refuse('prefix_validation_missing');
     } else if (config.validation.broad.length > 0 || evidence.validationId !== null)
       return refuse('prefix_validation_required');
+    if (candidate.entries.length > 1 && evidence.status !== 'passed' && evidence.attestation !== 'exact-head-checks')
+      return refuse('prefix_validation_required');
     if ((pr.governance?.requirements?.fingerprint ?? null) !== candidate.rulesFingerprint)
       return refuse('rules_changed');
     if (op.kind === 'github.merge') {

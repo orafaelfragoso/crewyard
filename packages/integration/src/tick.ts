@@ -435,6 +435,7 @@ export function selectGroup(items: readonly OrderItem[], config: CrewConfig, cap
   for (const item of items) {
     if (inGroup.has(item.pr.id) || !item.eligible || item.dependsOn.length === 0) continue;
     if (
+      config.validation.broad.length > 0 &&
       item.dependsOn.every((d) => inGroup.has(d)) &&
       item.pr.stackId !== null &&
       item.pr.stackId === first.pr.stackId

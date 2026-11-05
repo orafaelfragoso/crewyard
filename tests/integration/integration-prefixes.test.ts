@@ -1,16 +1,21 @@
 import { afterEach, expect, test } from 'bun:test';
-import { gitText } from '@crewyard/core';
+import { join } from 'node:path';
+import { git, gitText, nowIso, run, shellCommand } from '@crewyard/core';
 import {
   buildAndValidateCandidate,
   createCandidate,
+  enqueueOrReviveInTx,
   fetchIntegrationRefs,
+  mutationExpectedState,
+  processIntegrationOutbox,
+  queueById,
   requestIntegration,
   selectGroup,
   showPullRequest,
   syncRepository,
 } from '@crewyard/integration';
 import { getRepository } from '@crewyard/projects';
-import { all } from '@crewyard/storage';
+import { all, getOutbox } from '@crewyard/storage';
 import { createGitHubFixture, type GitHubFixture } from './github-fixture.ts';
 
 let fixture: GitHubFixture | undefined;
@@ -74,6 +79,20 @@ test('a passing final tree cannot conceal a broken first exposed prefix', async 
   expect(outcome.candidate.ciEvidence.failingPrefix).toBe(1);
   const finalFiles = await gitText(f.repo, ['ls-tree', '--name-only', outcome.candidate.commitSha!]);
   expect(finalFiles).toContain('repair');
+  const finalWorktree = join(f.ctx.root, 'final-tree');
+  await git(f.repo, ['worktree', 'add', '--detach', finalWorktree, outcome.candidate.commitSha!]);
+  try {
+    const command = shellCommand('test ! -f broken || test -f repair');
+    const result = await run(command.argv, {
+      cwd: finalWorktree,
+      verbatimArguments: command.verbatimArguments,
+      allowFailure: true,
+    });
+    expect(result.exitCode).toBe(0);
+  } finally {
+    await git(f.repo, ['worktree', 'remove', '--force', finalWorktree]);
+  }
+
   expect(all(f.ctx.store.db, 'SELECT status FROM validation_runs WHERE candidate_id = ?', candidate.id)).toEqual([
     { status: 'failed' },
   ]);
@@ -173,4 +192,48 @@ test('speculation excludes a high-risk first entry, absent metadata, rename sour
     },
   };
   expect(selectGroup([items[0]!, contract], f.config, 2)).toHaveLength(1);
+}, 30_000);
+
+test('the action boundary rejects multi-entry candidates with unconfigured prefix validation', async () => {
+  const { f, candidate, group } = await prepare([{ a: 'yes' }, { b: 'yes' }], 'true');
+  f.config.validation.broad = [];
+  const outcome = await buildAndValidateCandidate(f.ctx, candidate.id, {
+    repository: getRepository(f.ctx, f.repositoryId),
+    config: f.config,
+    actor,
+    hooks: [],
+  });
+  expect(outcome.candidate.integrationValidated).toBe(false);
+  const { pr, entry } = group[0]!;
+  const queue = queueById(f.ctx.store.db, entry.queueId)!;
+  const op = f.ctx.store.immediate((db) =>
+    enqueueOrReviveInTx(
+      db,
+      {
+        kind: 'github.merge',
+        subjectId: pr.id,
+        idempotencyKey: `no-prefix-validation:${candidate.id}`,
+        intent: {
+          repositoryId: f.repositoryId,
+          prId: pr.id,
+          number: pr.number,
+          headSha: pr.headSha,
+          baseRef: 'main',
+          expectedBaseSha: candidate.baseSha,
+          mergeMethod: 'squash',
+          candidateId: candidate.id,
+          entryId: entry.id,
+          retargetBase: null,
+        },
+        expectedState: mutationExpectedState(db, f.config, queue, [pr], candidate.baseSha, candidate.id),
+      },
+      nowIso(f.ctx.clock),
+    ),
+  );
+  await processIntegrationOutbox(f.ctx, { leaderId: 'worker', env: f.env });
+  expect(getOutbox(f.ctx.store.db, op.operationId)).toMatchObject({
+    status: 'cancelled',
+    lastError: 'prefix_validation_required',
+  });
+  expect(f.mock.countCalls('PUT', /merge/)).toBe(0);
 }, 30_000);
