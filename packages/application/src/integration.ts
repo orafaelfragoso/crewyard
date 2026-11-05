@@ -31,7 +31,7 @@ import {
   StaticAnalysisReviewer,
   type StructuredFindings,
 } from '@crewyard/reviews';
-import { all, appendEvent, type CrewContext } from '@crewyard/storage';
+import { all, appendEvent, type CrewContext, registerExecutionWorktree } from '@crewyard/storage';
 import { showTask, transitionTask } from '@crewyard/tasks';
 import { listWorkspaces, setExpectedRemoteHead } from '@crewyard/workspaces';
 import { extractJson, sessionResultText } from './agents.ts';
@@ -355,12 +355,19 @@ export async function reviewPullRequest(
     actor: { kind: 'service', id: 'reviews' },
   });
   const worktree = join(ensureDir(join(ctx.dirs.worktrees, 'reviews')), newId('ws'));
+  const managedCleanup = registerExecutionWorktree(ctx, {
+    kind: 'review',
+    repositoryPath: repo.canonicalPath,
+    path: worktree,
+  });
   try {
     await git(repo.canonicalPath, ['worktree', 'add', '--detach', '--force', worktree, pr.headSha]);
     return await review(worktree);
   } finally {
-    await git(repo.canonicalPath, ['worktree', 'remove', '--force', worktree], { allowFailure: true });
-    rmSync(worktree, { recursive: true, force: true });
+    if (!managedCleanup) {
+      await git(repo.canonicalPath, ['worktree', 'remove', '--force', worktree], { allowFailure: true });
+      rmSync(worktree, { recursive: true, force: true });
+    }
   }
 }
 

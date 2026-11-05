@@ -22,6 +22,7 @@ import {
   getExecutionClaim,
   one,
   recordTransition,
+  registerExecutionWorktree,
   releaseExecutionClaim,
   renewExecutionClaim,
   toJson,
@@ -311,6 +312,11 @@ export async function buildAndValidateCandidate(
           ensureDir(join(ctx.dirs.worktrees, 'candidates')),
           `${candidateId}-${claim.attemptId}-${step.entryId}`,
         );
+        const managedCleanup = registerExecutionWorktree(ctx, {
+          kind: 'candidate',
+          repositoryPath: repository.canonicalPath,
+          path: worktree,
+        });
         try {
           await git(repository.canonicalPath, ['worktree', 'add', '--detach', worktree, step.commitSha!]);
           validation = await runValidation(ctx, {
@@ -326,8 +332,10 @@ export async function buildAndValidateCandidate(
             actor,
           });
         } finally {
-          await git(repository.canonicalPath, ['worktree', 'remove', '--force', worktree], { allowFailure: true });
-          rmSync(worktree, { recursive: true, force: true });
+          if (!managedCleanup) {
+            await git(repository.canonicalPath, ['worktree', 'remove', '--force', worktree], { allowFailure: true });
+            rmSync(worktree, { recursive: true, force: true });
+          }
         }
       }
       const pr = pullRequestById(ctx.store.db, step.prId)!;
