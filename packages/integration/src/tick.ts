@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import type { CrewConfig } from '@crewyard/config';
-import { type Actor, type AutonomyMode, CrewError, type FailureClass, gitText, nowIso } from '@crewyard/core';
+import { type Actor, type AutonomyMode, CrewError, type FailureClass, nowIso } from '@crewyard/core';
 import type { GitHubClient } from '@crewyard/github';
 import type { Repository } from '@crewyard/projects';
 import { type ReviewSummary, requestInterventionInTx } from '@crewyard/reviews';
@@ -9,12 +9,16 @@ import {
   type CrewContext,
   enqueueOutbox,
   getOutbox,
-  isLeader,
   one,
   recordTransition,
 } from '@crewyard/storage';
 import { buildAndValidateCandidate, createCandidate, fetchIntegrationRefs } from './candidates.ts';
-import { eligibilityInputFor, evaluateEligibility, mergeApprovalSubject } from './eligibility.ts';
+import {
+  eligibilityInputFor,
+  evaluateEligibility,
+  integrationReviewAcceptance,
+  mergeApprovalSubject,
+} from './eligibility.ts';
 import {
   autonomyFor,
   clientFor,
@@ -31,6 +35,7 @@ import {
   type MergeAsyncIntent,
   type MergeIntent,
   mergeIdempotencyKey,
+  mutationExpectedState,
   type OutboxReport,
   processIntegrationOutbox,
   type UpdateBranchIntent,
@@ -49,15 +54,7 @@ import {
 } from './records.ts';
 import { type SyncResult, syncRepository } from './sync.ts';
 import { readFreshness, remoteUnavailable } from './sync-state.ts';
-import type {
-  Blocker,
-  IntegrationCandidate,
-  IntegrationEnv,
-  IntegrationQueue,
-  PullRequestRecord,
-  QueueEntry,
-  QueueMode,
-} from './types.ts';
+import type { Blocker, IntegrationEnv, IntegrationQueue, PullRequestRecord, QueueEntry, QueueMode } from './types.ts';
 
 const TICK_ACTOR: Actor = { kind: 'service', id: 'integration-tick' };
 export const DEFAULT_LEASE_TTL = 120;
@@ -224,6 +221,8 @@ function evaluateQueue(
       continue;
     }
     if (FROZEN.includes(entry.status)) continue;
+    if (entry.blockers.some((b) => b.code === 'CANDIDATE_INTERACTION_FAILED' && b.details?.headSha === pr.headSha))
+      continue;
     const revisionPending =
       entry.status === 'blocked' &&
       entry.blockers.some((b) => b.code === REVISION_REQUIRED && b.details?.headSha === pr.headSha);
@@ -258,6 +257,13 @@ function evaluateQueue(
       config: scope.config,
       mode: queue.mode,
       queuePaused: queue.paused,
+      reviewAcceptance: integrationReviewAcceptance(
+        scope.ctx,
+        scope.env,
+        scope.config,
+        scope.repository.id,
+        pr.baseSha,
+      ),
     });
     const evaluation = evaluateEligibility(input);
     const hard = evaluation.blockers.filter((b) => !b.soft);
@@ -358,7 +364,9 @@ function requestHighRiskReview(
   reviews: ReviewSummary,
   at: string,
 ): void {
-  const latest = [reviews.byType.code, reviews.byType.security].filter((r) => r !== null);
+  const latest = [reviews.byType.code, reviews.byType.security].filter(
+    (r): r is NonNullable<typeof r> => r !== null && r.status !== 'invalidated',
+  );
   if (latest.length === 0) {
     scope.hooks.push({
       name: 'onReviewRequired',
@@ -409,7 +417,14 @@ function hasSoftOnly(entry: QueueEntry): boolean {
 }
 
 function filesOf(pr: PullRequestRecord): Set<string> {
-  return new Set((pr.changedFiles ?? []).map((f) => f.path));
+  return new Set((pr.changedFiles ?? []).flatMap((f) => (f.previousPath ? [f.path, f.previousPath] : [f.path])));
+}
+
+function speculativeFilesKnown(pr: PullRequestRecord): boolean {
+  if (!pr.changedFiles?.length) return false;
+  const contract =
+    /(^|\/)(package\.json|[^/]*lock[^/]*|[^/]*config[^/]*|index\.[^/]+|[^/]*(schema|contract|interface|types)[^/]*)(\/|$)/i;
+  return pr.changedFiles.every((file) => file.status === 'added' && !file.previousPath && !contract.test(file.path));
 }
 
 export function selectGroup(items: readonly OrderItem[], config: CrewConfig, capacity: number): OrderItem[] {
@@ -428,13 +443,20 @@ export function selectGroup(items: readonly OrderItem[], config: CrewConfig, cap
       inGroup.add(item.pr.id);
     }
   }
-  if (config.integration.speculative_validation && capacity > 1 && first.pr.stackId === null) {
+  if (
+    config.integration.speculative_validation &&
+    config.validation.broad.length > 0 &&
+    capacity > 1 &&
+    first.pr.stackId === null &&
+    first.entry.risk !== 'high' &&
+    speculativeFilesKnown(first.pr)
+  ) {
     const used = filesOf(first.pr);
     for (const item of items) {
       if (group.length >= capacity) break;
       if (inGroup.has(item.pr.id) || !item.eligible || item.dependsOn.length > 0 || item.entry.risk === 'high')
         continue;
-      if (item.pr.stackId !== null || hasSoftOnly(item.entry)) continue;
+      if (item.pr.stackId !== null || hasSoftOnly(item.entry) || !speculativeFilesKnown(item.pr)) continue;
       const files = filesOf(item.pr);
       if ([...files].some((f) => used.has(f))) continue;
       for (const f of files) used.add(f);
@@ -445,54 +467,6 @@ export function selectGroup(items: readonly OrderItem[], config: CrewConfig, cap
   return group;
 }
 
-async function verifyStep(
-  scope: TickScope,
-  client: GitHubClient,
-  queue: IntegrationQueue,
-  candidate: IntegrationCandidate,
-  index: number,
-  guard: { scope: string; generation: number },
-  stacked: boolean,
-): Promise<string | null> {
-  const { ctx } = scope;
-  const step = candidate.entries[index]!;
-  const live = await client.getBranch(queue.baseBranch);
-  const previous = index > 0 && !stacked ? candidate.entries[index - 1]! : null;
-  if (index === 0 && live.sha !== candidate.baseSha) {
-    return `base_changed:${candidate.baseSha.slice(0, 12)}->${live.sha.slice(0, 12)}`;
-  }
-  if (previous) {
-    if (live.sha !== previous.mergeCommitSha) return 'base_changed_between_merges';
-    await fetchIntegrationRefs(scope.repository.canonicalPath, queue.baseBranch, []);
-    const tree = await gitText(scope.repository.canonicalPath, ['rev-parse', `${live.sha}^{tree}`]);
-    if (tree !== previous.treeSha) return 'merged_tree_differs_from_candidate';
-  }
-  const refreshed = await syncRepository(ctx, scope.repository.id, scope.env, { numbers: [step.number] });
-  if (!refreshed.ok) return refreshed.offline ? 'offline' : 'rate_limited';
-  const pr = pullRequestById(ctx.store.db, step.prId);
-  if (pr?.state !== 'open') return 'pull_request_not_open';
-  if (pr.headSha !== step.headSha) return 'head_changed';
-  if ((pr.governance?.requirements?.fingerprint ?? null) !== candidate.rulesFingerprint) return 'rules_changed';
-  const current = candidateById(ctx.store.db, candidate.id);
-  if (current?.status !== 'valid') return current?.invalidReason ?? 'candidate_invalidated';
-  const evaluation = evaluateEligibility(
-    eligibilityInputFor(ctx.store.db, pr, {
-      autonomy: scope.autonomy,
-      config: scope.config,
-      mode: queue.mode,
-      queuePaused:
-        queuesForRepository(ctx.store.db, queue.repositoryId).find((q) => q.id === queue.id)?.paused ?? false,
-    }),
-  );
-  const groupIds = new Set(candidate.entries.map((e) => e.prId));
-  const hard = evaluation.blockers.filter(
-    (b) => !(b.soft && typeof b.details?.parentPrId === 'string' && groupIds.has(b.details.parentPrId)),
-  );
-  if (hard.length > 0) return `not_eligible:${hard.map((b) => b.code).join(',')}`;
-  if (!isLeader(ctx.store, guard.scope, scope.leaderId, guard.generation)) return 'leadership_lost';
-  return null;
-}
-
 function invalidate(ctx: CrewContext, candidateId: string, reason: string): void {
   const at = nowIso(ctx.clock);
   ctx.store.immediate((db) => invalidateCandidatesInTx(db, { candidateId }, reason, TICK_ACTOR, at));
@@ -500,7 +474,6 @@ function invalidate(ctx: CrewContext, candidateId: string, reason: string): void
 
 async function mergeCandidate(
   scope: TickScope,
-  client: GitHubClient,
   queue: IntegrationQueue,
   candidateId: string,
   guard: { scope: string; generation: number },
@@ -514,15 +487,6 @@ async function mergeCandidate(
     candidate = candidateById(ctx.store.db, candidateId)!;
     const step = candidate.entries[index]!;
     if (step.merged) continue;
-    let failure: string | null = null;
-    for (const i of nativeStack ? candidate.entries.map((_, n) => n) : [index]) {
-      failure ??= await verifyStep(scope, client, queue, candidate, i, guard, nativeStack);
-    }
-    if (failure) {
-      invalidate(ctx, candidateId, failure);
-      result.notes.push(`candidate ${candidateId} invalidated: ${failure}`);
-      return 'invalid';
-    }
     const pr = pullRequestById(ctx.store.db, step.prId)!;
     const top = candidate.entries.at(-1)!;
     const at = nowIso(ctx.clock);
@@ -546,7 +510,14 @@ async function mergeCandidate(
             kind: 'github.merge_async',
             subjectId: top.prId,
             intent,
-            expectedState: { headSha: top.headSha, baseSha: candidate.baseSha },
+            expectedState: mutationExpectedState(
+              db,
+              config,
+              queue,
+              candidate.entries.map((e) => pullRequestById(db, e.prId)!),
+              candidate.baseSha,
+              candidateId,
+            ),
             idempotencyKey: `merge-stack:${pr.repositoryId}:${top.prId}:${top.headSha}`,
             leaderGeneration: guard.generation,
             maxAttempts: 10,
@@ -574,7 +545,7 @@ async function mergeCandidate(
           subjectId: pr.id,
           taskId: pr.taskId,
           intent,
-          expectedState: { headSha: step.headSha, baseSha: intent.expectedBaseSha },
+          expectedState: mutationExpectedState(db, config, queue, [pr], intent.expectedBaseSha!, candidateId),
           idempotencyKey: mergeIdempotencyKey(pr.repositoryId, pr.id, step.headSha),
           leaderGeneration: guard.generation,
           maxAttempts: 10,
@@ -586,8 +557,13 @@ async function mergeCandidate(
     const settled = getOutbox(ctx.store.db, op.operationId)!;
     if (settled.status === 'succeeded') {
       result.merged.push(...(nativeStack ? candidate.entries.map((e) => e.prId) : [pr.id]));
+      if (candidateById(ctx.store.db, candidateId)?.status === 'invalid') return 'invalid';
       if (nativeStack) break;
       continue;
+    }
+    if (settled.status === 'cancelled') {
+      result.notes.push(`candidate ${candidateId} invalidated: ${settled.lastError}`);
+      return 'invalid';
     }
     if (settled.status === 'failed') return 'failed';
     result.notes.push(`merge of #${pr.number} is ${settled.status}; will reconcile`);
@@ -609,6 +585,7 @@ async function crewManaged(
     invalidate(ctx, stale.id, 'interrupted');
   }
   for (let built = 0; built < maxCandidates; ) {
+    if (queueById(ctx.store.db, queue.id)?.paused) return;
     let candidate = activeCandidates(ctx.store.db, queue.id).find((c) => c.status === 'valid') ?? null;
     if (!candidate) {
       const group = selectGroup(orderedItems(ctx.store.db, queue, scope), config, queue.capacity);
@@ -667,7 +644,7 @@ async function crewManaged(
       result.notes.push('integration leadership changed during validation; merge deferred');
       return;
     }
-    const merged = await mergeCandidate(scope, client, queue, candidate.id, guard, result);
+    const merged = await mergeCandidate(scope, queue, candidate.id, guard, result);
     if (merged === 'pending') return;
     if (merged === 'invalid') {
       const entryIds = new Set(candidate.entries.filter((e) => !e.merged).map((e) => e.entryId));
@@ -684,6 +661,7 @@ async function githubManaged(
   result: QueueTickQueueResult,
 ): Promise<void> {
   const { ctx } = scope;
+  const live = await (await clientFor(ctx, scope.env, scope.repository)).getBranch(queue.baseBranch);
   const items = orderedItems(ctx.store.db, queue, scope);
   const at = nowIso(ctx.clock);
   const ready = items.filter((i) => i.eligible && i.dependsOn.length === 0);
@@ -720,6 +698,14 @@ async function githubManaged(
             kind: 'github.merge_async',
             subjectId: top.pr.id,
             intent,
+            expectedState: mutationExpectedState(
+              db,
+              scope.config,
+              queue,
+              chain.map((c) => c.pr),
+              live.sha,
+              null,
+            ),
             idempotencyKey: `enqueue-stack:${pr.repositoryId}:${top.pr.id}:${top.pr.headSha}`,
             leaderGeneration: guard.generation,
             maxAttempts: 10,
@@ -745,7 +731,7 @@ async function githubManaged(
           subjectId: pr.id,
           taskId: pr.taskId,
           intent,
-          expectedState: { headSha: pr.headSha },
+          expectedState: mutationExpectedState(db, scope.config, queue, [pr], live.sha, null),
           idempotencyKey: `enqueue:${pr.repositoryId}:${pr.id}:${pr.headSha}`,
           leaderGeneration: guard.generation,
           maxAttempts: 10,
@@ -759,7 +745,14 @@ async function githubManaged(
   if (ready.length > 0) await processIntegrationOutbox(ctx, { leaderId: scope.leaderId, env: scope.env });
 }
 
-function retargetChildren(db: Database, queue: IntegrationQueue, guard: { generation: number }, at: string): void {
+function retargetChildren(
+  db: Database,
+  scope: TickScope,
+  queue: IntegrationQueue,
+  guard: { generation: number },
+  at: string,
+  baseSha: string,
+): void {
   for (const entry of activeEntries(db, queue.id)) {
     const pr = pullRequestById(db, entry.prId);
     if (pr?.state !== 'open' || pr.baseRef === queue.baseBranch || pr.governance?.stack) continue;
@@ -788,6 +781,7 @@ function retargetChildren(db: Database, queue: IntegrationQueue, guard: { genera
         kind: 'github.update_pr',
         subjectId: pr.id,
         intent,
+        expectedState: mutationExpectedState(db, scope.config, queue, [pr], baseSha, null),
         idempotencyKey: `retarget:${pr.repositoryId}:${pr.id}:${queue.baseBranch}`,
         leaderGeneration: guard.generation,
       },
@@ -802,6 +796,7 @@ function updateBehindBranches(
   queue: IntegrationQueue,
   guard: { generation: number },
   at: string,
+  baseSha: string,
 ): void {
   if (scope.config.integration.rebasing === 'never' || scope.autonomy === 'observe') return;
   for (const entry of activeEntries(db, queue.id)) {
@@ -824,6 +819,7 @@ function updateBehindBranches(
         kind: 'github.update_branch',
         subjectId: pr.id,
         intent,
+        expectedState: mutationExpectedState(db, scope.config, queue, [pr], baseSha, null),
         idempotencyKey: `update-branch:${pr.repositoryId}:${pr.id}:${pr.headSha}`,
         leaderGeneration: guard.generation,
       },
@@ -883,12 +879,14 @@ export async function queueTick(
     result.generation = lease.generation;
     const guard = { scope: lease.scope, generation: lease.generation };
     const at = nowIso(ctx.clock);
+    const liveBase =
+      !offline && !initial.paused ? await (await clientFor(ctx, env, repository)).getBranch(initial.baseBranch) : null;
     const queue = ctx.store.immediate((db) => {
       const q = refreshMode(db, scope, initial, at);
       evaluateQueue(db, scope, q, at, result);
-      if (!offline && !q.paused) {
-        retargetChildren(db, q, guard, at);
-        updateBehindBranches(db, scope, q, guard, at);
+      if (liveBase && !q.paused) {
+        retargetChildren(db, scope, q, guard, at, liveBase.sha);
+        updateBehindBranches(db, scope, q, guard, at, liveBase.sha);
       }
       return q;
     });

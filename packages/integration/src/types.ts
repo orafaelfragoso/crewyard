@@ -10,6 +10,7 @@ import type {
   StackInfo,
 } from '@crewyard/github';
 import type { Repository } from '@crewyard/projects';
+import type { ReviewReviewerIdentity, ReviewType } from '@crewyard/reviews';
 
 export interface TaskHookEvent {
   taskId: string;
@@ -36,6 +37,7 @@ export interface TaskHooks {
 export type GitHubClientFactory = (repository: Repository) => GitHubClient;
 
 export interface IntegrationEnv {
+  reviewAcceptance?: (repositoryId: string) => Partial<Record<ReviewType, ReviewReviewerIdentity>>;
   github?: GitHubClientFactory;
   hooks?: TaskHooks;
   config?: CrewConfig;
@@ -190,6 +192,20 @@ export interface CandidateStep {
   commitSha: string | null;
   merged: boolean;
   mergeCommitSha: string | null;
+}
+
+export interface PrefixEvidence {
+  prId: string;
+  headSha: string;
+  treeSha: string;
+  commitSha: string;
+  validationId: string | null;
+  status: 'passed' | 'failed' | 'error' | 'not_configured';
+  envFingerprint: string;
+  configFingerprint: string;
+  policyRevision: number;
+  expiresAt: string;
+  attestation: 'local-prefix' | 'exact-head-checks' | 'guarded-unverified';
 }
 
 export interface IntegrationCandidate {
