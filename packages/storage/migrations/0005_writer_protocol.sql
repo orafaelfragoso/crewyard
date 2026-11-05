@@ -792,4 +792,3 @@ CREATE TRIGGER writer_guard_review_requests_delete BEFORE DELETE ON review_reque
 BEGIN
   SELECT CASE WHEN crewyard_writer_protocol() <> 1 THEN RAISE(ABORT, 'Incompatible Crewyard writer; stop old processes and upgrade') END;
 END;
-
