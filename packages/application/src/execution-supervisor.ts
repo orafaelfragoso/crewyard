@@ -1,4 +1,5 @@
 import { closeSync, openSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 import {
   CrewError,
@@ -15,6 +16,7 @@ import {
   abandonExecutionClaim,
   assertExecutionClaim,
   assertOutboxClaim,
+  bindExecutionProcess,
   type ClaimedOutboxOperation,
   type CrewContext,
   claimDueOutbox,
@@ -31,6 +33,7 @@ import {
   type ExecutionLimits,
   executionProcessState,
 } from './execution.ts';
+import { recoverExecutionDispatch } from './execution-dispatch.ts';
 import { stopExecutionProcesses } from './execution-processes.ts';
 import { finishExecutionResources } from './execution-worktrees.ts';
 import { crewInvocation } from './service-control.ts';
@@ -64,7 +67,43 @@ export class ExecutionSupervisor {
     if (!current || ['succeeded', 'failed', 'cancelled'].includes(current.status)) return;
     const domain = getExecutionClaim(this.ctx.store.db, launch.claim.scope);
     if (!domain || domain.attemptId !== launch.claim.attemptId || domain.releasedAt !== null) return;
+    const identity = processIdentity(process.pid);
+    if (!identity) throw new CrewError('UNAVAILABLE', 'Cannot verify execution recovery owner');
+    const owned = this.ctx.store.immediate((db) => {
+      const at = nowIso(this.ctx.clock);
+      const delivery = assertOutboxClaim(db, op, at);
+      if (
+        delivery.process &&
+        (delivery.process.host !== hostname() ||
+          delivery.process.pid !== process.pid ||
+          delivery.process.startIdentity !== identity)
+      )
+        return false;
+      bindExecutionProcess(db, op.claim, { host: hostname(), pid: process.pid, startIdentity: identity }, at);
+      return true;
+    });
+    if (!owned) return;
     const children = await finishExecutionResources(this.ctx, launch);
+    const cancellation = this.ctx.store.db
+      .query(
+        "SELECT json_extract(intent, '$.reason') AS reason FROM outbox WHERE kind = 'execution.cancel' AND subject_id = ? ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(op.operationId) as { reason: string } | null;
+    const reason = cancellation?.reason ?? `Execution worker exited ${exitCode} before completion`;
+    let result: Record<string, unknown> | null = null;
+    if (!children.unverifiable && !children.pending && !children.cleanupError) {
+      try {
+        result = await recoverExecutionDispatch(
+          this.ctx,
+          { ...op, remoteCorrelation: current.remoteCorrelation },
+          launch,
+          reason,
+        );
+      } catch (error) {
+        if (error instanceof CrewError && error.code === 'STALE_LEASE') throw error;
+        children.cleanupError = toCrewError(error).message;
+      }
+    }
     try {
       this.ctx.store.immediate((db) => {
         const at = nowIso(this.ctx.clock);
@@ -72,8 +111,14 @@ export class ExecutionSupervisor {
           db,
           op,
           {
-            status: children.unverifiable || children.pending || children.cleanupError ? 'ambiguous' : 'failed',
-            error: `Worker exited ${exitCode} before completion${children.unverifiable ? '; unverifiable children remain, resources preserved' : ''}`,
+            status:
+              children.unverifiable || children.pending || children.cleanupError
+                ? 'ambiguous'
+                : cancellation
+                  ? 'cancelled'
+                  : 'failed',
+            error: children.cleanupError ?? reason,
+            ...(result ? { remoteCorrelation: { result } } : {}),
           },
           at,
         );

@@ -32,6 +32,17 @@ export async function startExecution(
       while (performance.now() < deadline) {
         supervisor.pump(admittedId);
         const current = getOutbox(ctx.store.db, admittedId)!;
+        if (
+          ['succeeded', 'failed', 'cancelled'].includes(current.status) &&
+          ctx.store.db
+            .query(
+              "SELECT 1 FROM outbox WHERE kind = 'execution.cancel' AND subject_id = ? AND status NOT IN ('succeeded','failed','cancelled') LIMIT 1",
+            )
+            .get(admittedId)
+        ) {
+          await Bun.sleep(25);
+          continue;
+        }
         if (current.status === 'succeeded' || (current.status === 'cancelled' && current.remoteCorrelation?.result)) {
           const output = current.remoteCorrelation?.result;
           if (!output || typeof output !== 'object' || Array.isArray(output))
