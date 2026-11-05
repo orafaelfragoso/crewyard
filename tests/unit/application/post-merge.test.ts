@@ -130,6 +130,9 @@ describe('post-merge health', () => {
     expect(first.state).toBe('failed');
     expect(first.repairTaskId).toBeString();
     expect(second).toEqual({ ...first, changed: false });
+    expect(
+      recordMergeHealth(f.ctx, { ...obs, requirements: { ...requirements, fingerprint: 'revised-rules' } }, f.env),
+    ).toMatchObject({ changed: true, repairTaskId: first.repairTaskId, incidentId: first.incidentId });
     expect(overviewProjection(f.ctx, f.projectId).alerts).toEqual([
       expect.objectContaining({ prId: 'pr', taskId: first.repairTaskId }),
     ]);

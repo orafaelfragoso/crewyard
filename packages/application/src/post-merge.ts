@@ -73,9 +73,8 @@ export function recordMergeHealth(
     repositoryId: repository.id,
     mergeCommitSha: observation.mergeCommitSha,
     baseBranch: observation.baseBranch,
-    rules: observation.requirements?.fingerprint ?? null,
   });
-  const healthFingerprint = fingerprint({ state, failingChecks });
+  const healthFingerprint = fingerprint({ state, failingChecks, rules: observation.requirements?.fingerprint ?? null });
   return ctx.store.immediate((db) => {
     const at = nowIso(ctx.clock);
     const merged = one<{ id: string; number: number }>(
@@ -209,7 +208,14 @@ export function recordMergeHealth(
         { action: 'postmerge.health_observe', input: { incidentId, healthFingerprint }, decision: state },
         at,
       );
-      if (state === 'failed')
+      if (
+        state === 'failed' &&
+        !one(
+          db,
+          "SELECT 1 FROM events WHERE type = 'postmerge.intervention_required' AND json_extract(payload, '$.incidentId') = ? LIMIT 1",
+          incidentId,
+        )
+      )
         recordTransition(
           db,
           {
