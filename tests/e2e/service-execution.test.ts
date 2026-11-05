@@ -18,7 +18,8 @@ import { createGitHubFixture } from '../integration/github-fixture.ts';
 
 const actor = { kind: 'operator', id: 'worker-test' } as const;
 const BARRIER = join(import.meta.dir, '../../fixtures/processes/execution-barrier.ts');
-const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+const quote = (value: string) =>
+  process.platform === 'win32' ? `"${value.replaceAll('"', '""')}"` : `'${value.replaceAll("'", "'\\''")}'`;
 
 async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<void> {
   const deadline = performance.now() + timeoutMs;

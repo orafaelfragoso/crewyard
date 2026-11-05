@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { CrewError, git, withProcessLifecycle } from '@crewyard/core';
+import { CrewError, git, toPosix, withProcessLifecycle } from '@crewyard/core';
 import { assertExecutionWorktreePath, type CrewContext, executionWorktrees } from '@crewyard/storage';
 import type { ExecutionLaunch } from './execution.ts';
 import { finishExecutionProcesses, recordExecutionProcess } from './execution-processes.ts';
@@ -12,7 +12,7 @@ export async function cleanExecutionWorktrees(ctx: CrewContext, launch: Executio
       const listed = await git(worktree.repositoryPath, ['worktree', 'list', '--porcelain', '-z'], {
         timeoutMs: 2_000,
       });
-      const registered = listed.stdout.split('\0').includes(`worktree ${worktree.path}`);
+      const registered = listed.stdout.split('\0').includes(`worktree ${toPosix(worktree.path)}`);
       if (!registered) {
         if (existsSync(worktree.path))
           throw new CrewError('CONFLICT', 'Unregistered disposable worktree preserved for inspection');

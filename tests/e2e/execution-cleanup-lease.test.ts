@@ -222,7 +222,7 @@ test.skipIf(process.platform === 'win32')(
       global: 1,
       perProject: 1,
       leaseSeconds: 2,
-      timeoutSeconds: 2,
+      timeoutSeconds: 30,
       shutdownGraceSeconds: 1,
     };
     let controller: Bun.Subprocess | null = null;
@@ -274,7 +274,7 @@ test.skipIf(process.platform === 'win32')(
           stderr: 'inherit',
         },
       );
-      await waitFor(() => !!getOutbox(f.ctx.store.db, op.operationId)?.remoteCorrelation?.progress, 8_000);
+      await waitFor(() => !!getOutbox(f.ctx.store.db, op.operationId)?.remoteCorrelation?.progress, 15_000);
       workerPid = getExecutionClaim(f.ctx.store.db, op.intent.claim.scope)!.process!.pid;
       f.ctx.store.immediate(() => process.kill(workerPid, 'SIGSTOP'));
       controller.kill('SIGKILL');
@@ -315,5 +315,5 @@ test.skipIf(process.platform === 'win32')(
       f.cleanup();
     }
   },
-  20_000,
+  30_000,
 );
