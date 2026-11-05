@@ -24,7 +24,7 @@ import {
 } from './execution.ts';
 import { ExecutionSupervisor } from './execution-supervisor.ts';
 import { prepareQueueExecution } from './integration.ts';
-import { buildIndex, indexState } from './retrieval.ts';
+import { buildIndex, indexState, prepareIndexExecution } from './retrieval.ts';
 
 export interface ProjectCycle {
   name: string;
@@ -223,7 +223,7 @@ export class CrewService {
     const loaded = loadProjectConfig(this.ctx, projectId);
     recordPolicyRevision(this.ctx, projectId, loaded.config, SERVICE_ACTOR.id);
     if (this.executions) {
-      this.projectExecutionTick(projectId, workersPaused, intakePaused);
+      await this.projectExecutionTick(projectId, workersPaused, intakePaused);
       return;
     }
     await reconcileLeases(this.ctx, { projectId, actor: SERVICE_ACTOR });
@@ -307,7 +307,7 @@ export class CrewService {
       }
     }
   }
-  private projectExecutionTick(projectId: string, workersPaused: boolean, intakePaused: boolean): void {
+  private async projectExecutionTick(projectId: string, workersPaused: boolean, intakePaused: boolean): Promise<void> {
     const loaded = loadProjectConfig(this.ctx, projectId);
     const repo = primaryRepository(this.ctx, projectId);
     const scope = `integration:${repo.id}:${repo.defaultBase}`;
@@ -329,7 +329,8 @@ export class CrewService {
       schedule(prepareQueueExecution(this.ctx, repo.id, { sync: false, maxCandidates: 3, processOutbox: false }), 5);
       schedule({ kind: 'health' }, 30);
     }
-    if (loaded.config.index.enabled) schedule({ kind: 'index' }, 300);
+    if (loaded.config.index.enabled && Date.now() - (this.lastRun.get(`index:${projectId}`) ?? 0) >= 300_000)
+      schedule(await prepareIndexExecution(this.ctx, { projectId }), 300);
     schedule({ kind: 'cleanup' }, 30);
     if (
       !workersPaused &&
@@ -351,6 +352,7 @@ export class CrewService {
       `${operation.kind}:${projectId}${operation.kind === 'dispatch' ? `:${operation.taskId}` : ''}`;
     cycles.sort((a, b) => (this.lastRun.get(keyFor(a.operation)) ?? 0) - (this.lastRun.get(keyFor(b.operation)) ?? 0));
     for (const { operation, seconds } of cycles) {
+      if (this.stopping) return;
       const key = keyFor(operation);
       if (Date.now() - (this.lastRun.get(key) ?? 0) < seconds * 1000) continue;
       const admitted = submitExecution(

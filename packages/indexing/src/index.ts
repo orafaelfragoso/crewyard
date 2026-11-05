@@ -19,6 +19,7 @@ export {
   OllamaEmbeddingProvider,
   type OllamaOptions,
 } from './embeddings.ts';
+export { acquireSnapshotReader } from './execution.ts';
 export {
   type IndexStatusReport,
   indexCommand,

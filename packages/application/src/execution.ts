@@ -24,7 +24,7 @@ import {
 import type { LeaseHolder } from '@crewyard/tasks';
 
 export type ExecutionOperation =
-  | { kind: 'index'; sha?: string; ref?: string; worktreePath?: string; force?: boolean; indexRevision?: string }
+  | { kind: 'index'; sha: string; ref?: string; worktreePath?: string; force?: boolean; indexRevision: string }
   | { kind: 'sync' | 'publish' | 'outbox' | 'cleanup' | 'health' }
   | {
       kind: 'queue';
@@ -124,6 +124,11 @@ export function submitExecution(
     if (!Number.isSafeInteger(value) || value < 1)
       throw new CrewError('INVALID_INPUT', 'Execution limits must be positive integers');
   }
+  if (
+    request.operation.kind === 'index' &&
+    (!/^[a-f0-9]{40}$/.test(request.operation.sha) || !request.operation.indexRevision)
+  )
+    throw new CrewError('INVALID_INPUT', 'Index execution requires an exact commit SHA and configuration revision');
   const scope = executionScope(request);
   return ctx.store.immediate((db) => {
     const at = nowIso(ctx.clock);

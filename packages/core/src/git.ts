@@ -51,8 +51,12 @@ export async function gitText(cwd: string, args: readonly string[], options: Git
   return (await git(cwd, args, options)).stdout.trim();
 }
 
-export async function revParse(cwd: string, ref: string): Promise<string | null> {
-  const result = await git(cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { allowFailure: true });
+export async function revParse(cwd: string, ref: string, options?: GitOptions): Promise<string | null> {
+  const result = await git(cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], {
+    ...options,
+    allowFailure: true,
+  });
+  if (result.timedOut) throw new CrewError('BUSY', 'Git revision resolution exceeded its deadline');
   return result.exitCode === 0 ? result.stdout.trim() : null;
 }
 

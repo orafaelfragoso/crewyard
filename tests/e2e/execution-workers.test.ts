@@ -8,12 +8,13 @@ import {
   ExecutionSupervisor,
   initRepository,
   prepareDispatchExecution,
+  prepareIndexExecution,
   submitExecution,
 } from '@crewyard/application';
 import { isProcessAlive } from '@crewyard/core';
 import { claimDueOutbox, getExecutionClaim, getOutbox, listEvents } from '@crewyard/storage';
 import { addTask, showTask } from '@crewyard/tasks';
-import { createTempGitRepo, createTestContext, type TestContext } from '../helpers/index.ts';
+import { commitFiles, createTempGitRepo, createTestContext, type TestContext } from '../helpers/index.ts';
 import { seedAgent } from '../unit/agents/setup.ts';
 
 let ctx: TestContext | undefined;
@@ -62,7 +63,7 @@ test('durable capacity admits distinct domains without duplicate scopes', async 
     repositoryId: repository.id,
     actor,
     leaderId: actor.id,
-    operation: { kind: 'index' as const },
+    operation: await prepareIndexExecution(c, { projectId: project.id }),
   };
   const first = submitExecution(c, request, limits)!;
   expect(submitExecution(c, request, limits)?.operationId).toBe(first.operationId);
@@ -82,7 +83,7 @@ test('source worker claims its immutable attempt before writing a domain result'
       repositoryId: repository.id,
       actor,
       leaderId: actor.id,
-      operation: { kind: 'index' },
+      operation: await prepareIndexExecution(c, { projectId: project.id }),
     },
     { ...DEFAULT_EXECUTION_LIMITS },
   )!;
@@ -123,7 +124,13 @@ test('compiled CLI executes the same private worker protocol', async () => {
   expect(build.exitCode).toBe(0);
   const op = submitExecution(
     c,
-    { projectId: project.id, repositoryId: repository.id, actor, leaderId: actor.id, operation: { kind: 'index' } },
+    {
+      projectId: project.id,
+      repositoryId: repository.id,
+      actor,
+      leaderId: actor.id,
+      operation: await prepareIndexExecution(c, { projectId: project.id }),
+    },
     { ...DEFAULT_EXECUTION_LIMITS },
   )!;
   const [delivery] = claimDueOutbox(c.store, {
@@ -140,6 +147,14 @@ test('compiled CLI executes the same private worker protocol', async () => {
   });
   expect(result.exitCode).toBe(0);
   expect(getOutbox(c.store.db, op.operationId)?.status).toBe('succeeded');
+  const cli = await run([binary, '--project', project.id, '--json', 'index', 'update', '--force'], {
+    timeoutMs: 20_000,
+    env: { ...process.env, CREW_DATA_DIR: c.dirs.data, CREW_CONFIG_DIR: c.dirs.config },
+  });
+  expect(cli.exitCode).toBe(0);
+  expect(
+    c.store.db.query("SELECT COUNT(*) AS n FROM outbox WHERE kind = 'execution.launch' AND status = 'succeeded'").get(),
+  ).toEqual({ n: 2 });
 }, 90_000);
 
 for (const failure of ['crash', 'deadline'] as const) {
@@ -173,7 +188,7 @@ for (const failure of ['crash', 'deadline'] as const) {
         repositoryId: repository.id,
         actor,
         leaderId: 'process-test',
-        operation: { kind: 'index' as const },
+        operation: await prepareIndexExecution(c, { projectId: project.id }),
       };
       try {
         const op = submitExecution(c, request, limits)!;
@@ -259,7 +274,13 @@ test('durable cancellation prevents a pending launch without spawning a process'
   const limits = { ...DEFAULT_EXECUTION_LIMITS };
   const op = submitExecution(
     c,
-    { projectId: project.id, repositoryId: repository.id, actor, leaderId: actor.id, operation: { kind: 'index' } },
+    {
+      projectId: project.id,
+      repositoryId: repository.id,
+      actor,
+      leaderId: actor.id,
+      operation: await prepareIndexExecution(c, { projectId: project.id }),
+    },
     limits,
   )!;
   cancelExecution(c, op.operationId, 'operator cancelled pending work');
@@ -274,3 +295,40 @@ test('durable cancellation prevents a pending launch without spawning a process'
     await supervisor.stop();
   }
 });
+
+test.skipIf(process.platform === 'win32')(
+  'direct ref callers pin distinct commits before joining a running index',
+  async () => {
+    const { ctx: c, project, repository } = await fixture();
+    const ready = join(c.root, 'index-ready');
+    const release = join(c.root, 'index-release');
+    const realGit = Bun.which('git')!;
+    const bin = join(c.root, 'bin');
+    const previousPath = process.env.PATH;
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, 'git'),
+      `#!/bin/sh\ncase "$*" in\n *ls-tree*) echo ready > '${ready}'; while [ ! -e '${release}' ]; do sleep 0.05; done;;\nesac\nexec '${realGit}' "$@"\n`,
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${bin}:${previousPath}`;
+    const pending: ReturnType<typeof buildIndex>[] = [];
+    try {
+      pending.push(buildIndex(c, { projectId: project.id, actor }));
+      await waitFor(() => existsSync(ready), 10_000);
+      const next = await commitFiles(repository.canonicalPath, { 'src/index.ts': 'export const answer = 43;\n' });
+      pending.push(buildIndex(c, { projectId: project.id, actor }));
+      writeFileSync(release, 'release');
+      const [first, second] = await Promise.all(pending);
+      expect(first!.snapshot.commitSha).not.toBe(next);
+      expect(second!.snapshot.commitSha).toBe(next);
+      expect(second!.snapshot.id).not.toBe(first!.snapshot.id);
+    } finally {
+      writeFileSync(release, 'release');
+      await Promise.allSettled(pending);
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  },
+  20_000,
+);

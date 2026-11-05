@@ -3,6 +3,7 @@ import { CrewError, trimTrailingSlashes } from '@crewyard/core';
 import { all, type CrewContext } from '@crewyard/storage';
 import { readChunks, readLines } from './content.ts';
 import { cosine, decodeVector, type EmbeddingProvider, modelKey } from './embeddings.ts';
+import { acquireSnapshotReader } from './execution.ts';
 import { requireSnapshot, type SnapshotRequest } from './freshness.ts';
 import { type SnapshotModel, snapshotModel, traverse } from './graph.ts';
 import type { SnapshotFileRow } from './manifests.ts';
@@ -629,65 +630,70 @@ async function addSemantic(
 
 export async function search(ctx: CrewContext, input: SearchInput): Promise<SearchResult> {
   const { snapshot, envelope } = await requireSnapshot(ctx, input);
-  const model = snapshotModel(ctx.store, snapshot);
-  const filter = compileFilter(input);
-  const accept = (path: string) => {
-    const file = model.byPath.get(path);
-    return file !== undefined && filter(file);
-  };
-  const c: Ctx = { db: ctx.store.db, model, envelope, accept };
-  const mode = input.mode ?? 'hybrid';
-  const limit = Math.min(Math.max(input.limit ?? 20, 1), 500);
-  const contextLines = Math.min(Math.max(input.contextLines ?? 3, 0), 40);
-  const caseSensitive = input.caseSensitive ?? false;
-  const notes: string[] = [];
-  if (input.query.trim() === '' && mode !== 'hybrid')
-    throw new CrewError('INVALID_INPUT', 'Search query must not be empty');
-  let hits: SearchHit[];
-  let truncated = false;
-  switch (mode) {
-    case 'fts':
-      hits = ftsSearch(c, input.query, limit + 1, contextLines);
-      break;
-    case 'exact': {
-      const r = exactSearch(c, input.query, caseSensitive, limit + 1, contextLines, notes);
-      hits = r.hits;
-      truncated = r.truncated;
-      break;
-    }
-    case 'regex': {
-      const r = regexSearch(c, input.query, caseSensitive, limit + 1, contextLines, notes);
-      hits = r.hits;
-      truncated = r.truncated;
-      break;
-    }
-    case 'path':
-      hits = pathSearch(c, input.query, limit + 1);
-      break;
-    case 'symbol':
-      hits = symbolHits(c, input.query, limit + 1);
-      break;
-    case 'hybrid':
-      hits = await hybridSearch(c, input, limit + 1, contextLines, notes);
-      for (const h of hits) {
-        if (h.excerpt !== '') continue;
-        const end = Math.min(h.endLine, h.startLine + MAX_SYMBOL_EXCERPT_LINES - 1);
-        h.endLine = end;
-        h.provenance.endLine = end;
-        h.excerpt = readLines(c.db, h.blobSha, h.startLine, end).join('\n');
-        const lines = h.excerpt === '' ? 0 : h.excerpt.split('\n').length;
-        if (lines > 0 && h.startLine + lines - 1 < end) {
-          h.endLine = h.startLine + lines - 1;
-          h.provenance.endLine = h.endLine;
-        }
+  const reader = acquireSnapshotReader(ctx, snapshot);
+  try {
+    const model = snapshotModel(ctx.store, snapshot);
+    const filter = compileFilter(input);
+    const accept = (path: string) => {
+      const file = model.byPath.get(path);
+      return file !== undefined && filter(file);
+    };
+    const c: Ctx = { db: ctx.store.db, model, envelope, accept };
+    const mode = input.mode ?? 'hybrid';
+    const limit = Math.min(Math.max(input.limit ?? 20, 1), 500);
+    const contextLines = Math.min(Math.max(input.contextLines ?? 3, 0), 40);
+    const caseSensitive = input.caseSensitive ?? false;
+    const notes: string[] = [];
+    if (input.query.trim() === '' && mode !== 'hybrid')
+      throw new CrewError('INVALID_INPUT', 'Search query must not be empty');
+    let hits: SearchHit[];
+    let truncated = false;
+    switch (mode) {
+      case 'fts':
+        hits = ftsSearch(c, input.query, limit + 1, contextLines);
+        break;
+      case 'exact': {
+        const r = exactSearch(c, input.query, caseSensitive, limit + 1, contextLines, notes);
+        hits = r.hits;
+        truncated = r.truncated;
+        break;
       }
-      break;
+      case 'regex': {
+        const r = regexSearch(c, input.query, caseSensitive, limit + 1, contextLines, notes);
+        hits = r.hits;
+        truncated = r.truncated;
+        break;
+      }
+      case 'path':
+        hits = pathSearch(c, input.query, limit + 1);
+        break;
+      case 'symbol':
+        hits = symbolHits(c, input.query, limit + 1);
+        break;
+      case 'hybrid':
+        hits = await hybridSearch(c, input, limit + 1, contextLines, notes);
+        for (const h of hits) {
+          if (h.excerpt !== '') continue;
+          const end = Math.min(h.endLine, h.startLine + MAX_SYMBOL_EXCERPT_LINES - 1);
+          h.endLine = end;
+          h.provenance.endLine = end;
+          h.excerpt = readLines(c.db, h.blobSha, h.startLine, end).join('\n');
+          const lines = h.excerpt === '' ? 0 : h.excerpt.split('\n').length;
+          if (lines > 0 && h.startLine + lines - 1 < end) {
+            h.endLine = h.startLine + lines - 1;
+            h.provenance.endLine = h.endLine;
+          }
+        }
+        break;
+    }
+    if (hits.length > limit) {
+      hits = hits.slice(0, limit);
+      truncated = true;
+    }
+    if (!input.embeddingProvider && mode === 'hybrid')
+      notes.push('No embedding model configured; ranking uses full-text, symbol, path and graph signals.');
+    return { ...envelope, query: input.query, mode, hits, truncated, notes };
+  } finally {
+    reader.release();
   }
-  if (hits.length > limit) {
-    hits = hits.slice(0, limit);
-    truncated = true;
-  }
-  if (!input.embeddingProvider && mode === 'hybrid')
-    notes.push('No embedding model configured; ranking uses full-text, symbol, path and graph signals.');
-  return { ...envelope, query: input.query, mode, hits, truncated, notes };
 }

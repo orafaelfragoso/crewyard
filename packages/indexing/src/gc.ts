@@ -2,6 +2,7 @@ import type { Database } from 'bun:sqlite';
 import { type Actor, nowIso, SYSTEM_ACTOR } from '@crewyard/core';
 import { all, type CrewContext, one, recordTransition } from '@crewyard/storage';
 import { deleteChunks } from './content.ts';
+import { hasIndexBuilds, hasIndexReaders, recoverIndexClaims, snapshotInUse } from './execution.ts';
 import { forgetSnapshotModels } from './graph.ts';
 import { chunked } from './store.ts';
 
@@ -33,8 +34,12 @@ interface SnapRow {
 }
 
 function activeBuild(db: Database, now: number): boolean {
-  return all<{ started_at: string }>(db, "SELECT started_at FROM repository_snapshots WHERE status = 'building'").some(
-    (r) => now - Date.parse(r.started_at) < STALE_BUILD_MS,
+  return (
+    hasIndexBuilds(db) ||
+    hasIndexReaders(db, null) ||
+    all<{ started_at: string }>(db, "SELECT started_at FROM repository_snapshots WHERE status = 'building'").some(
+      (r) => now - Date.parse(r.started_at) < STALE_BUILD_MS,
+    )
   );
 }
 
@@ -51,6 +56,7 @@ function orphanBlobs(db: Database, excluded: readonly string[], limit: number): 
 }
 
 export function collectGarbage(ctx: CrewContext, input: GarbageCollectionInput = {}): GarbageCollectionResult {
+  recoverIndexClaims(ctx);
   const db = ctx.store.db;
   const dryRun = input.dryRun ?? true;
   const retainLatest = Math.max(input.retainLatest ?? 3, 1);
@@ -72,6 +78,7 @@ export function collectGarbage(ctx: CrewContext, input: GarbageCollectionInput =
   const keptPerRepo = new Map<string, number>();
   const doomed: SnapRow[] = [];
   for (const row of rows) {
+    if (snapshotInUse(db, { id: row.id, repositoryId: row.repository_id, commitSha: row.commit_sha })) continue;
     if (row.status === 'building' && now - Date.parse(row.started_at) < STALE_BUILD_MS) continue;
     if (retainShas.has(row.commit_sha)) continue;
     if (row.status === 'available') {
@@ -90,7 +97,16 @@ export function collectGarbage(ctx: CrewContext, input: GarbageCollectionInput =
   const artifactSql = `SELECT id FROM context_artifacts WHERE (expires_at IS NOT NULL AND expires_at <= ?)
      OR (snapshot_id IS NULL AND kind != 'embedding_index')
      ${doomedIds.length ? `OR snapshot_id IN (${doomedIds.map(() => '?').join(',')})` : ''}`;
-  const artifacts = all<{ id: string }>(db, artifactSql, at, ...doomedIds).map((r) => r.id);
+  const artifacts = all<{ id: string }>(db, artifactSql, at, ...doomedIds)
+    .map((r) => r.id)
+    .filter((id) => {
+      const snapshot = one<{ id: string; repositoryId: string; commitSha: string }>(
+        db,
+        'SELECT s.id, s.repository_id AS repositoryId, s.commit_sha AS commitSha FROM repository_snapshots s JOIN context_artifacts a ON a.snapshot_id = s.id WHERE a.id = ?',
+        id,
+      );
+      return !snapshot || !snapshotInUse(db, snapshot);
+    });
   const blobPreview = building ? [] : orphanBlobs(db, doomedIds, 1_000_000);
 
   if (dryRun) {
@@ -109,19 +125,30 @@ export function collectGarbage(ctx: CrewContext, input: GarbageCollectionInput =
     };
   }
 
+  let removedArtifacts = 0;
   for (const batch of chunked(artifacts, 500)) {
-    ctx.store.immediate((tx) =>
-      tx.query(`DELETE FROM context_artifacts WHERE id IN (${batch.map(() => '?').join(',')})`).run(...batch),
-    );
-  }
-  for (const snap of doomed) {
     ctx.store.immediate((tx) => {
-      tx.query('UPDATE repository_snapshots SET parent_snapshot_id = NULL WHERE parent_snapshot_id = ?').run(snap.id);
-      tx.query('DELETE FROM context_artifacts WHERE snapshot_id = ?').run(snap.id);
-      tx.query('DELETE FROM repository_snapshots WHERE id = ?').run(snap.id);
+      for (const id of batch) {
+        const snapshot = one<{ id: string; repositoryId: string; commitSha: string }>(
+          tx,
+          'SELECT s.id, s.repository_id AS repositoryId, s.commit_sha AS commitSha FROM repository_snapshots s JOIN context_artifacts a ON a.snapshot_id = s.id WHERE a.id = ?',
+          id,
+        );
+        if (!snapshot || !snapshotInUse(tx, snapshot))
+          removedArtifacts += tx.query('DELETE FROM context_artifacts WHERE id = ?').run(id).changes;
+      }
     });
   }
-  forgetSnapshotModels(doomedIds);
+  const removedSnapshots: SnapRow[] = [];
+  for (const snap of doomed) {
+    ctx.store.immediate((tx) => {
+      if (snapshotInUse(tx, { id: snap.id, repositoryId: snap.repository_id, commitSha: snap.commit_sha })) return;
+      tx.query('UPDATE repository_snapshots SET parent_snapshot_id = NULL WHERE parent_snapshot_id = ?').run(snap.id);
+      tx.query('DELETE FROM context_artifacts WHERE snapshot_id = ?').run(snap.id);
+      if (tx.query('DELETE FROM repository_snapshots WHERE id = ?').run(snap.id).changes) removedSnapshots.push(snap);
+    });
+  }
+  forgetSnapshotModels(removedSnapshots.map((snapshot) => snapshot.id));
 
   let blobCount = 0;
   if (!building) {
@@ -151,7 +178,7 @@ export function collectGarbage(ctx: CrewContext, input: GarbageCollectionInput =
         type: 'index.garbage_collected',
         actor: input.actor ?? SYSTEM_ACTOR,
         projectId,
-        payload: { snapshots: doomedIds.length, blobs: blobCount, artifacts: artifacts.length },
+        payload: { snapshots: removedSnapshots.length, blobs: blobCount, artifacts: removedArtifacts },
       },
       { action: 'index.gc', input: { repositoryId: input.repositoryId ?? null, retainLatest }, decision: 'applied' },
       at,
@@ -160,7 +187,7 @@ export function collectGarbage(ctx: CrewContext, input: GarbageCollectionInput =
 
   return {
     dryRun,
-    snapshots: doomed.map((d) => ({
+    snapshots: removedSnapshots.map((d) => ({
       id: d.id,
       repositoryId: d.repository_id,
       commitSha: d.commit_sha,
@@ -168,7 +195,7 @@ export function collectGarbage(ctx: CrewContext, input: GarbageCollectionInput =
       status: d.status,
     })),
     blobCount,
-    artifactCount: artifacts.length,
+    artifactCount: removedArtifacts,
     notes,
   };
 }
