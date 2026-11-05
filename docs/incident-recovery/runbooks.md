@@ -49,6 +49,10 @@ Never delete rows from the database, edit worktrees under the data directory by 
 3. If GitHub shows the PR merged, Crewyard records the observed merge commit and moves on. If it is not merged and the base and head SHAs are unchanged, the merge is retried once under the leader lease. If either changed, the candidate is invalidated and rebuilt.
 4. Check progress with `crew sync` and then `crew queue status --json`.
 
+## Unexpected merge tree or failed post-merge checks
+
+A tree mismatch is an incident detected after landing; subsequent local merges pause. Preserve the expected and observed tree, actual merge SHA and target branch. Inspect the current base before proposing a repair. Repeated commit-bound observations reuse one incident and repair task. A draft repair needs ordinary scope/risk review and approval; no automatic revert is authorized. Unknown, superseded or unavailable health is never passed. Failed task hooks remain durable outbox work with bounded retries; merged-task reconciliation repairs missing merge transitions.
+
 ## Offline
 
 **Symptoms:** `OFFLINE` errors; the dashboard shows "last seen" timestamps.
@@ -71,7 +75,7 @@ Never delete rows from the database, edit worktrees under the data directory by 
 1. Stop every Crewyard process: the service, `crew mcp` instances (close the agent hosts) and the dashboard.
 2. Keep the evidence: copy `crewyard.sqlite`, `-wal` and `-shm` to a safe place.
 3. Check integrity read-only: `sqlite3 crewyard.sqlite 'PRAGMA integrity_check;'`.
-4. Restore the newest good backup from `backups/` ([steps](../installation.md#back-up-and-restore)), then run `crew doctor`.
+4. Restore a verified backup only as disaster recovery ([steps](../installation.md#back-up-and-restore)). Use the current corrected build, keep scheduling stopped, and account for acknowledged writes and remote effects after the backup before resuming.
 5. On the next service start, Crewyard reconciles against reality: live processes, worktrees and GitHub. GitHub state is authoritative for PRs and merges.
 6. State changes made after the backup are lost from the database, but worktrees, branches and PRs still exist. Re-import open PRs with `crew pr import` and check tasks with `crew task list`.
 7. [Re-authorize providers](../installation.md#re-authorize-providers-after-a-restore-or-a-move) if the profiles reference credentials that are no longer present.

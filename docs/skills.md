@@ -43,6 +43,8 @@ A test (`tests/unit/host-installers/skills.test.ts`) validates the frontmatter a
 
 ## Skills are advisory
 
+The workflow is goal → contract-first dependency DAG → execution at pinned inputs → policy-valid review → validation of every exposed integration prefix → actual-merge observation. Humans own architectural and risk decisions. Parallel tasks need behavioral acceptance checks even when their paths do not overlap.
+
 A skill tells a model what to do; it does not grant or restrict anything. Crewyard enforces leases, fencing generations, scope reservations, state transitions, approval gates and GitHub permissions in the CLI/MCP layer, and rejects forbidden actions even when an agent requests them. Administrative actions (policy changes, credential creation, forced cleanup, direct merges) are not exposed as MCP tools at all.
 
 ## Bootstrap instructions

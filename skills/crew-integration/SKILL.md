@@ -4,7 +4,7 @@ description: Requests admission of a finished Crewyard task or pull request to t
 compatibility: Requires Crewyard via the MCP server (`crew mcp`) or the `crew` CLI on PATH.
 metadata:
   author: crewyard
-  version: "1.0"
+  version: "1.1"
 ---
 
 # Crewyard integration
@@ -34,6 +34,8 @@ MCP resource: `crew://queue/{id}` (read-only).
 
 These apply to every Crewyard task, whatever this skill is used for:
 
+Skills are advisory. Worktrees and attempt directories isolate cooperative work; agents still run as the operating-system user. A lease fences Crewyard mutations and cannot revoke an already issued external request or arbitrary filesystem access.
+
 1. Inspect `crew_get_state` and the project policy before acting.
 2. Claim the task with `crew_claim_task` before modifying anything.
 3. Work only in the assigned worktree returned by the claim.
@@ -45,6 +47,10 @@ These apply to every Crewyard task, whatever this skill is used for:
 9. After a handoff, request the next safe action with `crew_get_next_action`.
 
 ## Skill rules
+
+- Read each candidate prefix attestation. A passed final tree does not prove that an earlier exposed prefix passes, and one stack API call does not prove atomic landing. Missing checks remain unverified.
+- Guarded fallback rechecks current base/head, authority and evidence on every mutation attempt. The host head-only merge API leaves a residual base race; an actual-tree mismatch is detected afterward and pauses subsequent local merges.
+- After a merge, inspect commit-bound health observations. Unknown, superseded or unavailable health is not passed. A failed merge creates an ordinary draft repair task for operator review; it never authorizes an automatic revert.
 
 - Never merge by any means: no GitHub merge commands or API calls, no pushes to the base branch, no enabling auto-merge yourself, no admin overrides.
 - Never change branch protection, rulesets, required checks, CODEOWNERS or approvals, and never mark a check as passed.

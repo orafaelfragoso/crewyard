@@ -4,7 +4,7 @@ description: Retrieves version-aware repository context from Crewyard's local in
 compatibility: Requires Crewyard via the MCP server (`crew mcp`) or the `crew` CLI on PATH.
 metadata:
   author: crewyard
-  version: "1.0"
+  version: "1.1"
 ---
 
 # Crewyard context
@@ -33,6 +33,8 @@ MCP resources (read-only): `crew://project/{id}/overview`, `crew://task/{id}`, `
 ## Crewyard contract
 
 These apply to every Crewyard task, whatever this skill is used for:
+
+Skills are advisory. Worktrees and attempt directories isolate cooperative work; agents still run as the operating-system user. A lease fences Crewyard mutations and cannot revoke an already issued external request or arbitrary filesystem access.
 
 1. Inspect `crew_get_state` and the project policy before acting.
 2. Claim the task with `crew_claim_task` before modifying anything.

@@ -15,12 +15,13 @@ A snapshot is the index of one commit SHA of a registered repository (`repositor
    yields `BUSY`; one older than 15 minutes is treated as crashed and rebuilt.
 3. Choose the nearest `available` parent snapshot built with the same rules revision: the first hit walking
    `git rev-list` (up to 1,000 ancestors), otherwise the most recent snapshot whose commit exists locally.
-4. With a parent, load its `files` rows and apply `git diff-tree -r -z -M --raw` (adds, modifications, deletes,
+4. With a parent, load its complete `files` membership and apply `git diff-tree -r -z -M --raw` (adds, modifications, deletes,
    renames, with new blob SHAs). Without one, list the tree with `git ls-tree -r -z --long`.
 5. Blobs already present in `blobs` with the current parser identity are reused. Only new blobs are streamed
    through one `git cat-file --batch` process, parsed outside any transaction, then written in batches of 250
    blobs per `BEGIN IMMEDIATE` transaction (blob row, symbols, edges and full-text chunks of a blob always commit
    together, with the `files` rows that reference them).
+   Incremental parsing reuses unchanged blobs, but membership loading and writing remain O(N) per snapshot. `IndexStats` separately reports membership load time, row-write time (excluding transaction commit/fsync), and rows written; it does not claim O(changed files) total indexing.
 6. A final transaction checks the file count, marks the snapshot `available`, records `changed_count` /
    `parsed_count`, updates `repositories.index_coverage`, and writes an `index.snapshot_available` event and
    audit row. Failures mark the snapshot `failed` with an event.

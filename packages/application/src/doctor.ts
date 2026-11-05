@@ -219,6 +219,15 @@ export const secretStoreCheck: CheckFn = async () => {
   }
 };
 
+export const isolationCheck: CheckFn = async () => ({
+  id: 'security.execution_isolation',
+  category: 'security',
+  status: 'warn',
+  summary: 'Worktrees, attempt directories and secret scrubbing do not provide an OS sandbox',
+  detail: { operatingSystemSandbox: false, sameUserAccess: true },
+  repair: 'Run untrusted agents in a separate OS account, container or VM with restricted credentials.',
+});
+
 export const BASE_CHECKS: readonly CheckFn[] = [
   runtimeCheck,
   gitCheck,
@@ -227,6 +236,7 @@ export const BASE_CHECKS: readonly CheckFn[] = [
   sqliteCheck,
   providerCliCheck,
   secretStoreCheck,
+  isolationCheck,
 ];
 
 export async function runDoctor(ctx: CrewContext, checks: readonly CheckFn[] = BASE_CHECKS): Promise<DoctorReport> {
