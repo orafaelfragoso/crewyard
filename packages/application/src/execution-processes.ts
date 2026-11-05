@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -23,24 +23,12 @@ export function recordExecutionProcess(directory: string, pid: number): void {
   const identity: ExecutionProcessIdentity = { host: hostname(), pid, startIdentity };
   const path = join(ensureDir(join(directory, 'processes')), `${pid}-${fingerprint(identity)}.json`);
   const content = JSON.stringify(identity);
-  let file: number;
   try {
-    file = openSync(path, 'wx', 0o600);
+    writeFileSync(path, content, { mode: 0o600, flag: 'wx' });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-    const existing = openSync(path, 'r');
-    try {
-      if (readFileSync(existing, 'utf8') !== content)
-        throw new CrewError('CONFLICT', 'Execution child identity manifest changed');
-    } finally {
-      closeSync(existing);
-    }
-    return;
-  }
-  try {
-    writeFileSync(file, content);
-  } finally {
-    closeSync(file);
+    if (readFileSync(path, 'utf8') !== content)
+      throw new CrewError('CONFLICT', 'Execution child identity manifest changed');
   }
 }
 
