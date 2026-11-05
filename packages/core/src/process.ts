@@ -46,6 +46,8 @@ export interface RunOptions {
   maxOutputBytes?: number;
   allowFailure?: boolean;
   verbatimArguments?: boolean;
+  signal?: AbortSignal;
+  onSpawn?: (pid: number) => void;
 }
 
 export interface RunResult {
@@ -98,6 +100,16 @@ export async function run(cmd: readonly string[], options: RunOptions = {}): Pro
       suggestion: `Install ${cmd[0]} or add it to PATH.`,
     });
   }
+  try {
+    options.onSpawn?.(proc.pid);
+  } catch (error) {
+    killTree(proc.pid, 'SIGKILL');
+    await proc.exited;
+    throw error;
+  }
+  const onAbort = () => killTree(proc.pid, 'SIGTERM');
+  if (options.signal?.aborted) onAbort();
+  else options.signal?.addEventListener('abort', onAbort, { once: true });
   if (options.input !== undefined && proc.stdin && typeof proc.stdin !== 'number') {
     proc.stdin.write(options.input);
     await proc.stdin.end();
@@ -116,6 +128,8 @@ export async function run(cmd: readonly string[], options: RunOptions = {}): Pro
     proc.exited,
   ]);
   if (timer) clearTimeout(timer);
+  options.signal?.removeEventListener('abort', onAbort);
+  options.signal?.throwIfAborted();
   const result: RunResult = {
     exitCode,
     stdout: stdout.text,

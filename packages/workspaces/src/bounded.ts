@@ -12,6 +12,7 @@ export interface BoundedOptions {
   env?: Record<string, string>;
   network?: NetworkPolicy;
   signal?: AbortSignal;
+  onSpawn?: (pid: number) => void;
   graceMs?: number;
   allowPrivileged?: boolean;
   input?: string;
@@ -106,6 +107,13 @@ export async function runBounded(cmd: readonly string[], options: BoundedOptions
     });
   } catch (error) {
     throw new CrewError('UNAVAILABLE', `Cannot execute ${cmd[0]}`, { cause: error });
+  }
+  try {
+    options.onSpawn?.(proc.pid);
+  } catch (error) {
+    await terminateTree(proc.pid, 0);
+    await proc.exited;
+    throw error;
   }
   if (options.input !== undefined && proc.stdin && typeof proc.stdin !== 'number') {
     proc.stdin.write(options.input);

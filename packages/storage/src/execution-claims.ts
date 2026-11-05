@@ -227,3 +227,21 @@ export function releaseExecutionClaim(db: Database, token: ExecutionClaimToken, 
   db.query('UPDATE execution_claims SET released_at = ? WHERE attempt_id = ?').run(at, claim.attemptId);
   recordClaim(db, claim, 'released', at);
 }
+
+export function abandonExecutionClaim(db: Database, token: ExecutionClaimToken, at: string): void {
+  requireTransaction(db);
+  const claim = getExecutionClaim(db, token.scope);
+  if (
+    !claim ||
+    claim.attemptId !== token.attemptId ||
+    claim.ownerId !== token.ownerId ||
+    claim.generation !== token.generation ||
+    claim.inputIdentity !== token.inputIdentity ||
+    claim.releasedAt !== null ||
+    claim.expiresAt > at
+  ) {
+    throw new CrewError('STALE_LEASE', `Expired execution claim for ${token.scope} is no longer current`);
+  }
+  db.query('UPDATE execution_claims SET released_at = ? WHERE attempt_id = ?').run(at, claim.attemptId);
+  recordClaim(db, claim, 'abandoned', at);
+}
