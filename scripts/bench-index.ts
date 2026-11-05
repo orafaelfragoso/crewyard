@@ -19,6 +19,7 @@ const { values } = parseArgs({
     keep: { type: 'boolean', default: false },
     workdir: { type: 'string', default: tmpdir() },
     'warm-runs': { type: 'string', default: '0' },
+    'warm-concurrency': { type: 'string', default: '1' },
   },
 });
 
@@ -26,6 +27,9 @@ const fileCount = Number(values.files);
 const changedCount = Number(values.changed);
 const queryCount = Number(values.queries);
 const warmRuns = Number(values['warm-runs']);
+const warmConcurrency = Number(values['warm-concurrency']);
+if (!Number.isSafeInteger(warmConcurrency) || warmConcurrency < 1 || warmConcurrency > 64)
+  throw new Error('Invalid --warm-concurrency (1..64)');
 for (const [name, count] of [
   ['files', fileCount],
   ['changed', changedCount],
@@ -155,6 +159,7 @@ try {
   const coldStart = performance.now();
   const cold = await indexRepository(ctx, { repositoryId: repository.id });
   const coldMs = performance.now() - coldStart;
+  let currentSnapshot = cold.snapshot;
 
   let incremental: {
     ms: number;
@@ -168,6 +173,7 @@ try {
     const sha = await modifyFiles(repoPath, changedCount);
     const start = performance.now();
     const result = await indexRepository(ctx, { repositoryId: repository.id, sha });
+    currentSnapshot = result.snapshot;
     incremental = {
       ms: performance.now() - start,
       changed: result.snapshot.changedCount,
@@ -182,7 +188,14 @@ try {
   const warm: number[] = [];
   for (let i = 0; i < warmRuns; i++) {
     const start = performance.now();
-    await indexRepository(ctx, { repositoryId: repository.id });
+    await Promise.all(
+      Array.from({ length: warmConcurrency }, (_, j) =>
+        indexRepository(ctx, {
+          repositoryId: repository.id,
+          sha: (i + j) % 2 === 0 ? cold.snapshot.commitSha : currentSnapshot.commitSha,
+        }),
+      ),
+    );
     warm.push(performance.now() - start);
   }
   const membershipCopy: number[] = [];
@@ -226,6 +239,11 @@ try {
       bun: Bun.version,
     },
     repository: generated ? `synthetic (${fileCount} generated files)` : repoPath,
+    source: {
+      baseCommitSha: cold.snapshot.commitSha,
+      headCommitSha: currentSnapshot.commitSha,
+      treeSha: currentSnapshot.treeSha,
+    },
     durability: values.durability,
     workdir: values.workdir,
     cold: {
@@ -238,6 +256,7 @@ try {
     },
     incremental: incremental ? { ...incremental, ms: Math.round(incremental.ms) } : null,
     warmIndexMs: warm.map(round),
+    warmConcurrency,
     sqlMembershipCopyMs: membershipCopy.map(round),
     latencies,
     databaseMb: round(Bun.file(dirs.database).size / 1024 ** 2),
