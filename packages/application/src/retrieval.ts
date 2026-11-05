@@ -74,13 +74,13 @@ export async function prepareIndexExecution(
 
 export async function buildIndex(
   ctx: CrewContext,
-  input: RevisionSelector & { force?: boolean; actor: Actor; indexRevision?: string },
+  input: RevisionSelector & { force?: boolean; actor: Actor; indexRevision?: string; inProcess?: boolean },
 ): Promise<IndexResult> {
   const { sel } = selector(ctx, input);
   const revision = indexRevision(sel.config);
   if (input.indexRevision && input.indexRevision !== revision)
     throw new CrewError('CONFLICT', 'Index configuration changed after execution admission');
-  if (!ctx.execution) {
+  if (!ctx.execution && !input.inProcess) {
     const operation = await prepareIndexExecution(ctx, input);
     const repo = primaryRepository(ctx, input.projectId);
     return (await driveExecution(
@@ -108,7 +108,7 @@ export function verifyProjectIndex(ctx: CrewContext, input: RevisionSelector & {
   return verifyIndex(ctx, { ...sel, ...(input.sample ? { sample: input.sample } : {}), markStale: true });
 }
 
-async function pinnedSelector(ctx: CrewContext, input: RevisionSelector) {
+async function pinnedSelector(ctx: CrewContext, input: RevisionSelector & { inProcess?: boolean }) {
   const selected = selector(ctx, input);
   const resolved = await resolveCommit(ctx, selected.sel);
   const snapshot = snapshotByCommit(ctx.store.db, resolved.repo.id, resolved.commitSha);
@@ -120,10 +120,15 @@ async function pinnedSelector(ctx: CrewContext, input: RevisionSelector) {
       projectId: input.projectId,
       sha: resolved.commitSha,
       actor: { kind: 'service', id: 'context' },
+      inProcess: input.inProcess === true,
     });
   return {
     config: selected.config,
-    sel: { ...selected.sel, sha: resolved.commitSha, onDemand: ctx.execution !== undefined },
+    sel: {
+      ...selected.sel,
+      sha: resolved.commitSha,
+      onDemand: ctx.execution !== undefined || input.inProcess === true,
+    },
   };
 }
 
@@ -190,7 +195,13 @@ export async function getSymbol(ctx: CrewContext, input: SymbolInput) {
 
 export async function impact(
   ctx: CrewContext,
-  input: RevisionSelector & { paths?: string[]; symbols?: string[]; excludeTaskId?: string; depth?: number },
+  input: RevisionSelector & {
+    paths?: string[];
+    symbols?: string[];
+    excludeTaskId?: string;
+    depth?: number;
+    inProcess?: boolean;
+  },
 ): Promise<ImpactReport> {
   const { sel } = await pinnedSelector(ctx, input);
   return analyzeImpact(ctx, {

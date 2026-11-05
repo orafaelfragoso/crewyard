@@ -145,11 +145,12 @@ async function impactScopes(
   projectId: string,
   taskId: string,
   hints: string[],
+  inProcess: boolean,
 ): Promise<{ scopes: string[]; note: string | null }> {
   const paths = hints.filter((h) => !/^[a-z][a-z0-9_-]*:/i.test(h));
   if (paths.length === 0) return { scopes: [], note: null };
   try {
-    const report = await impact(ctx, { projectId, paths, excludeTaskId: taskId });
+    const report = await impact(ctx, { projectId, paths, excludeTaskId: taskId, inProcess });
     return {
       scopes: report.modules.filter((m) => m.tier !== 'heuristic').map((m) => m.module),
       note: report.disclaimer,
@@ -167,7 +168,7 @@ export async function claimAndPrepare(
   const detail = showTask(ctx, input.taskId);
   const task = detail.task;
   const config = loadProjectConfig(ctx, task.projectId).config;
-  const { scopes, note } = await impactScopes(ctx, task.projectId, task.id, task.scopeHints);
+  const { scopes, note } = await impactScopes(ctx, task.projectId, task.id, task.scopeHints, input.inProcess === true);
   const claim = claimTask(ctx, { taskId: task.id, holder: input.holder, impactScopes: scopes, config });
   let workspace: Workspace | null = null;
   if (input.allocateWorkspace !== false && requiresPullRequest(task)) {
