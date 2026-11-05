@@ -1,4 +1,5 @@
 import { CrewError } from './errors.ts';
+import { processLifecycle } from './process-lifecycle.ts';
 
 export const DEFAULT_ENV_ALLOWLIST: readonly string[] = [
   'PATH',
@@ -46,6 +47,8 @@ export interface RunOptions {
   maxOutputBytes?: number;
   allowFailure?: boolean;
   verbatimArguments?: boolean;
+  signal?: AbortSignal;
+  onSpawn?: (pid: number) => void;
 }
 
 export interface RunResult {
@@ -79,6 +82,8 @@ async function readLimited(
 }
 
 export async function run(cmd: readonly string[], options: RunOptions = {}): Promise<RunResult> {
+  const lifecycle = processLifecycle(options);
+  lifecycle.signal?.throwIfAborted();
   const started = performance.now();
   const limit = options.maxOutputBytes ?? 16 * 1024 * 1024;
   let proc: Bun.Subprocess<'pipe' | 'ignore', 'pipe', 'pipe'>;
@@ -98,6 +103,16 @@ export async function run(cmd: readonly string[], options: RunOptions = {}): Pro
       suggestion: `Install ${cmd[0]} or add it to PATH.`,
     });
   }
+  try {
+    lifecycle.onSpawn?.(proc.pid);
+  } catch (error) {
+    killTree(proc.pid, 'SIGKILL');
+    await proc.exited;
+    throw error;
+  }
+  const onAbort = () => killTree(proc.pid, 'SIGTERM');
+  if (lifecycle.signal?.aborted) onAbort();
+  else lifecycle.signal?.addEventListener('abort', onAbort, { once: true });
   if (options.input !== undefined && proc.stdin && typeof proc.stdin !== 'number') {
     proc.stdin.write(options.input);
     await proc.stdin.end();
@@ -116,6 +131,8 @@ export async function run(cmd: readonly string[], options: RunOptions = {}): Pro
     proc.exited,
   ]);
   if (timer) clearTimeout(timer);
+  lifecycle.signal?.removeEventListener('abort', onAbort);
+  lifecycle.signal?.throwIfAborted();
   const result: RunResult = {
     exitCode,
     stdout: stdout.text,

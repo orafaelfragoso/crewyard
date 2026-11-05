@@ -14,9 +14,19 @@ import {
   unregisterWorker,
 } from '@crewyard/storage';
 import { showTask } from '@crewyard/tasks';
-import { type Dispatch, dispatchTask } from './agents.ts';
+import { recordOperation } from '@crewyard/telemetry';
+import { freeDiskBytes } from '@crewyard/workspaces';
+import { type Dispatch, dispatchTask, prepareDispatchExecution } from './agents.ts';
 import { guardDiskSpace } from './disk-guard.ts';
-import { buildIndex, indexState } from './retrieval.ts';
+import {
+  DEFAULT_EXECUTION_LIMITS,
+  type ExecutionLimits,
+  type ExecutionOperation,
+  submitExecution,
+} from './execution.ts';
+import { ExecutionSupervisor } from './execution-supervisor.ts';
+import { prepareQueueExecution } from './integration.ts';
+import { buildIndex, indexState, prepareIndexExecution } from './retrieval.ts';
 
 export interface ProjectCycle {
   name: string;
@@ -37,6 +47,7 @@ export interface ServiceOptions {
   remoteRecovery?: readonly RemoteRecovery[];
   tickSeconds?: number;
   dispatch?: boolean;
+  execution?: ExecutionLimits;
   freeDiskBytes?: (path: string) => number;
 }
 
@@ -50,6 +61,19 @@ export function selectAgentForTask(ctx: CrewContext, taskId: string): AgentDefin
   for (const s of listSessions(ctx, { limit: 1000 })) {
     if (s.agentId && ['starting', 'running', 'stopping'].includes(s.state))
       running.set(s.agentId, (running.get(s.agentId) ?? 0) + 1);
+  }
+  const pending = ctx.store.db
+    .query(`SELECT json_extract(intent, '$.operation.agentId') AS agent_id, json_extract(intent, '$.operation.taskId') AS task_id
+    FROM outbox WHERE kind = 'execution.launch' AND status IN ('pending', 'attempted', 'ambiguous') AND json_extract(intent, '$.operation.kind') = 'dispatch'`)
+    .all() as { agent_id: string; task_id: string }[];
+  const sessions = listSessions(ctx, { limit: 1000 });
+  for (const item of pending) {
+    if (
+      !sessions.some(
+        (session) => session.taskId === item.task_id && ['starting', 'running', 'stopping'].includes(session.state),
+      )
+    )
+      running.set(item.agent_id, (running.get(item.agent_id) ?? 0) + 1);
   }
   const hasCapacity = (a: AgentDefinition) => (running.get(a.id) ?? 0) < a.maxParallel;
   if (task.assignedAgentId) {
@@ -74,13 +98,20 @@ export class CrewService {
   private readonly inflight = new Set<Promise<unknown>>();
   private readonly dispatches = new Set<Dispatch>();
   private readonly leaders = new Map<string, number>();
-  private readonly diskLow = new Set<string>();
+  private readonly leaderTtls = new Map<string, number>();
+  private readonly executions: ExecutionSupervisor | null;
+  private pulse: ReturnType<typeof setInterval> | null = null;
+  private projectCursor = 0;
 
   constructor(
     private readonly ctx: CrewContext,
     private readonly options: ServiceOptions = {},
   ) {
     this.workerId = registerWorker(ctx.store, 'service', { pid: process.pid, host: hostname() });
+    this.executions =
+      options.cycles === undefined
+        ? new ExecutionSupervisor(ctx, this.workerId, options.execution ?? { ...DEFAULT_EXECUTION_LIMITS })
+        : null;
   }
 
   log(type: string, payload: Record<string, unknown>, projectId: string | null = null): void {
@@ -88,8 +119,15 @@ export class CrewService {
   }
 
   async start(): Promise<void> {
-    const recovery = await runRecovery(this.ctx, { actor: SERVICE_ACTOR, remote: this.options.remoteRecovery ?? [] });
-    this.log('service.started', { workerId: this.workerId, recoveryOk: recovery.ok });
+    const recovery = this.executions
+      ? null
+      : await runRecovery(this.ctx, { actor: SERVICE_ACTOR, remote: this.options.remoteRecovery ?? [] });
+    this.log('service.started', {
+      workerId: this.workerId,
+      ...(recovery
+        ? { recoveryState: 'completed', recoveryOk: recovery.ok }
+        : { recoveryState: 'deferred_to_workers' }),
+    });
     const beat = () =>
       heartbeatWorker(this.ctx.store, this.workerId, 'running', {
         inflight: this.inflight.size,
@@ -120,6 +158,8 @@ export class CrewService {
 
   private async shutdown(): Promise<void> {
     this.stopping = true;
+    if (this.pulse) clearInterval(this.pulse);
+    await this.executions?.stop();
     await Promise.allSettled([...this.dispatches].map((d) => d.interrupt('the Crewyard service stopped')));
     await Promise.allSettled([...this.inflight]);
     for (const [scope, generation] of this.leaders) releaseLeadership(this.ctx.store, scope, this.workerId, generation);
@@ -142,8 +182,26 @@ export class CrewService {
   }
 
   async tick(): Promise<void> {
-    await reapOrphans(this.ctx, { actor: SERVICE_ACTOR });
-    for (const project of listProjects(this.ctx)) {
+    const started = performance.now();
+    if (this.executions && !this.pulse) {
+      this.pulse = setInterval(() => {
+        try {
+          for (const [scope, ttl] of this.leaderTtls) {
+            const lease = acquireLeadership(this.ctx.store, scope, this.workerId, ttl);
+            if (lease) this.leaders.set(scope, lease.generation);
+            else this.leaders.delete(scope);
+          }
+          heartbeatWorker(this.ctx.store, this.workerId, 'running', { executions: this.executions?.size ?? 0 });
+          this.executions?.pump();
+        } catch (error) {
+          this.ctx.logger.error('service pulse failed', { error: toCrewError(error).message });
+        }
+      }, 1_000);
+    }
+    if (!this.executions) await reapOrphans(this.ctx, { actor: SERVICE_ACTOR });
+    const projects = listProjects(this.ctx);
+    const offset = projects.length ? this.projectCursor++ % projects.length : 0;
+    for (const project of [...projects.slice(offset), ...projects.slice(0, offset)]) {
       if (this.stopping) return;
       try {
         await this.projectTick(project.id, project.workersPaused, project.intakePaused);
@@ -151,11 +209,26 @@ export class CrewService {
         this.log('service.project_failed', { error: toCrewError(error).message }, project.id);
       }
     }
+    this.executions?.pump();
+    if (this.executions)
+      recordOperation(this.ctx, {
+        operation: 'controller',
+        projectId: null,
+        repositoryId: null,
+        durationMs: performance.now() - started,
+        outcome: 'completed',
+        actor: SERVICE_ACTOR,
+        counts: { projects: projects.length, activeWorkers: this.executions.size },
+      });
   }
 
   private async projectTick(projectId: string, workersPaused: boolean, intakePaused: boolean): Promise<void> {
     const loaded = loadProjectConfig(this.ctx, projectId);
     recordPolicyRevision(this.ctx, projectId, loaded.config, SERVICE_ACTOR.id);
+    if (this.executions) {
+      await this.projectExecutionTick(projectId, workersPaused, intakePaused);
+      return;
+    }
     await reconcileLeases(this.ctx, { projectId, actor: SERVICE_ACTOR });
     const repo = primaryRepository(this.ctx, projectId);
 
@@ -199,11 +272,10 @@ export class CrewService {
       projectId,
       config: loaded.config,
       actor: SERVICE_ACTOR,
-      alert: !this.diskLow.has(projectId),
+      alert: true,
+      prune: 'when-low',
       ...(this.options.freeDiskBytes ? { measure: this.options.freeDiskBytes } : {}),
     });
-    if (guard.disk.low) this.diskLow.add(projectId);
-    else this.diskLow.delete(projectId);
     const plan = planDispatch(this.ctx, projectId, { config: loaded.config, freeDiskBytes: guard.freeDiskBytes });
     for (const admission of plan.admitted) {
       if (this.stopping) return;
@@ -214,6 +286,7 @@ export class CrewService {
           taskId: admission.taskId,
           agent: agent.id,
           actor: SERVICE_ACTOR,
+          inProcess: true,
         });
         this.log(
           'service.dispatched',
@@ -243,6 +316,74 @@ export class CrewService {
           projectId,
         );
       }
+    }
+  }
+  private async projectExecutionTick(projectId: string, workersPaused: boolean, intakePaused: boolean): Promise<void> {
+    const loaded = loadProjectConfig(this.ctx, projectId);
+    const repo = primaryRepository(this.ctx, projectId);
+    const scope = `integration:${repo.id}:${repo.defaultBase}`;
+    const ttl = Math.max(60, loaded.config.integration.poll_interval_seconds * 3);
+    const lease = acquireLeadership(this.ctx.store, scope, this.workerId, ttl);
+    if (!lease) {
+      this.leaders.delete(scope);
+      this.leaderTtls.delete(scope);
+      return;
+    }
+    this.leaders.set(scope, lease.generation);
+    this.leaderTtls.set(scope, ttl);
+    const cycles: { operation: ExecutionOperation; seconds: number }[] = [];
+    const schedule = (operation: ExecutionOperation, seconds: number) => cycles.push({ operation, seconds });
+    if (repo.remoteOwner !== null && (repo.remoteHost === 'github.com' || Boolean(process.env.CREW_GITHUB_API_URL))) {
+      schedule({ kind: 'sync' }, loaded.config.integration.poll_interval_seconds);
+      schedule({ kind: 'publish' }, 5);
+      schedule({ kind: 'outbox' }, 5);
+      schedule(prepareQueueExecution(this.ctx, repo.id, { sync: false, maxCandidates: 3, processOutbox: false }), 5);
+      schedule({ kind: 'health' }, 30);
+    }
+    if (loaded.config.index.enabled && Date.now() - (this.lastRun.get(`index:${projectId}`) ?? 0) >= 300_000)
+      schedule(await prepareIndexExecution(this.ctx, { projectId }), 300);
+    schedule({ kind: 'cleanup' }, 30);
+    if (
+      !workersPaused &&
+      !intakePaused &&
+      this.options.dispatch !== false &&
+      loaded.config.project.autonomy !== 'observe'
+    ) {
+      const plan = planDispatch(this.ctx, projectId, {
+        config: loaded.config,
+        freeDiskBytes:
+          loaded.config.scheduler.min_free_disk_gb === 0
+            ? null
+            : (this.options.freeDiskBytes ?? freeDiskBytes)(this.ctx.dirs.worktrees),
+      });
+      for (const admission of plan.admitted) {
+        const agent = selectAgentForTask(this.ctx, admission.taskId);
+        if (agent)
+          schedule(
+            prepareDispatchExecution(this.ctx, { taskId: admission.taskId, agent: agent.id, actor: SERVICE_ACTOR }),
+            5,
+          );
+      }
+    }
+    const keyFor = (operation: ExecutionOperation) =>
+      `${operation.kind}:${projectId}${operation.kind === 'dispatch' ? `:${operation.taskId}` : ''}`;
+    cycles.sort((a, b) => (this.lastRun.get(keyFor(a.operation)) ?? 0) - (this.lastRun.get(keyFor(b.operation)) ?? 0));
+    for (const { operation, seconds } of cycles) {
+      if (this.stopping) return;
+      const key = keyFor(operation);
+      if (Date.now() - (this.lastRun.get(key) ?? 0) < seconds * 1000) continue;
+      const admitted = submitExecution(
+        this.ctx,
+        {
+          projectId,
+          repositoryId: repo.id,
+          actor: SERVICE_ACTOR,
+          leaderId: this.workerId,
+          operation,
+        },
+        this.executions!.limits,
+      );
+      if (admitted) this.lastRun.set(key, Date.now());
     }
   }
 }

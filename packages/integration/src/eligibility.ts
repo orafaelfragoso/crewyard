@@ -1,7 +1,17 @@
 import type { Database } from 'bun:sqlite';
 import type { CrewConfig } from '@crewyard/config';
 import { type Actor, type AutonomyMode, CrewError, newId, nowIso, type Risk } from '@crewyard/core';
-import { classifyPaths, type PathClassification, type ReviewSummary, reviewSummary } from '@crewyard/reviews';
+import {
+  classifyPaths,
+  type PathClassification,
+  type ReviewAcceptancePolicy,
+  type ReviewArtifact,
+  type ReviewSummary,
+  reviewContextPaths,
+  reviewPolicyVersion,
+  reviewSummary,
+  StaticAnalysisReviewer,
+} from '@crewyard/reviews';
 import { type CrewContext, one, recordTransition } from '@crewyard/storage';
 import { autonomyFor, configFor, repositoryFor } from './env.ts';
 import { activeEntryForPr, dependenciesOf, pullRequestById, queueById, requirePullRequest } from './records.ts';
@@ -232,18 +242,52 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityResult 
 
 export function hasMergeApproval(db: Database, pr: PullRequestRecord): boolean {
   return (
-    one(
+    one<{ status: string }>(
       db,
-      `SELECT 1 FROM approvals WHERE subject_kind = 'merge' AND subject_id = ? AND status = 'approved' LIMIT 1`,
+      `SELECT status FROM approvals WHERE subject_kind = 'merge' AND subject_id = ?
+     ORDER BY COALESCE(decided_at, created_at) DESC, rowid DESC LIMIT 1`,
       mergeApprovalSubject(pr.id, pr.headSha),
-    ) !== null
+    )?.status === 'approved'
   );
+}
+
+export function integrationReviewAcceptance(
+  ctx: CrewContext,
+  env: IntegrationEnv,
+  config: CrewConfig,
+  repositoryId: string,
+  baseSha: string | null,
+): ReviewAcceptancePolicy {
+  const reviewer = new StaticAnalysisReviewer();
+  return {
+    expectedBaseSha: baseSha,
+    at: nowIso(ctx.clock),
+    policyVersion: reviewPolicyVersion(config),
+    minConfidence: 0.5,
+    cacheEnabled: config.review.cache_enabled,
+    requireReviewForHighRisk: config.review.require_review_for_high_risk,
+    ...(env.reviewContext
+      ? {
+          currentContext: (review: ReviewArtifact) =>
+            env.reviewContext!(review.repositoryId, review.commitSha, reviewContextPaths(review.fingerprintInputs)),
+        }
+      : {}),
+    expectedReviewers:
+      env.reviewAcceptance?.(repositoryId) ??
+      (config.review.reviewer_agent ? {} : { code: reviewer, security: reviewer, integration: reviewer }),
+  };
 }
 
 export function eligibilityInputFor(
   db: Database,
   pr: PullRequestRecord,
-  context: { autonomy: AutonomyMode; config: CrewConfig; mode: QueueMode; queuePaused: boolean },
+  context: {
+    autonomy: AutonomyMode;
+    config: CrewConfig;
+    mode: QueueMode;
+    queuePaused: boolean;
+    reviewAcceptance: ReviewAcceptancePolicy;
+  },
 ): EligibilityInput {
   const entry = activeEntryForPr(db, pr.id);
   return {
@@ -252,7 +296,7 @@ export function eligibilityInputFor(
     config: context.config,
     mode: context.mode,
     mergeApproved: hasMergeApproval(db, pr),
-    reviews: reviewSummary(db, pr.id, pr.headSha),
+    reviews: reviewSummary(db, pr.id, pr.headSha, context.reviewAcceptance),
     parents: dependenciesOf(db, pr.id)
       .map((d) => ({ dep: d, record: pullRequestById(db, d.prId) }))
       .filter((d): d is { dep: (typeof d)['dep']; record: PullRequestRecord } => d.record !== null)
@@ -298,6 +342,7 @@ export function explainPullRequest(ctx: CrewContext, prId: string, env: Integrat
     config,
     mode,
     queuePaused: queue?.paused ?? false,
+    reviewAcceptance: integrationReviewAcceptance(ctx, env, config, repository.id, pr.baseSha),
   });
   const result = evaluateEligibility(input);
   const queueBlockers = (entry?.blockers ?? []).filter(

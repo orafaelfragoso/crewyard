@@ -7,6 +7,8 @@ export interface GhTokenOptions {
   configDir?: string | null;
   ghBinary?: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
+  onSpawn?: (pid: number) => void;
 }
 
 const PASSTHROUGH_ENV = [
@@ -44,6 +46,8 @@ async function readGhToken(options: GhTokenOptions): Promise<string> {
     timeoutMs: options.timeoutMs ?? 15_000,
     allowFailure: true,
     maxOutputBytes: 16 * 1024,
+    signal: options.signal,
+    onSpawn: options.onSpawn,
   });
   const token = result.stdout.trim();
   if (result.exitCode !== 0 || token === '') {

@@ -78,6 +78,21 @@ async function primarySnapshot(repo: string) {
 const posix = process.platform !== 'win32';
 
 describe('workspaces', () => {
+  test('concurrent allocation routes reserve one task workspace before running Git', async () => {
+    const { ctx, repo, newTask, config } = await setup();
+    const task = newTask('Concurrent allocation');
+    const results = await Promise.all([
+      allocateWorkspace(ctx, { taskId: task.id, actor: operator, config }),
+      allocateWorkspace(ctx, { taskId: task.id, actor: operator, config }),
+    ]);
+    expect(results[0]!.workspace.id).toBe(results[1]!.workspace.id);
+    expect(results.filter((result) => result.reused)).toHaveLength(1);
+    expect(ctx.store.db.query('SELECT id, state FROM workspaces WHERE task_id = ?').all(task.id)).toEqual([
+      { id: results[0]!.workspace.id, state: 'ready' },
+    ]);
+    expect((await gitText(repo, ['worktree', 'list', '--porcelain'])).match(/^worktree /gm)).toHaveLength(2);
+  });
+
   test('three tasks modify separate worktrees while the primary checkout stays byte-identical', async () => {
     const { ctx, repo, newTask, config } = await setup();
     const before = await primarySnapshot(repo);

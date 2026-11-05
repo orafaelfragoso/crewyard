@@ -16,6 +16,7 @@ export interface Store {
   readonly db: Database;
   readonly path: string;
   readonly clock: Clock;
+  readonly contention: { busyRetries: number; busyWaitMs: number; busyFailures: number };
   immediate<T>(fn: (db: Database) => T): T;
   preview<T>(fn: (db: Database) => T): T;
   read<T>(fn: (db: Database) => T): T;
@@ -31,12 +32,16 @@ function isBusy(error: unknown): boolean {
 }
 
 export function openStore(options: OpenOptions): Store {
+  const busyBudgetMs = options.busyTimeoutMs ?? 1_000;
+  if (!Number.isSafeInteger(busyBudgetMs) || busyBudgetMs < 0)
+    throw new CrewError('INVALID_INPUT', 'SQLite busy acquisition budget must be a non-negative integer');
   if (options.path !== ':memory:') ensureDir(dirname(options.path));
   const db = new Database(
     options.path,
     options.readonly ? { readonly: true, strict: true } : { create: true, strict: true },
   );
-  db.exec(`PRAGMA busy_timeout = ${options.busyTimeoutMs ?? 5000}`);
+  db.function('crewyard_writer_protocol', () => 1);
+  db.exec(`PRAGMA busy_timeout = ${Math.min(50, busyBudgetMs)}`);
   if (!options.readonly) {
     db.exec('PRAGMA journal_mode = WAL');
     db.exec(`PRAGMA synchronous = ${(options.durability ?? 'full') === 'full' ? 'FULL' : 'NORMAL'}`);
@@ -44,21 +49,28 @@ export function openStore(options: OpenOptions): Store {
   db.exec('PRAGMA foreign_keys = ON');
   db.exec('PRAGMA temp_store = MEMORY');
   const clock = options.clock ?? systemClock;
+  const contention = { busyRetries: 0, busyWaitMs: 0, busyFailures: 0 };
 
   const immediate = <T>(fn: (db: Database) => T): T => {
+    const started = performance.now();
     for (let attempt = 0; ; attempt++) {
       try {
         db.exec('BEGIN IMMEDIATE');
       } catch (error) {
-        if (isBusy(error) && attempt < MAX_BUSY_RETRIES) {
-          Bun.sleepSync(Math.min(500, 10 * 2 ** attempt) + Math.floor(Math.random() * 10));
+        const remainingMs = busyBudgetMs - (performance.now() - started);
+        if (isBusy(error) && attempt < MAX_BUSY_RETRIES && remainingMs > 0) {
+          contention.busyRetries++;
+          Bun.sleepSync(Math.min(remainingMs, Math.min(500, 10 * 2 ** attempt) + Math.floor(Math.random() * 10)));
           continue;
         }
         if (isBusy(error)) {
+          contention.busyWaitMs += performance.now() - started;
+          contention.busyFailures++;
           throw new CrewError('BUSY', 'Database is busy; retry the operation', { cause: error, retryable: true });
         }
         throw error;
       }
+      if (attempt > 0) contention.busyWaitMs += performance.now() - started;
       try {
         const result = fn(db);
         if (result instanceof Promise) {
@@ -93,6 +105,7 @@ export function openStore(options: OpenOptions): Store {
     db,
     path: options.path,
     clock,
+    contention,
     immediate,
     preview,
     read,

@@ -4,7 +4,7 @@ description: Breaks a Crewyard goal into a validated task DAG with explicit depe
 compatibility: Requires Crewyard via the MCP server (`crew mcp`) or the `crew` CLI on PATH.
 metadata:
   author: crewyard
-  version: "1.0"
+  version: "1.1"
 ---
 
 # Crewyard planning
@@ -27,7 +27,8 @@ You propose a plan. Crewyard validates it (unique IDs, no cycles, known dependen
 4. **Design the DAG.**
    - One task = one reviewable PR with a single objective.
    - Prefer tasks with disjoint scopes so they can run in parallel. Where scopes must overlap, add a dependency rather than hoping for no conflict.
-   - Put contract changes (schema, interface, migration) first and make consumers depend on them.
+   - Put contract changes (schema, interface, migration) first and make consumers depend on them. Pin the contract and its acceptance checks before assigning consumers.
+   - Identify architectural, trust and risk choices that need operator judgment. Disjoint paths are a scheduling heuristic; list behavioral interactions and the check that proves each integration boundary.
    - Give migrations, auth, payments, deployment and dependency changes their own tasks and mark them `high` risk; they need approval.
    - No cycles. Reference only task IDs in this plan or existing task IDs.
 5. **Write each task** with the fields in [the plan format](references/plan-format.md): id, title, objective, acceptance criteria, risk, priority, dependencies, scope hints, exclusive resources, requested role, and the tests or checks that prove it.
@@ -37,6 +38,8 @@ You propose a plan. Crewyard validates it (unique IDs, no cycles, known dependen
 ## Crewyard contract
 
 These apply to every Crewyard task, whatever this skill is used for:
+
+Skills are advisory. Worktrees and attempt directories isolate cooperative work; agents still run as the operating-system user. A lease fences Crewyard mutations and cannot revoke an already issued external request or arbitrary filesystem access.
 
 1. Inspect `crew_get_state` and the project policy before acting.
 2. Claim the task with `crew_claim_task` before modifying anything.

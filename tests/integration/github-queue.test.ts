@@ -13,7 +13,7 @@ import {
   showPullRequest,
   syncRepository,
 } from '@crewyard/integration';
-import { type Reviewer, requestReview } from '@crewyard/reviews';
+import { collectPatch, type Reviewer, requestReview } from '@crewyard/reviews';
 import { all } from '@crewyard/storage';
 import { createGitHubFixture, type GitHubFixture } from './github-fixture.ts';
 
@@ -81,9 +81,7 @@ describe('crew-managed integration queue', () => {
       f.ctx.store.db,
       `SELECT integration_validated, ci_evidence FROM integration_candidates WHERE status = 'merged'`,
     );
-    expect(
-      candidates.some((c) => c.integration_validated === 0 && c.ci_evidence.includes('not-yet-integration-validated')),
-    ).toBe(true);
+    expect(candidates.some((c) => c.integration_validated === 0 && c.ci_evidence.includes('local-prefix'))).toBe(true);
   }, 60_000);
 
   test('AT-04: two PRs changing the same interface are not assumed compatible', async () => {
@@ -311,6 +309,8 @@ describe('crew-managed integration queue', () => {
     const f = fx;
     const a = await openPull(f, 'a', { 'src/a.ts': 'export const a = 1;\n' });
     const b = await openPull(f, 'b', { 'src/b.ts': 'export const b = 1;\n' });
+    f.mock.pull(a).files = [{ filename: 'src/a.ts', status: 'added', additions: 1, deletions: 0 }];
+    f.mock.pull(b).files = [{ filename: 'src/b.ts', status: 'added', additions: 1, deletions: 0 }];
     await queueAll(f, [a, b]);
     await queueTick(f.ctx, f.repositoryId, { leaderId: 'leader-1', env: f.env });
     const candidates = all<{ entries: string; status: string }>(
@@ -324,7 +324,9 @@ describe('crew-managed integration queue', () => {
   }, 60_000);
 
   test('GitHub-native stacks merge contiguously through the asynchronous merge API', async () => {
-    fx = await createGitHubFixture();
+    fx = await createGitHubFixture({
+      config: { validation: { broad: [{ name: 'prefix', command: check('present', 'stack/one.ts') }] } },
+    });
     const f = fx;
     await f.pushBranch('n1', { 'stack/one.ts': '1\n' });
     await f.pushBranch('n2', { 'stack/two.ts': '2\n' }, 'n1');
@@ -609,9 +611,17 @@ describe('queue routing', () => {
       promptVersion: 'p1',
       review: () => Promise.reject(new Error('reviewer crashed')),
     };
+    f.env.reviewAcceptance = () => ({ code: failing });
     await requestReview(
       f.ctx,
-      { repositoryId: f.repositoryId, prId: pr.id, commitSha: pr.headSha, baseSha: 'base', patch: '', types: ['code'] },
+      {
+        repositoryId: f.repositoryId,
+        prId: pr.id,
+        commitSha: pr.headSha,
+        baseSha: pr.baseSha!,
+        patch: await collectPatch(f.repo, pr.baseSha!, pr.headSha),
+        types: ['code'],
+      },
       { reviewers: { code: failing }, config: f.config },
     );
     await tick(f);

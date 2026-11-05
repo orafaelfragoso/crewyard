@@ -4,12 +4,12 @@ description: Performs an incremental code, security or integration review of a C
 compatibility: Requires Crewyard via the MCP server (`crew mcp`) or the `crew` CLI on PATH.
 metadata:
   author: crewyard
-  version: "1.0"
+  version: "1.1"
 ---
 
 # Crewyard review
 
-A review is evidence bound to a commit SHA, a review policy version and a context fingerprint. Crewyard reuses it only while those stay the same. An AI review is supplementary: it never replaces required GitHub checks, CODEOWNERS or human approvals.
+Review evidence v2 binds actual Git trees, blob identities, modes and paths, context content and coverage, and the admitted reviewer, provider/model, prompt, policy and expiry. Unsupported legacy evidence remains historical and cannot authorize integration. An AI review is supplementary: it never replaces required GitHub checks, CODEOWNERS or human approvals.
 
 | Need | MCP tool | CLI equivalent |
 |---|---|---|
@@ -26,7 +26,7 @@ A review is evidence bound to a commit SHA, a review policy version and a contex
 
 1. **Inspect.** Call `crew_get_state` for the review policy, risk class and sensitive paths. If you were given a review task, claim it first (`crew_claim_task`) and renew its lease while reviewing.
 2. **Read existing evidence.** Call `crew_get_review`. Note the reviewed head SHA, previous findings and their status. If evidence for the current head and policy already exists, do not repeat it; report that instead.
-3. **Scope the review.** Review the diff since the last reviewed SHA (incremental) plus anything `crew_analyze_impact` marks as affected: changed interfaces, schemas, dependencies and their callers. Do a full review only when Crewyard asks for it or the dependency context is unknown.
+3. **Scope the review.** Follow the scope returned by the admitted request. Incremental reuse requires unchanged recorded context and adequate coverage; missing, truncated or unresolved context cannot prove completeness. Review affected contracts and callers as well as the patch. Arbitrary-checkout reviewers are bound to the whole tree.
 4. **Check against the task.** Compare the change with the task's objective and acceptance criteria and with the tests the author recorded.
 5. **Write findings** in the [finding format](references/finding-format.md): one finding per issue, with severity, confidence, path and line range, reason, evidence and a suggested fix. Re-check open findings from earlier rounds and mark them `resolved` only when the new commit fixes them.
 6. **Submit.** Submit findings with `crew_submit_work` (handoff `needs_review` if changes are required, `completed` otherwise), always naming the exact commit SHA you reviewed.
@@ -35,6 +35,8 @@ A review is evidence bound to a commit SHA, a review policy version and a contex
 ## Crewyard contract
 
 These apply to every Crewyard task, whatever this skill is used for:
+
+Skills are advisory. Worktrees and attempt directories isolate cooperative work; agents still run as the operating-system user. A lease fences Crewyard mutations and cannot revoke an already issued external request or arbitrary filesystem access.
 
 1. Inspect `crew_get_state` and the project policy before acting.
 2. Claim the task with `crew_claim_task` before modifying anything.
@@ -47,6 +49,9 @@ These apply to every Crewyard task, whatever this skill is used for:
 9. After a handoff, request the next safe action with `crew_get_next_action`.
 
 ## Skill rules
+
+- A forced request bypasses completed evidence and incremental reuse. It may join only an equivalent active full execution at the current inputs and policy; a later forced request starts fresh work. Cache-disabled and high-risk requests may coalesce active work, never revive completed evidence. Attachments retain source expiry.
+- A pending request or joined attachment is not a passed review. Report interrupted, failed, stale or unavailable evidence explicitly.
 
 - Review in a read-only way. Do not push commits, edit the author's branch or rebase it. Suggested fixes belong in findings.
 - Never approve on GitHub on Crewyard's behalf, merge, dismiss required reviews, or mark checks as passed. A positive AI review cannot waive a failing check.

@@ -35,6 +35,16 @@ async function isIgnoredAndUntracked(root: string, entry: string): Promise<boole
 
 function isIdle(db: Database, ws: Workspace): boolean {
   if (ws.taskId && one(db, 'SELECT 1 FROM leases WHERE task_id = ? AND released_at IS NULL', ws.taskId)) return false;
+  if (
+    ws.taskId &&
+    one(
+      db,
+      `SELECT 1 FROM execution_claims c JOIN outbox o ON json_extract(o.intent, '$.claim.attemptId') = c.attempt_id
+       WHERE o.kind = 'execution.launch' AND o.task_id = ? AND c.released_at IS NULL`,
+      ws.taskId,
+    )
+  )
+    return false;
   return !one(
     db,
     `SELECT 1 FROM sessions WHERE workspace_id = ? AND state IN ('starting', 'running', 'stopping')`,

@@ -1,35 +1,42 @@
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { awaitSession, getAgent, startManagedSession } from '@crewyard/agents';
-import { interfaceFingerprint } from '@crewyard/context';
+import { interfaceFingerprintFromSnapshot } from '@crewyard/context';
 import { type Actor, CrewError, ensureDir, fingerprint, git, newId, type TaskState, toCrewError } from '@crewyard/core';
-import { dependencyGraph, snapshotByCommit } from '@crewyard/indexing';
+import { dependencyGraph, dependencyGraphFromSnapshot, indexRevision, snapshotByCommit } from '@crewyard/indexing';
 import {
+  clientFor,
   createClientFactory,
-  fetchIntegrationRefs,
   type IntegrationEnv,
+  type OutboxReport,
   type PendingHook,
   type PullRequestReviewInput,
+  processIntegrationOutbox,
+  type QueueTickResult,
+  queueTick,
   requestPullRequestReview,
   requirePullRequest,
   runHooks,
   type TaskHookEvent,
   type TaskHooks,
 } from '@crewyard/integration';
-import { getRepository, loadProjectConfig } from '@crewyard/projects';
+import { fetchCommit, getRepository, loadProjectConfig } from '@crewyard/projects';
 import {
   type ContextFingerprintProvider,
   type RequestReviewResult,
+  type ReviewContext,
   type Reviewer,
   type ReviewInput,
   type ReviewType,
   StaticAnalysisReviewer,
   type StructuredFindings,
 } from '@crewyard/reviews';
-import { all, appendEvent, type CrewContext } from '@crewyard/storage';
+import { all, appendEvent, type CrewContext, registerExecutionWorktree } from '@crewyard/storage';
 import { showTask, transitionTask } from '@crewyard/tasks';
 import { listWorkspaces, setExpectedRemoteHead } from '@crewyard/workspaces';
 import { extractJson, sessionResultText } from './agents.ts';
+import { DEFAULT_EXECUTION_LIMITS, type ExecutionOperation } from './execution.ts';
+import { driveExecution } from './execution-driver.ts';
 import { sessionTooling } from './session-tooling.ts';
 
 export const INTEGRATION_ACTOR: Actor = { kind: 'service', id: 'crew-integration' };
@@ -122,13 +129,44 @@ export async function reconcileMergedTasks(
   return rows.map((r) => r.task_id);
 }
 
+export function currentReviewContext(
+  ctx: CrewContext,
+  repositoryId: string,
+  sha: string,
+  paths: readonly string[],
+): ReviewContext | null {
+  const repository = getRepository(ctx, repositoryId);
+  const config = loadProjectConfig(ctx, repository.projectId).config.index;
+  const snapshot = snapshotByCommit(ctx.store.db, repositoryId, sha);
+  if (snapshot?.status !== 'available' || snapshot.revision !== indexRevision(config)) return null;
+  const graph = dependencyGraphFromSnapshot(
+    ctx,
+    { repositoryId, sha, paths: [...paths], direction: 'both', depth: 1, limit: 500, config },
+    snapshot,
+  );
+  const interfaces = interfaceFingerprintFromSnapshot(ctx, snapshot, paths);
+  return {
+    contentFingerprint: graph.contentFingerprint,
+    dependencyFingerprint: graph.contentFingerprint,
+    interfaceFingerprint: interfaces.fingerprint,
+    symbolGraphRevision: graph.revision,
+    coverage: {
+      kind: 'bounded',
+      depth: graph.coverage.depth,
+      limit: graph.coverage.limit,
+      truncated: graph.truncated,
+      missingPaths: [...new Set([...graph.coverage.missingPaths, ...graph.coverage.incompletePaths])].sort(),
+      unresolvedImports: graph.coverage.unresolvedImports,
+    },
+  };
+}
+
 export function contextFingerprints(ctx: CrewContext): ContextFingerprintProvider {
   return {
-    async interfaceFingerprint(repositoryId, sha, paths) {
-      return (await interfaceFingerprint(ctx, { repositoryId, sha, paths: [...paths], onDemand: true })).fingerprint;
-    },
-    async relatedDependencyFingerprint(repositoryId, sha, paths) {
-      const graph = await dependencyGraph(ctx, {
+    async collect(repositoryId, sha, paths) {
+      const repository = getRepository(ctx, repositoryId);
+      const config = loadProjectConfig(ctx, repository.projectId).config.index;
+      await dependencyGraph(ctx, {
         repositoryId,
         sha,
         paths: [...paths],
@@ -136,13 +174,11 @@ export function contextFingerprints(ctx: CrewContext): ContextFingerprintProvide
         depth: 1,
         limit: 500,
         onDemand: true,
+        config,
       });
-      const related = [...new Set(graph.nodes.map((n) => n.path))].filter((p) => !paths.includes(p)).sort();
-      if (related.length === 0) return fingerprint({ related: [] });
-      return (await interfaceFingerprint(ctx, { repositoryId, sha, paths: related, onDemand: true })).fingerprint;
-    },
-    async symbolGraphRevision(repositoryId, sha) {
-      return snapshotByCommit(ctx.store.db, repositoryId, sha)?.revision ?? null;
+      const context = currentReviewContext(ctx, repositoryId, sha, paths);
+      if (context === null) throw new CrewError('INDEX_STALE', 'Review context changed during collection');
+      return context;
     },
   };
 }
@@ -183,7 +219,9 @@ const REVIEW_FOCUS: Record<ReviewType, string> = {
 export class AgentReviewer implements Reviewer {
   readonly identity: string;
   readonly model: string | null;
-  readonly promptVersion = 'crew-review-1';
+  readonly promptVersion = 'crew-review-2';
+  readonly configurationFingerprint: string;
+  private readonly provider: string | null;
 
   constructor(
     private readonly ctx: CrewContext,
@@ -194,10 +232,18 @@ export class AgentReviewer implements Reviewer {
     const agent = getAgent(ctx, agentRef);
     this.identity = `agent:${agent.name}`;
     this.model = agent.providerPreferences[0]?.model ?? null;
+    this.provider = agent.providerPreferences[0]?.provider ?? null;
+    this.configurationFingerprint = fingerprint(agent);
   }
 
   async review(input: ReviewInput): Promise<StructuredFindings> {
-    const patch = input.patch.length > 120_000 ? `${input.patch.slice(0, 120_000)}\n[patch truncated]` : input.patch;
+    if (this.model === null || this.provider === null)
+      throw new CrewError('POLICY_DENIED', 'Review agents require an explicit provider and model', {
+        suggestion: 'Set a model in the first provider preference of the configured review.reviewer_agent.',
+      });
+    if (input.patch.length > 120_000)
+      throw new CrewError('INVALID_INPUT', 'Review patch exceeds the agent complete-input limit');
+    const patch = input.patch;
     const prompt = [
       `Perform a ${input.scope} ${input.reviewType} review of commit ${input.commitSha} against base ${input.baseSha}.`,
       `Focus on ${REVIEW_FOCUS[input.reviewType]}.`,
@@ -220,13 +266,17 @@ export class AgentReviewer implements Reviewer {
         cwd: this.cwd,
         prompt,
         mode: 'review',
+        model: this.model,
         outputSchema: FINDINGS_SCHEMA,
         timeoutMinutes: 20,
         actor: INTEGRATION_ACTOR,
       },
       { tooling: sessionTooling(this.ctx) },
     );
+    if (session.pid !== null) this.ctx.execution?.onSpawn(session.pid);
     const record = await awaitSession(this.ctx, session.sessionId);
+    if (record.model !== this.model || session.providerId !== this.provider)
+      throw new CrewError('POLICY_DENIED', 'Review execution differs from its admitted provider and model');
     if (record.state !== 'completed') {
       throw new CrewError(
         'EXTERNAL_FAILURE',
@@ -248,38 +298,182 @@ export function reviewersFor(ctx: CrewContext, projectId: string, cwd: string): 
   return { code: agent, security: baseline, integration: agent };
 }
 
-async function headOf(path: string): Promise<string | null> {
-  const result = await git(path, ['rev-parse', 'HEAD'], { allowFailure: true });
-  return result.exitCode === 0 ? result.stdout.trim() : null;
-}
-
 export async function reviewPullRequest(
   ctx: CrewContext,
-  input: PullRequestReviewInput,
-  env: IntegrationEnv = {},
+  input: PullRequestReviewInput & { configurationFingerprint?: string },
+  env?: IntegrationEnv,
 ): Promise<RequestReviewResult> {
   const pr = requirePullRequest(ctx.store.db, input.prId);
   const repo = getRepository(ctx, pr.repositoryId);
+  const config = loadProjectConfig(ctx, repo.projectId).config;
+  const configurationFingerprint = fingerprint({
+    config,
+    reviewers: Object.entries(reviewersFor(ctx, repo.projectId, repo.canonicalPath)).map(([type, reviewer]) => ({
+      type,
+      identity: reviewer.identity,
+      model: reviewer.model,
+      promptVersion: reviewer.promptVersion,
+      configurationFingerprint: reviewer.configurationFingerprint ?? null,
+    })),
+  });
+  if (input.configurationFingerprint && input.configurationFingerprint !== configurationFingerprint)
+    throw new CrewError('CONFLICT', 'Review configuration changed after execution admission');
+  if (!ctx.execution && env === undefined) {
+    const client = await clientFor(ctx, integrationEnv(ctx), repo);
+    const base = await client.getBranch(pr.governance?.integrationBase ?? pr.baseRef);
+    return (await driveExecution(
+      ctx,
+      {
+        projectId: repo.projectId,
+        repositoryId: repo.id,
+        actor: INTEGRATION_ACTOR,
+        leaderId: INTEGRATION_ACTOR.id,
+        operation: {
+          kind: 'review',
+          prId: pr.id,
+          expectedHeadSha: pr.headSha,
+          expectedBaseSha: base.sha,
+          configurationFingerprint,
+          types: [...new Set(input.types ?? ['code', 'security'])].sort() as ReviewType[],
+          force: input.force === true,
+        },
+      },
+      { ...DEFAULT_EXECUTION_LIMITS },
+    )) as unknown as RequestReviewResult;
+  }
   const review = (cwd: string) =>
     requestPullRequestReview(ctx, input, {
       reviewers: reviewersFor(ctx, repo.projectId, cwd),
       context: contextFingerprints(ctx),
-      env,
+      env: env ?? integrationEnv(ctx),
     });
   if (!loadProjectConfig(ctx, repo.projectId).config.review.reviewer_agent) return review(repo.canonicalPath);
-  for (const workspace of pr.taskId ? listWorkspaces(ctx, { taskId: pr.taskId }) : []) {
-    if (workspace.state !== 'cleaned' && (await headOf(workspace.path)) === pr.headSha) return review(workspace.path);
-  }
-  await fetchIntegrationRefs(repo.canonicalPath, pr.governance?.integrationBase ?? pr.baseRef, [pr]);
+  await fetchCommit(ctx, {
+    repositoryId: repo.id,
+    remote: 'origin',
+    commitSha: pr.headSha,
+    actor: { kind: 'service', id: 'reviews' },
+  });
   const worktree = join(ensureDir(join(ctx.dirs.worktrees, 'reviews')), newId('ws'));
+  const managedCleanup = registerExecutionWorktree(ctx, {
+    kind: 'review',
+    repositoryPath: repo.canonicalPath,
+    path: worktree,
+  });
   try {
     await git(repo.canonicalPath, ['worktree', 'add', '--detach', '--force', worktree, pr.headSha]);
     return await review(worktree);
   } finally {
-    await git(repo.canonicalPath, ['worktree', 'remove', '--force', worktree], { allowFailure: true });
-    rmSync(worktree, { recursive: true, force: true });
-    await git(repo.canonicalPath, ['worktree', 'prune'], { allowFailure: true });
+    if (!managedCleanup) {
+      await git(repo.canonicalPath, ['worktree', 'remove', '--force', worktree], { allowFailure: true });
+      rmSync(worktree, { recursive: true, force: true });
+    }
   }
+}
+
+export interface IntegrationTickInput {
+  repositoryId: string;
+  leaderId: string;
+  actor: Actor;
+  sync: boolean;
+  maxCandidates: number;
+  processOutbox: boolean;
+  expected?: Extract<ExecutionOperation, { kind: 'queue' }>;
+}
+
+export interface IntegrationTickResult {
+  outbox: OutboxReport | null;
+  tick: QueueTickResult;
+  reconciled: string[];
+}
+
+export function prepareQueueExecution(
+  ctx: CrewContext,
+  repositoryId: string,
+  options: Pick<IntegrationTickInput, 'sync' | 'maxCandidates' | 'processOutbox'>,
+): Extract<ExecutionOperation, { kind: 'queue' }> {
+  const repository = getRepository(ctx, repositoryId);
+  const configurationFingerprint = fingerprint(loadProjectConfig(ctx, repository.projectId).config);
+  const db = ctx.store.db;
+  return {
+    kind: 'queue',
+    ...options,
+    configurationFingerprint,
+    queueRevision: fingerprint({
+      project: all(
+        db,
+        'SELECT autonomy, workers_paused, intake_paused, policy_revision FROM projects WHERE id = ?',
+        repository.projectId,
+      ),
+      queues: all(
+        db,
+        'SELECT id, base_branch, mode, paused, capacity FROM integration_queues WHERE repository_id = ? ORDER BY id',
+        repositoryId,
+      ),
+      entries: all(
+        db,
+        'SELECT e.id, e.queue_id, e.pr_id, e.priority, e.risk, e.stack_id, e.stack_order, e.status, e.attempts, e.last_validated_base_sha, e.last_validated_head_sha, e.enqueued_at FROM queue_entries e JOIN integration_queues q ON q.id = e.queue_id WHERE q.repository_id = ? ORDER BY e.id',
+        repositoryId,
+      ),
+      prs: all(
+        db,
+        "SELECT id, task_id, head_sha, base_ref, base_sha, expected_remote_head, state, is_draft, mergeable, merge_state_status, review_decision, checks_state, checks, reviews, rules, changed_files, external_divergence, stack_id, stack_order FROM pull_requests WHERE repository_id = ? AND state = 'open' ORDER BY id",
+        repositoryId,
+      ),
+      dependencies: all(
+        db,
+        'SELECT d.* FROM pr_dependencies d JOIN pull_requests p ON p.id = d.pr_id WHERE p.repository_id = ? ORDER BY d.pr_id, d.depends_on_pr_id',
+        repositoryId,
+      ),
+      approvals: all(
+        db,
+        'SELECT subject_kind, subject_id, status, created_at FROM approvals WHERE project_id = ? ORDER BY id',
+        repository.projectId,
+      ),
+    }),
+  };
+}
+
+export async function runIntegrationTick(
+  ctx: CrewContext,
+  input: IntegrationTickInput,
+  env?: IntegrationEnv,
+): Promise<IntegrationTickResult> {
+  if (!Number.isSafeInteger(input.maxCandidates) || input.maxCandidates < 1)
+    throw new CrewError('INVALID_INPUT', 'Integration candidate limit must be a positive integer');
+  const repository = getRepository(ctx, input.repositoryId);
+  const operation = prepareQueueExecution(ctx, repository.id, {
+    sync: input.sync,
+    maxCandidates: input.maxCandidates,
+    processOutbox: input.processOutbox,
+  });
+  if (input.expected && fingerprint(input.expected) !== fingerprint(operation))
+    throw new CrewError('CONFLICT', 'Integration queue inputs changed after execution admission');
+  if (!ctx.execution && env === undefined) {
+    return (await driveExecution(
+      ctx,
+      {
+        projectId: repository.projectId,
+        repositoryId: repository.id,
+        actor: input.actor,
+        leaderId: input.leaderId,
+        operation,
+      },
+      { ...DEFAULT_EXECUTION_LIMITS },
+    )) as unknown as IntegrationTickResult;
+  }
+  const runtime = env ?? integrationEnv(ctx);
+  const outbox = input.processOutbox
+    ? await processIntegrationOutbox(ctx, { leaderId: input.leaderId, env: runtime })
+    : null;
+  const tick = await queueTick(ctx, repository.id, {
+    leaderId: input.leaderId,
+    env: runtime,
+    sync: input.sync,
+    maxCandidates: input.maxCandidates,
+  });
+  const reconciled = await reconcileMergedTasks(ctx, repository.id, runtime);
+  return { outbox, tick, reconciled };
 }
 
 export function integrationEnv(ctx: CrewContext, overrides: Partial<IntegrationEnv> = {}): IntegrationEnv {
@@ -287,6 +481,12 @@ export function integrationEnv(ctx: CrewContext, overrides: Partial<IntegrationE
   return {
     github: createClientFactory(ctx, baseUrl ? { baseUrl } : {}),
     hooks: taskHooks(ctx),
+    reviewContext: (repositoryId: string, commitSha: string, paths: readonly string[]) =>
+      currentReviewContext(ctx, repositoryId, commitSha, paths),
+    reviewAcceptance: (repositoryId: string) => {
+      const repo = getRepository(ctx, repositoryId);
+      return reviewersFor(ctx, repo.projectId, repo.canonicalPath);
+    },
     ...overrides,
   };
 }

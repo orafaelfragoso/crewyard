@@ -12,6 +12,7 @@ import type { RemoteRecovery } from '@crewyard/recovery';
 import type { CrewContext } from '@crewyard/storage';
 import { pruneBuildOutput } from '@crewyard/workspaces';
 import type { QueueActions } from './dashboard-actions.ts';
+import { DEFAULT_EXECUTION_LIMITS } from './execution.ts';
 import { INTEGRATION_ACTOR, integrationEnv, reconcileMergedTasks, reviewPullRequest } from './integration.ts';
 import { cleanFinishedWorkspaces } from './maintenance.ts';
 import { blockDivergedPublication, publishTask, tasksAwaitingPublication } from './publish.ts';
@@ -51,14 +52,10 @@ export function integrationCycles(envFor: EnvFactory = integrationEnv): ProjectC
   const poll = (ctx: CrewContext, projectId: string) =>
     loadProjectConfig(ctx, projectId).config.integration.poll_interval_seconds;
   const fast = () => 5;
-  const reviewing = new Set<string>();
   const reviewInBackground =
     (ctx: CrewContext, env: IntegrationEnv, background: Background): TaskHooks['onReviewRequired'] =>
     (event) => {
-      const key = `${event.prId}@${event.headSha}`;
-      if (reviewing.has(key)) return;
-      reviewing.add(key);
-      background(reviewPullRequest(ctx, { prId: event.prId }, env).finally(() => reviewing.delete(key)));
+      background(reviewPullRequest(ctx, { prId: event.prId }, env));
     };
   return [
     githubCycle('sync', poll, async (ctx, repo) => {
@@ -159,7 +156,8 @@ function onePerContext(envFor: EnvFactory): EnvFactory {
   };
 }
 
-export function defaultServiceOptions(envFor: EnvFactory = integrationEnv): ServiceOptions {
+export function defaultServiceOptions(envFor?: EnvFactory): ServiceOptions {
+  if (!envFor) return { execution: { ...DEFAULT_EXECUTION_LIMITS } };
   const env = onePerContext(envFor);
   return { cycles: [...integrationCycles(env), ...maintenanceCycles()], remoteRecovery: [githubRecovery(env)] };
 }

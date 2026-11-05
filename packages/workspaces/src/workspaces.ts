@@ -104,7 +104,18 @@ export async function allocateWorkspace(ctx: CrewContext, input: AllocateInput):
     task.id,
     ...ACTIVE_STATES,
   );
-  if (existing) return { workspace: mapWorkspace(existing), reused: true };
+  if (existing) {
+    const active = one<{ attempt_id: string }>(
+      ctx.store.db,
+      `SELECT c.attempt_id FROM execution_claims c JOIN outbox o ON json_extract(o.intent, '$.claim.attemptId') = c.attempt_id
+       WHERE o.kind = 'execution.launch' AND o.task_id = ? AND c.released_at IS NULL`,
+      task.id,
+    );
+    if (active && active.attempt_id !== ctx.execution?.claim.attemptId) {
+      throw new CrewError('BUSY', `Workspace ${existing.id} still belongs to an active execution`);
+    }
+    return { workspace: mapWorkspace(existing), reused: true };
+  }
 
   const repo = requireRepository(ctx, task.repository_id);
   const config = repositoryConfig(ctx, repo, input.config);
@@ -142,7 +153,14 @@ export async function allocateWorkspace(ctx: CrewContext, input: AllocateInput):
     updatedAt: '',
   };
   assertManagedWorkspacePath(ctx, draft, repo);
-  ctx.store.immediate((db) => {
+  const concurrent = ctx.store.immediate((db) => {
+    const active = one<WorkspaceRow>(
+      db,
+      `SELECT * FROM workspaces WHERE task_id = ? AND state IN (${ACTIVE_STATES.map(() => '?').join(',')}) ORDER BY created_at DESC LIMIT 1`,
+      task.id,
+      ...ACTIVE_STATES,
+    );
+    if (active) return mapWorkspace(active);
     const at = nowIso(ctx.clock);
     exec(
       db,
@@ -160,7 +178,9 @@ export async function allocateWorkspace(ctx: CrewContext, input: AllocateInput):
       at,
     );
     emit(db, draft, repo, 'workspace.allocating', input.actor, { branch, baseRef, baseSha, path, branchExists }, at);
+    return null;
   });
+  if (concurrent) return { workspace: concurrent, reused: true };
 
   const args = branchExists
     ? ['worktree', 'add', '--', path, branch]

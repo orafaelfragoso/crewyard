@@ -47,7 +47,9 @@ integration base, and merge outcomes. It records observed remote revisions as `g
 events.
 
 - **Conditional requests:** GET responses carry ETags; the ETag is persisted in `sync_state` and the body in
-  `<data>/cache/github/<repository>/`. Unchanged resources come back as `304` and do not count against the rate limit.
+  `<data>/cache/github/<repository>/`. Bodies are immutable, named by their content SHA. The ETag and body-SHA pointer
+  commit together under the current owner fence, so a stale worker cannot overwrite the body selected by a newer ETag.
+  A response without a usable cached body requires a fresh read.
 - **Rate limits:** primary (`x-ratelimit-remaining: 0` + `x-ratelimit-reset`) and secondary (`retry-after`, 429 or
   "secondary rate limit") limits raise `RATE_LIMITED` with `details.resetAt`; the client then fails fast until the
   reset and outbox operations are deferred until that time.
@@ -106,24 +108,41 @@ merging is recorded as a failure for the retry policy. Ordinary auto-merge is ne
 
 Candidates are serialized per base branch. A candidate records the base SHA, the ordered `(pr, head_sha)` list, the
 synthesized tree/commit (`git merge-tree --write-tree` + `git commit-tree`, no working-tree checkout), policy revision,
-rules fingerprint and CI evidence. Configured `validation.broad` commands run in a temporary detached worktree under
-`dirs.worktrees/candidates/` and are stored as `validation_runs` bound to that commit, tree and environment
-fingerprint. Before each merge Crewyard re-reads the base SHA, the PR head, the rules and the checks; any mismatch
-invalidates the candidate and the new combination is validated before merging. Merges call
-`PUT /pulls/{n}/merge` with the expected head `sha`. The candidate is `integration_validated` only when GitHub attests
-the exact result (single PR, PR tree equals the integrated tree, required checks green); otherwise it is labelled
-"not-yet-integration-validated" and GitHub's own rules still decide whether the merge is accepted.
+rules fingerprint and evidence for every cumulative prefix that can land. Configured `validation.broad` commands
+run for each prefix in an attempt-owned detached worktree under `dirs.worktrees/candidates/`. `validation_runs` bind
+commands, commit, tree, environment, policy and expiry. Passing the final combined tree does not validate earlier
+prefixes.
 
-Speculative grouping (`integration.speculative_validation`, capacity `scheduler.integration_capacity_per_branch > 1`)
-only combines low/medium-risk PRs without dependencies and with disjoint files. Between merges of a group Crewyard
-verifies the new base tree equals the candidate's intermediate tree.
+Prefix attestations distinguish `local-prefix` (configured local commands passed), `exact-head-checks` (GitHub
+checks attest the matching head/tree) and `guarded-unverified` (neither establishes validation). A candidate is
+`prefix-validated` only when every prefix has validating evidence. `integrationValidated` is reserved for authoritative
+exact-head check evidence; local command success is not a claim that hosted CI ran on the synthesized commit.
+A single unverified prefix remains subject to current policy and GitHub rules. Multiple prefixes require validating
+evidence for each; an empty command list is not a passing test.
+
+Speculative grouping needs `integration.speculative_validation` and
+`scheduler.integration_capacity_per_branch > 1`. High-risk work stays solo. Unrelated grouping requires usable file
+metadata and excludes contract uncertainty, including modified, deleted or renamed files. Disjoint paths are only
+a heuristic. A failed prefix records the contributing interaction set rather than blaming an arbitrary first PR.
+
+Every first delivery and retry rechecks live base/head/target, delivery and leadership ownership, current autonomy,
+approvals, pause/mode, configuration, candidate generation/status/expiry, prefix evidence, rules, checks, reviews,
+dependencies and divergence. Retargeting is followed by another guard. A mismatch invalidates or blocks the action;
+old eligibility is not permission to retry. Already observed remote success is reconciled before evaluating a new
+mutation; unresolved outcomes remain blocked.
+
+Classic merges call `PUT /pulls/{n}/merge` with the expected head `sha`. That API cannot reserve the base between
+observation and merge. Crewyard reads the actual merge SHA/tree after landing and uses the actual SHA for the next
+prefix. A mismatched tree pauses later local merges and raises an incident; detection happens after the unexpected
+landing. Native queue checks on the merge-group SHA remain preferred.
 
 ### No proactive rebase
 
 Crewyard never rebases or force-pushes a PR because the base advanced. A conflict found while synthesizing a candidate
 blocks the entry with `REVISION_REQUIRED`, notifies the operator and calls `TaskHooks.onRevisionRequired`; the entry
-is re-evaluated when the head changes. Strict "up to date" rules surface `BRANCH_BEHIND_BASE` instead of an automatic
-update.
+is re-evaluated when the head changes. When strict protection requires an up-to-date branch,
+`integration.rebasing: only_when_required` permits a guarded GitHub branch-update request. `never` leaves
+`BRANCH_BEHIND_BASE` blocked for revision. Neither mode proactively rewrites every branch when the base advances.
 
 ### Revisions
 
@@ -154,12 +173,31 @@ dependency (`setPullRequestDependency`). Chain children are evaluated against th
 together with) their parent, and retargeted to the trunk with `PATCH /pulls/{n}` (`base`) before merging. Retargeting
 changes the base only; it never rewrites history.
 
+One stack API request does not establish atomic landing. Each exposed cumulative prefix still needs its own
+evidence and observed outcome. The native-stack and merge-queue paths require
+[real-host acceptance](acceptance.md#not-yet-demonstrated) before their deployment is claimed verified.
+
+## After a merge
+
+Health follows the actual merge SHA and target branch's current rules. States distinguish `unknown`, `pending`,
+`passed`, `failed`, `superseded` and `branch_unavailable`. Missing rule visibility or execution timing stays unknown.
+Provider-reported check start/end durations are stored once per bound check identity; they do not establish complete
+hosted CI usage.
+
+A failed post-merge check in current `guarded`/`autopilot` mode creates one linked high-risk `DRAFT` repair task per
+commit/target incident. It needs ordinary review, approval and budget admission. There is no automatic revert.
+Task hooks are durable `integration.hook` outbox intents, and retries reconcile task state already applied.
+
 ## Failure handling
 
 Failures are fingerprinted per PR in `failure_records`. Transient classes (network, rate limit, CI infrastructure)
 back off without counting. Deterministic failures retry up to `agents.max_retries_per_failure` (default 2) per
 fingerprint, then the entry becomes `quarantined` (or `escalated` for policy, permission, authentication or
 ambiguous outcomes) with a notification; other entries keep integrating. An operator retry (`updateQueueEntry` with `action: 'retry'`) resets the counter.
+
+Review requests share atomic, fenced admission across processes. Completed evidence must still satisfy current
+source/context, reviewer/model, policy and TTL rules; joining active work is separate from a cache hit. See
+[review evidence](architecture/integration.md#review-evidence) and the [recovery runbooks](incident-recovery/runbooks.md).
 
 ## Endpoints used
 

@@ -145,6 +145,8 @@ export async function bootstrapWorkspace(
     const shell = shellCommand(command);
     const run = await runBounded(shell.argv, {
       verbatimArguments: shell.verbatimArguments,
+      signal: ctx.execution?.signal,
+      onSpawn: ctx.execution?.onSpawn,
       cwd: path,
       permittedRoots: [path],
       envAllowlist: [...DEFAULT_ENV_ALLOWLIST, ...config.workspace.env_allowlist],

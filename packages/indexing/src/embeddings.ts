@@ -1,6 +1,7 @@
 import { CrewError, newId, nowIso, trimTrailingSlashes } from '@crewyard/core';
 import { all, type CrewContext } from '@crewyard/storage';
 import { readChunks } from './content.ts';
+import { acquireSnapshotReader } from './execution.ts';
 import { requireSnapshot, type SnapshotRequest } from './freshness.ts';
 import type { IndexConfig } from './types.ts';
 
@@ -133,65 +134,72 @@ export interface EmbedSnapshotResult {
 
 export async function embedSnapshot(ctx: CrewContext, input: EmbedSnapshotInput): Promise<EmbedSnapshotResult> {
   const { snapshot } = await requireSnapshot(ctx, input);
-  const model = modelKey(input.provider);
-  const blobs = all<{ blob_sha: string }>(
-    ctx.store.db,
-    `SELECT DISTINCT f.blob_sha FROM files f JOIN blobs b ON b.sha = f.blob_sha
-     WHERE f.snapshot_id = ? AND b.parse_status != 'skipped' AND b.line_count > 0`,
-    snapshot.id,
-  );
-  const present = new Set(
-    all<{ key: string }>(
+  const reader = acquireSnapshotReader(ctx, snapshot);
+  try {
+    const model = modelKey(input.provider);
+    const blobs = all<{ blob_sha: string }>(
       ctx.store.db,
-      `SELECT e.blob_sha || ':' || e.start_line AS key FROM embeddings e
-       WHERE e.model = ? AND e.blob_sha IN (SELECT blob_sha FROM files WHERE snapshot_id = ?)`,
-      model,
+      `SELECT DISTINCT f.blob_sha FROM files f JOIN blobs b ON b.sha = f.blob_sha
+     WHERE f.snapshot_id = ? AND b.parse_status != 'skipped' AND b.line_count > 0`,
       snapshot.id,
-    ).map((r) => r.key),
-  );
-  const pending: { blobSha: string; startLine: number; content: string }[] = [];
-  for (const { blob_sha } of blobs) {
-    for (const chunk of readChunks(ctx.store.db, blob_sha)) {
-      if (!present.has(`${blob_sha}:${chunk.startLine}`))
-        pending.push({ blobSha: blob_sha, startLine: chunk.startLine, content: chunk.content });
+    );
+    const present = new Set(
+      all<{ key: string }>(
+        ctx.store.db,
+        `SELECT e.blob_sha || ':' || e.start_line AS key FROM embeddings e
+       WHERE e.model = ? AND e.blob_sha IN (SELECT blob_sha FROM files WHERE snapshot_id = ?)`,
+        model,
+        snapshot.id,
+      ).map((r) => r.key),
+    );
+    const pending: { blobSha: string; startLine: number; content: string }[] = [];
+    for (const { blob_sha } of blobs) {
+      for (const chunk of readChunks(ctx.store.db, blob_sha)) {
+        if (!present.has(`${blob_sha}:${chunk.startLine}`))
+          pending.push({ blobSha: blob_sha, startLine: chunk.startLine, content: chunk.content });
+      }
     }
-  }
-  const max = input.maxChunks ?? Number.POSITIVE_INFINITY;
-  const work = pending.slice(0, max);
-  const batchSize = input.batchSize ?? 32;
-  let embedded = 0;
-  for (let i = 0; i < work.length; i += batchSize) {
-    const batch = work.slice(i, i + batchSize);
-    const vectors = await input.provider.embed(batch.map((b) => b.content));
-    ctx.store.immediate((db) => {
-      const insert = db.query(
-        'INSERT OR REPLACE INTO embeddings (blob_sha, start_line, model, dimensions, vector) VALUES (?, ?, ?, ?, ?)',
-      );
-      batch.forEach((b, j) => {
-        const vector = vectors[j]!;
-        insert.run(b.blobSha, b.startLine, model, vector.length, encodeVector(vector));
+    const max = input.maxChunks ?? Number.POSITIVE_INFINITY;
+    const work = pending.slice(0, max);
+    const batchSize = input.batchSize ?? 32;
+    let embedded = 0;
+    for (let i = 0; i < work.length; i += batchSize) {
+      const batch = work.slice(i, i + batchSize);
+      const vectors = await input.provider.embed(batch.map((b) => b.content));
+      ctx.store.immediate((db) => {
+        reader.assertCurrent(db);
+        const insert = db.query(
+          'INSERT OR REPLACE INTO embeddings (blob_sha, start_line, model, dimensions, vector) VALUES (?, ?, ?, ?, ?)',
+        );
+        batch.forEach((b, j) => {
+          const vector = vectors[j]!;
+          insert.run(b.blobSha, b.startLine, model, vector.length, encodeVector(vector));
+        });
       });
-    });
-    embedded += batch.length;
-  }
-  const artifactId = newId('ctx');
-  const at = nowIso(ctx.clock);
-  const result = {
-    snapshotId: snapshot.id,
-    commitSha: snapshot.commitSha,
-    model,
-    embedded,
-    alreadyPresent: present.size,
-    remaining: pending.length - work.length,
-    artifactId,
-  };
-  ctx.store.immediate((db) =>
-    db
-      .query(
-        `INSERT INTO context_artifacts (id, kind, repository_id, snapshot_id, commit_sha, query, payload, token_estimate, created_at)
+      embedded += batch.length;
+    }
+    const artifactId = newId('ctx');
+    const at = nowIso(ctx.clock);
+    const result = {
+      snapshotId: snapshot.id,
+      commitSha: snapshot.commitSha,
+      model,
+      embedded,
+      alreadyPresent: present.size,
+      remaining: pending.length - work.length,
+      artifactId,
+    };
+    ctx.store.immediate((db) => {
+      reader.assertCurrent(db);
+      return db
+        .query(
+          `INSERT INTO context_artifacts (id, kind, repository_id, snapshot_id, commit_sha, query, payload, token_estimate, created_at)
          VALUES (?, 'embedding_index', ?, ?, ?, NULL, ?, 0, ?)`,
-      )
-      .run(artifactId, snapshot.repositoryId, snapshot.id, snapshot.commitSha, JSON.stringify(result), at),
-  );
-  return result;
+        )
+        .run(artifactId, snapshot.repositoryId, snapshot.id, snapshot.commitSha, JSON.stringify(result), at);
+    });
+    return result;
+  } finally {
+    reader.release();
+  }
 }

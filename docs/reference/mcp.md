@@ -37,10 +37,10 @@ Every tool returns one JSON object:
 }
 ```
 
-- `operationId` identifies the call in events and audit records.
+- `operationId` correlates the tool-call envelope. It is separate from durable execution attempt and outbox operation IDs.
 - `revision` is the state revision the response reflects.
-- Error codes and exit-code classes are the same as the CLI ([cli.md](cli.md#errors-and-exit-codes)).
-- Context results carry provenance: repository, commit SHA, retrieval time and index status (`fresh`, `stale`, `building`, `missing`).
+- Error codes and exit-code classes are the same as the CLI ([cli.md](cli.md#global-conventions)).
+- Context results carry provenance: repository, commit SHA, retrieval time and index status (`fresh`, `stale`, `building`, `failed`, `missing`).
 - The claim token is returned only to the claiming session and is redacted from logs and events. Paths are examples; the data directory depends on the OS.
 
 ## Tools
@@ -55,16 +55,32 @@ Every tool returns one JSON object:
 | `crew_get_next_action` | Safe suggested next action for the calling agent | No | `crew task next --agent ID --json` |
 | `crew_claim_task` | Acquire a task lease and scope reservations; returns the worktree | Yes | `crew task claim TASK --agent ID --json` |
 | `crew_heartbeat` | Renew a valid lease (current generation only) | Yes | `crew task heartbeat TASK --json` |
-| `crew_report_progress` | Store structured progress or a checkpoint | Yes | `crew task report TASK --json` |
-| `crew_report_blocker` | Report a blocker and release or replan resources | Yes | `crew task block TASK --reason R --json` |
-| `crew_submit_work` | Register commit, test and worktree evidence with a handoff kind (`blocked`, `needs_review`, `ready_for_pr`, `completed`) | Yes | `crew task complete TASK --json` |
+| `crew_report_progress` | Store structured progress or a checkpoint | Yes | `crew task report TASK --summary SUMMARY --json` |
+| `crew_report_blocker` | Report a blocker and release or replan resources | Yes | `crew task block TASK --summary SUMMARY --json` |
+| `crew_submit_work` | Register commit, test and worktree evidence (`needs_review`, `ready_for_pr`, `completed`); use `crew_report_blocker` for a blocker | Yes | `crew task submit TASK --kind KIND --summary SUMMARY --json` |
 | `crew_submit_pr` | Attach or publish a PR through the policy-controlled path | Yes | `crew pr submit --task TASK --json` |
-| `crew_get_review` | Current review findings and evidence | No | `crew review show --pr N --json` |
-| `crew_request_review` | Queue an eligible review job | Yes | `crew review request --pr N --json` |
-| `crew_request_integration` | Request admission to the integration queue | Yes | `crew integration candidate --pr N --json` |
+| `crew_get_review` | Review history and open findings for the task or PR | No | `crew review show N --json` |
+| `crew_request_review` | Drive or join a review of the calling task's PR under current evidence rules | Yes | `crew review request N --json` |
+| `crew_request_integration` | Request admission to the integration queue | Yes | `crew queue add N --json` |
 | `crew_get_queue_status` | Queue position and blockers | No | `crew queue explain --pr N --json` |
 
 Mutating tools require the caller's current lease where they act on a task. A stale generation is rejected with `STALE_LEASE`, and policy gates return `APPROVAL_REQUIRED` or `POLICY_DENIED`.
+
+CLI holder commands also need the claim's generation and token, supplied through `--generation`/`--token` or
+`CREW_LEASE_GENERATION`/`CREW_CLAIM_TOKEN`. The table shows command forms; use the task's actual handoff evidence
+and required approvals. Never commit tokens to a script or repository.
+
+`crew_request_review` accepts `{ taskId }` and awaits the shared application review path. It does not expose a
+`force` input; the operator CLI offers `crew review request N --force`. Current source/context, reviewer/model,
+policy, security and TTL rules decide whether completed evidence may be reused or active work joined. Joining
+is not a completed cache hit, and a crash can repeat provider work. Historical artifacts returned by
+`crew_get_review` are not automatically current integration authority.
+
+Long operations drive or join bounded subprocess execution even without a resident service. Closing the host
+does not guarantee continuation. A tool marked non-mutating grants no task/integration mutation authority;
+context retrieval can still build an exact-commit index on demand and persist local cache/context artifacts.
+Snapshot reader claims protect retrieval across awaited work. See [execution](../architecture/overview.md#processes)
+and [review evidence](../architecture/integration.md#review-evidence).
 
 **Not exposed through MCP:** policy changes, credential creation, forced cleanup, direct merge or merge override, queue tick/pause, and service control. These are operator CLI actions only.
 

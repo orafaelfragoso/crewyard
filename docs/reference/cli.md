@@ -77,7 +77,13 @@ delivery, efficiency and usage metrics
 
 #### `crew metrics show`
 
-
+Metrics schema version 2 reports `localValidationMinutesPerMerge` and
+`localValidationReruns` from local validation runs. `integrationMinutes` includes the
+entire enqueue-to-merge interval. `observedHostedCheckMinutes` sums recorded provider
+execution timing; observation timestamps are not execution durations.
+`hostedCiMinutesPerMerge` remains `unknown` because partial check observations do not
+establish complete hosted CI usage. Active review joins are separate from cache reuse.
+See [metric definitions](../architecture/overview.md#metrics-and-operation-events).
 
 | Option | Description |
 |---|---|
@@ -794,6 +800,11 @@ run the service in the foreground (what `service start` and the user service exe
 | Option | Description |
 |---|---|
 | `--tick <seconds>` | scheduling cycle interval |
+| `--workers <count>` | maximum concurrent execution workers |
+| `--workers-per-project <count>` | maximum workers for one project |
+| `--workers-per-domain <count>` | maximum workers for one domain within a project |
+| `--worker-timeout <seconds>` | execution worker deadline |
+| `--shutdown-grace <seconds>` | grace before verified worker termination |
 | `--no-dispatch` | do not launch agent sessions (sync, queue and recovery only) |
 
 #### `crew service start`

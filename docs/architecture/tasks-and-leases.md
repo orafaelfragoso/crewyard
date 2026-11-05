@@ -116,6 +116,19 @@ Expiry is not takeover. `expireLeases` only marks the lease `expired` and emits 
 
 `forceReleaseLease` is operator-only, requires a reason, and is audited with decision `forced`.
 
+### Execution ownership and interrupted dispatch
+
+A managed dispatch also has a durable execution attempt. The task claim transaction writes
+`lease.execution_bound` with that exact attempt, lease ID, generation and holder. Recovery can therefore identify
+the lease even if cancellation happens during workspace bootstrap, before provider progress is recorded.
+
+Execution recovery first proves the worker and its recorded children have exited. It closes only sessions bound
+to that attempt's task generation and rechecks the original active lease while preserving Git changes. Successful
+preservation commits pending work to the task branch and returns a still-owned task to `READY`, or to `CANCELLED`
+if it was `CANCEL_REQUESTED`. A task already handed off or owned by a newer generation is not reset. This dispatch
+path is distinct from the generic expired-lease reconciliation table above; unverifiable ownership or failed
+preservation requires intervention and retains resources.
+
 ## Dependencies
 
 Dependencies are a DAG per project (`task_dependencies`). Additions and updates run `assertAcyclicWith` (DFS on the
@@ -167,7 +180,9 @@ atomic recheck.
 
 ## Workspaces
 
-- **Allocation**: `git worktree add -b <branch> <dirs.worktrees>/<ws_id> <base sha>` runs from the repository's
+- **Allocation**: an active workspace record is reserved/rechecked inside `BEGIN IMMEDIATE` before Git runs.
+  Concurrent allocators reuse that record; an incomplete allocation requires reconciliation. Then
+  `git worktree add -b <branch> <dirs.worktrees>/<ws_id> <base sha>` runs from the repository's
   canonical path. The base is `origin/<base>` if present, else the local ref. The branch comes from
   `integration.branch_name_format`. If the branch already exists it is reused, which lets recovery continue preserved
   work. The primary checkout's files and HEAD are never touched. Untrusted repositories run Git with
@@ -180,14 +195,16 @@ atomic recheck.
   dirty work (or branch deletion with unpushed commits) without a `DestructiveAuthorization`, and always back up
   first. Crashes leave the worktree intact (`markWorkspacesForReconciliation`); `collectCommits` attributes commits
   since base to the owning task.
-- **Cleanup**: `previewCleanup` lists every workspace with block reasons (active lease/session, open PR, unfinished
-  task, manual policy, retention, needs reconciliation) and a fingerprint. `applyCleanup` requires that fingerprint,
-  and refuses with `CONFLICT` if anything changed since the preview.
+- **Cleanup**: `previewCleanup` lists every workspace with block reasons (active lease/session/execution, allocation,
+  open PR, unfinished task, manual policy, retention, needs reconciliation) and a fingerprint. `applyCleanup` requires that fingerprint,
+  and refuses with `CONFLICT` if anything changed since the preview. Commits reachable from locally present heads
+  of merged PRs matching the repository and branch/task count as published, including squash merges whose remote
+  task branch was deleted. Descendants not covered by that evidence remain protected as unpublished work.
 - **Build output**: `pruneBuildOutput` deletes each `workspace.build_output` path from worktrees with no active
-  lease or session, only when it resolves inside the worktree without symlinks, `git check-ignore` reports it ignored
-  and `git ls-files` lists nothing under it. It runs in the hourly `workspace-cleanup` cycle after finished worktrees
-  are removed, and whenever free space falls below `scheduler.min_free_disk_gb`; if space is still low after pruning,
-  the service raises one intervention until space recovers.
+  lease, session or execution, only when it resolves inside the worktree without symlinks, `git check-ignore` reports it
+  ignored and `git ls-files` lists nothing under it. The default service runs it in the bounded cleanup worker after
+  finished worktrees are removed; injected maintenance cycles run hourly. Low space blocks new dispatch while cleanup
+  attempts pruning. If space stays below `scheduler.min_free_disk_gb`, one durable intervention is raised until space recovers.
 - **Bootstrap**: `workspace.setup_commands` and `install_commands` run through `runBounded` with an allowlisted
   environment, injected secret references (`npm-token` → `NPM_TOKEN`, resolved by the caller), a timeout and an
   output limit. Logs are scrubbed of secret values and stored as `bootstrap_log` artifacts. For untrusted
@@ -195,6 +212,11 @@ atomic recheck.
 - **Bounded execution**: `runBounded` validates the working directory against the permitted roots, refuses to run as
   root, sanitises the environment, enforces the timeout and output limit, and terminates the process tree.
   `platformLimitations()` lists what is *not* enforced. Worktrees are not a security sandbox.
+
+Review and candidate validation worktrees are disposable resources with an exact attempt manifest registered
+before creation. They may be removed only after the owning processes are verified gone. Partial paths without
+verifiable registration are preserved and reported. Task worktrees follow the separate preservation/cleanup policy
+above; cancelling a worker does not authorize deleting task work.
 
 ## Schema notes
 

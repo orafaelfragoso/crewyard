@@ -1,3 +1,4 @@
+import { runExecutionWorker } from '@crewyard/application';
 import type { Command } from 'commander';
 import pkg from '../../../package.json' with { type: 'json' };
 import { registerAgentCommands } from './commands/agents.ts';
@@ -8,12 +9,17 @@ import { registerMaintenanceCommands } from './commands/maintenance.ts';
 import { registerServiceCommands } from './commands/service.ts';
 import { registerSystemCommands } from './commands/system.ts';
 import { registerWorkCommands } from './commands/work.ts';
-import { createProgram } from './program.ts';
+import { action, createProgram } from './program.ts';
 
 export const VERSION: string = pkg.version;
 
 export function buildProgram(): Command {
   const program = createProgram(VERSION);
+  program.command('__worker <operation-id> <delivery-attempt-id>', { hidden: true }).action(
+    action(async (ctx, _opts, operationId: string, deliveryAttemptId: string) => {
+      await runExecutionWorker(ctx, operationId, deliveryAttemptId);
+    }),
+  );
   registerSystemCommands(program, VERSION);
   registerWorkCommands(program);
   registerAgentCommands(program);

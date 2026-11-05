@@ -6,6 +6,8 @@ export * from './ids.ts';
 export * from './logger.ts';
 export * from './paths.ts';
 export * from './process.ts';
+export * from './process-identity.ts';
+export * from './process-lifecycle.ts';
 export * from './redact.ts';
 export * from './task-state.ts';
 export * from './time.ts';

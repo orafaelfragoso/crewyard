@@ -4,7 +4,7 @@ description: Implements one Crewyard task end to end - get the next safe action,
 compatibility: Requires Crewyard via the MCP server (`crew mcp`) or the `crew` CLI on PATH.
 metadata:
   author: crewyard
-  version: "1.0"
+  version: "1.1"
 ---
 
 # Crewyard execution
@@ -33,7 +33,7 @@ Every response is an envelope: `{ "ok": true, "operationId", "data", "revision" 
 2. **Choose work.** Call `crew_get_next_action`. If it does not offer a task, stop and report that; do not pick an arbitrary task.
 3. **Claim before modifying.** Call `crew_claim_task`. Do not create branches, edit files or commit until the claim succeeds. On `LEASE_CONFLICT` or `CONFLICT`, someone else owns it: ask for the next action instead of retrying.
 4. **Use the assigned worktree.** Work only inside the `worktreePath` returned by the claim, on the branch Crewyard created. Never edit the primary checkout or another task's worktree.
-5. **Get context.** Prefer `crew_search_context`, `crew_get_symbol` and `crew_analyze_impact` (see the `crew-context` skill) over reading the whole repository. Stay inside the task's scope hints; if the change must spread beyond them, report progress explaining why.
+5. **Pin inputs.** Record the assigned head/base and accepted contract. Refresh exact-SHA context when the inputs change; a stale or interrupted attempt must obtain current authority before continuing. **Get context.** Prefer `crew_search_context`, `crew_get_symbol` and `crew_analyze_impact` (see the `crew-context` skill) over reading the whole repository. Stay inside the task's scope hints; if the change must spread beyond them, report progress explaining why.
 6. **Renew the lease.** Call `crew_heartbeat` at the configured heartbeat interval and always before `leaseExpiresAt`. If a heartbeat returns `STALE_LEASE` or `LEASE_CONFLICT`, stop writing immediately: you no longer own the task.
 7. **Checkpoint.** After each meaningful step, call `crew_report_progress` with a short summary and what remains. Leave changes in the worktree: `crew_submit_work` commits them on the task branch for you.
 8. **Validate.** Run the fast checks relevant to the files you changed. Record each command and its exit code.
@@ -53,6 +53,8 @@ Never claim a check passed unless you ran it on that exact commit.
 ## Crewyard contract
 
 These apply to every Crewyard task, whatever this skill is used for:
+
+Skills are advisory. Worktrees and attempt directories isolate cooperative work; agents still run as the operating-system user. A lease fences Crewyard mutations and cannot revoke an already issued external request or arbitrary filesystem access.
 
 1. Inspect `crew_get_state` and the project policy before acting.
 2. Claim the task with `crew_claim_task` before modifying anything.

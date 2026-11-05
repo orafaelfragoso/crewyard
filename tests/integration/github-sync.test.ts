@@ -14,7 +14,7 @@ import {
   syncRepository,
 } from '@crewyard/integration';
 import { getRepository } from '@crewyard/projects';
-import { listReviews, requestReview, StaticAnalysisReviewer } from '@crewyard/reviews';
+import { collectPatch, listReviews, requestReview, StaticAnalysisReviewer } from '@crewyard/reviews';
 import { all } from '@crewyard/storage';
 import { writeFiles } from '../helpers/index.ts';
 import { createGitHubFixture, type GitHubFixture } from './github-fixture.ts';
@@ -42,7 +42,7 @@ describe('GitHub synchronization', () => {
         prId: pr.id,
         commitSha: head,
         baseSha: pr.baseSha!,
-        patch: (await git(f.repo, ['diff', `${pr.baseSha}...${head}`])).stdout,
+        patch: await collectPatch(f.repo, pr.baseSha!, head),
         types: ['code'],
       },
       { reviewers: { code: new StaticAnalysisReviewer() }, config: f.config },

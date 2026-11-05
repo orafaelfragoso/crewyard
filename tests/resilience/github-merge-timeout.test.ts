@@ -114,7 +114,9 @@ describe('AT-18: restart during outbox execution', () => {
         at,
       );
     });
-    expect(claimDueOutbox(f.ctx.store, 10, ['github.merge'])).toHaveLength(1);
+    expect(
+      claimDueOutbox(f.ctx.store, { ownerId: 'crashed-worker', limit: 10, kinds: ['github.merge'], ttlSeconds: 60 }),
+    ).toHaveLength(1);
     if (remoteApplied) f.mock.mergeExternally(number);
 
     clock.advance(120);
@@ -129,6 +131,13 @@ describe('AT-18: restart during outbox execution', () => {
       }),
     };
     const report = await processIntegrationOutbox(restarted, { leaderId: 'new-worker', env });
+    if (!remoteApplied) {
+      expect(report.failed).toEqual([op.operationId]);
+      expect(getOutbox(store.db, op.operationId)!.status).toBe('cancelled');
+      expect(showPullRequest(restarted, { prId: pr.id }).state).toBe('open');
+      store.close();
+      return f;
+    }
     expect(report.succeeded).toEqual([op.operationId]);
     expect(getOutbox(store.db, op.operationId)!.status).toBe('succeeded');
     const after = showPullRequest(restarted, { prId: pr.id });
@@ -149,8 +158,8 @@ describe('AT-18: restart during outbox execution', () => {
     expect(mergeCalls(f)).toBe(0);
   }, 30_000);
 
-  test('merge not yet sent before the crash is executed exactly once', async () => {
+  test('legacy merge not sent before the crash requires fresh admission', async () => {
     const f = await crashMidMerge(false);
-    expect(mergeCalls(f)).toBe(1);
+    expect(mergeCalls(f)).toBe(0);
   }, 30_000);
 });

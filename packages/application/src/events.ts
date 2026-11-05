@@ -42,21 +42,25 @@ export function metrics(ctx: CrewContext, projectId: string | null, sinceDays?: 
 
 export function metricsCsv(report: MetricsReport): string {
   const rows: [string, string][] = [
+    ['schema_version', String(report.schemaVersion)],
     ['window_since', report.window.since],
     ['window_until', report.window.until],
     ['merged_prs', String(report.throughput.mergedPrs)],
     ['merged_per_day', String(report.throughput.perDay)],
     ['lead_time_p50_hours', String(report.leadTimeHours.p50.value ?? 'unknown')],
     ['lead_time_p95_hours', String(report.leadTimeHours.p95.value ?? 'unknown')],
-    ['queue_wait_p50_minutes', String(report.queueWaitMinutes.p50.value ?? 'unknown')],
-    ['queue_wait_p95_minutes', String(report.queueWaitMinutes.p95.value ?? 'unknown')],
+    ['integration_p50_minutes', String(report.integrationMinutes.p50.value ?? 'unknown')],
+    ['integration_p95_minutes', String(report.integrationMinutes.p95.value ?? 'unknown')],
     ['open_prs', String(report.openPrAgeHours.open)],
     ['recoveries', String(report.recoveries)],
     ['escalations', String(report.escalations)],
     ['review_cache_hit_ratio', String(report.reviewCache.hitRatio.value ?? 'unknown')],
+    ['review_active_joins', String(report.reviewCache.joined)],
     ['context_token_reduction', String(report.contextTokenReduction.value ?? 'unknown')],
-    ['ci_minutes_per_merge', String(report.ciMinutesPerMerge.value ?? 'unknown')],
-    ['ci_reruns', String(report.ciReruns)],
+    ['local_validation_minutes_per_merge', String(report.localValidationMinutesPerMerge.value ?? 'unknown')],
+    ['local_validation_reruns', String(report.localValidationReruns)],
+    ['hosted_ci_minutes_per_merge', String(report.hostedCiMinutesPerMerge.value ?? 'unknown')],
+    ['observed_hosted_check_minutes', String(report.observedHostedCheckMinutes.value ?? 'unknown')],
   ];
   for (const u of report.usage) {
     const key = `${u.providerId}/${u.profileId ?? '-'}/${u.model ?? 'default'}`;

@@ -8,6 +8,12 @@ Crewyard lets AI agents change code and move pull requests toward merge. This pa
 - **Skills are advisory.** Every rule that matters is checked at runtime in the CLI/MCP layer. A request is rejected even if a model insists.
 - **GitHub stays authoritative.** Crewyard never bypasses branch protection, rulesets, CODEOWNERS, required reviews or required checks, and never claims a merge or check result it has not observed.
 
+Every first delivery and retry of a merge/enqueue/retarget intent rechecks current ownership, expected base/head/target,
+policy, approvals, queue state and applicable evidence. An already observed remote success is reconciled first;
+an unresolved outcome stays blocked. GitHub's head-only merge API cannot reserve the base between reading and
+merging. Crewyard detects a mismatched actual merge tree after landing and pauses subsequent local merges;
+native merge-group checks remain preferred. See [integration](../architecture/integration.md).
+
 ## Autonomy modes
 
 Autonomy is set per repository (`project.autonomy`) and further limited by action and task risk.
@@ -75,6 +81,11 @@ Crewyard isolates tasks into separate Git worktrees and branches, validates cano
 
 **All agents launched by Crewyard run as your operating-system user.** Processes running as the same user can read the same files, environment and user-level credentials, and Crewyard does not treat them as mutually hostile tenants. If you run agents you do not trust, put them in a separate OS account, container or VM with only the credentials they need. Platform limitations (for example, network policy enforcement where no sandbox exists) are reported by `crew doctor` and the session view rather than advertised as guarantees.
 
+Finite worker subprocesses, attempt directories, execution claims and database writer-protocol guards are
+cooperative correctness boundaries. They do not stop hostile same-user code from accessing the database or files.
+`security.execution_isolation` deliberately remains a doctor warning. Recovery verifies process birth identity
+before killing or reusing resources; inability to prove ownership requires intervention and preserves resources.
+
 Two consequences worth knowing:
 
 - An agent that can run shell commands can also run `crew` itself as you, with operator rights (for example `crew agent remove`). Crewyard's leases and policies govern what agents do through the MCP server, not what an unsandboxed shell can do. Restrict shell access (Claude's default `acceptEdits` mode, Codex's sandbox) or use a separate OS account for agents you don't trust.
@@ -82,7 +93,7 @@ Two consequences worth knowing:
 
 ## Auditability
 
-Every state-changing action records the operator or agent, the agent definition, the account profile reference, the task, the policy version, the action, an input fingerprint, the decision and the remote operation result. These records are written in the same transaction as the state change. Secrets never enter the audit stream. Export them with `crew events export`.
+Every state-changing action records the operator or agent, the agent definition, the account profile reference, the task, the policy version, the action, an input fingerprint, the decision and the remote operation result. These records are written in the same transaction as the state change. Secrets never enter the audit stream. Export them with `crew events export events.jsonl`.
 
 ## Supply chain
 

@@ -11,13 +11,15 @@ on:
       - '.github/CODEOWNERS'
       - '.github/dependabot.yml'
   pull_request:
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -81,7 +83,7 @@ jobs:
 
   test-macos:
     name: Test (macOS)
-    if: "${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    if: "${{ !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: macos-15
     timeout-minutes: 15
     steps:

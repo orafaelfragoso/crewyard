@@ -1,10 +1,19 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { addProfile, createAccountPolicy, createAgent, getSession, listSessions } from '@crewyard/agents';
-import { CrewService, initRepository, type ProjectCycle } from '@crewyard/application';
+import {
+  CrewService,
+  DEFAULT_EXECUTION_LIMITS,
+  driveExecution,
+  initRepository,
+  type ProjectCycle,
+} from '@crewyard/application';
 import { git } from '@crewyard/core';
+import { loadProjectConfig } from '@crewyard/projects';
 import { all, listEvents } from '@crewyard/storage';
 import { addTask, showTask } from '@crewyard/tasks';
+import { freeDiskBytes } from '@crewyard/workspaces';
 import { createTempGitRepo, createTestContext, type TestContext } from '../helpers/index.ts';
 import { fakeAgentSettings } from '../unit/agents/setup.ts';
 
@@ -186,5 +195,70 @@ describe('service dispatch', () => {
     release();
     await stopping;
     expect(stopped).toBe(true);
+  }, 30_000);
+
+  test('subprocess scheduling holds low-disk dispatch and cleanup workers share one alert until recovery', async () => {
+    ctx = createTestContext();
+    const c = ctx;
+    const actor = { kind: 'operator', id: 'op' } as const;
+    const repo = await createTempGitRepo({ 'a.ts': 'export const a = 1;\n' });
+    const { project, repository } = await initRepository(c, { repoPath: repo, actor });
+    const config = loadProjectConfig(c, project.id).config;
+    config.index.enabled = false;
+    config.index.incremental = false;
+    const threshold = Math.ceil(freeDiskBytes(c.dirs.worktrees) / 1024 ** 3) + 1;
+    config.scheduler.min_free_disk_gb = threshold;
+    const configPath = join(repo, '.crewyard/config.yaml');
+    writeFileSync(configPath, JSON.stringify(config));
+    await addProfile(c, {
+      providerId: 'generic',
+      name: 'idle',
+      settings: { ...fakeAgentSettings(['--sleep', '60000']), codingAgent: true },
+    });
+    createAccountPolicy(c, { name: 'idle-policy', profiles: ['generic/idle'] });
+    createAgent(c, { name: 'worker', accountPolicy: 'idle-policy', projects: [project.id] });
+    const task = addTask(c, {
+      projectId: project.id,
+      repositoryId: repository.id,
+      title: 'Waiting for disk',
+      initialState: 'READY',
+      actor,
+    });
+    const service = new CrewService(c, {});
+    const clean = () =>
+      driveExecution(
+        c,
+        {
+          projectId: project.id,
+          repositoryId: repository.id,
+          actor,
+          leaderId: actor.id,
+          operation: { kind: 'cleanup' },
+        },
+        { ...DEFAULT_EXECUTION_LIMITS },
+      );
+    try {
+      await service.tick();
+      expect(listSessions(c, { taskId: task.id })).toEqual([]);
+      expect(
+        all(
+          c.store.db,
+          "SELECT operation_id FROM outbox WHERE kind = 'execution.launch' AND json_extract(intent, '$.operation.kind') = 'dispatch'",
+        ),
+      ).toEqual([]);
+      await clean();
+      await clean();
+      expect(all(c.store.db, 'SELECT title FROM notifications WHERE project_id = ?', project.id)).toHaveLength(1);
+      config.scheduler.min_free_disk_gb = 0;
+      writeFileSync(configPath, JSON.stringify(config));
+      await clean();
+      config.scheduler.min_free_disk_gb = threshold;
+      writeFileSync(configPath, JSON.stringify(config));
+      await clean();
+      expect(all(c.store.db, 'SELECT title FROM notifications WHERE project_id = ?', project.id)).toHaveLength(2);
+      expect(listSessions(c, { taskId: task.id })).toEqual([]);
+    } finally {
+      await service.stop();
+    }
   }, 30_000);
 });

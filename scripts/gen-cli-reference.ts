@@ -10,9 +10,22 @@ function usage(cmd: Command, parents: string[]): string {
 }
 
 function render(cmd: Command, parents: string[], depth: number, out: string[]): void {
-  const children = cmd.commands.filter((c) => c.name() !== 'help');
+  const children = cmd.commands.filter((c) => c.name() !== 'help' && !c.name().startsWith('__'));
   if (depth > 0) {
-    out.push(`${'#'.repeat(Math.min(depth + 2, 5))} \`${usage(cmd, parents)}\``, '', cmd.description(), '');
+    const commandUsage = usage(cmd, parents);
+    const description =
+      commandUsage === 'crew metrics show'
+        ? [
+            'Metrics schema version 2 reports `localValidationMinutesPerMerge` and',
+            '`localValidationReruns` from local validation runs. `integrationMinutes` includes the',
+            'entire enqueue-to-merge interval. `observedHostedCheckMinutes` sums recorded provider',
+            'execution timing; observation timestamps are not execution durations.',
+            '`hostedCiMinutesPerMerge` remains `unknown` because partial check observations do not',
+            'establish complete hosted CI usage. Active review joins are separate from cache reuse.',
+            'See [metric definitions](../architecture/overview.md#metrics-and-operation-events).',
+          ].join('\n')
+        : cmd.description();
+    out.push(`${'#'.repeat(Math.min(depth + 2, 5))} \`${commandUsage}\``, '', description, '');
     const options = cmd.options.filter((o) => !['--help'].includes(o.long ?? ''));
     if (options.length > 0) {
       out.push('| Option | Description |', '|---|---|');

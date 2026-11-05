@@ -79,8 +79,15 @@ crew install --target codex,claude,opencode
 crewyard/
   crewyard.sqlite         # state, events, audit (WAL mode)
   cache/index/
+  cache/github/<repository-id>/<body-sha>.json
   worktrees/<workspace-id>/
+  worktrees/reviews/      # attempt-owned disposable review checkouts
+  worktrees/candidates/   # attempt-owned disposable validation checkouts
   artifacts/<artifact-id>/
+  artifacts/executions/<attempt-id>/
+    worker.log
+    processes/           # recorded child process birth identities
+    worktrees/           # disposable-worktree ownership manifests
   logs/<session-id>/
   backups/                  # database backups and host-installer backups
   run/
@@ -92,7 +99,7 @@ Credentials are never in these files: they stay in the OS secret store (macOS Ke
 
 ## Upgrade
 
-1. Stop the service: `crew service stop`. Close agent hosts running `crew mcp`.
+1. Stop the service: `crew service stop`. Close agent hosts running `crew mcp`, dashboards and direct CLI writers. Stop or reconcile provider children and unfinished execution attempts before upgrading.
 2. `npm install --global crewyard@latest`, replace the binary (verify as above), or `git pull && bun install --frozen-lockfile` for a source install.
 3. Run `crew doctor`. The first command after an upgrade applies pending database migrations.
 4. Re-run `crew install --target ...` to refresh the installed Skills; it only changes Crewyard-owned content.
@@ -102,18 +109,25 @@ Credentials are never in these files: they stay in the OS secret store (macOS Ke
 
 - Migrations are versioned files with recorded checksums. A database migrated by a different build of the same version is refused.
 - Before applying migrations to an existing database, Crewyard writes a consistent backup with `VACUUM INTO` to `backups/pre-migration-v<N>-<timestamp>-<pid>.sqlite`.
-- Migrations run in a transaction. If one fails, the database stays at the previous version.
-- A database created by a newer Crewyard is refused with `SCHEMA_TOO_NEW` (exit code 8). Upgrade Crewyard, or restore a backup made by your version.
+- Each migration runs in a transaction. A failed migration leaves earlier completed migrations intact; retry with the current build after resolving the failure. Recorded live or unprovable remote workers block an upgrade. Schema v5 also rejects legacy already-open writers through connection-protocol guards on ordinary tables; this is a compatibility fence, not an OS security boundary.
+- A database created by a newer Crewyard is refused with `SCHEMA_TOO_NEW` (exit code 8). Upgrade the executable. Never downgrade to an older evidence engine or restore an older database as routine rollback.
 - `crew doctor` reports pending migrations (`sqlite.schema`).
+
+The current schema is v6: v3 adds execution claims, v4 adds review execution ownership, v5 fences legacy writers,
+and v6 binds GitHub cache ETags to immutable body-content SHAs. Application execution claims and domain evidence
+are retained for recovery; do not remove attempt directories or reuse an old executable to bypass a blocked upgrade.
+See [execution recovery](incident-recovery/runbooks.md#interrupted-execution-or-service-shutdown).
 
 ## Back up and restore
 
 Never copy `crewyard.sqlite` while Crewyard is running: the WAL file holds recent transactions. Use the backups Crewyard writes (they are consistent snapshots), or stop every Crewyard process first.
 
+A backup restore is disaster recovery. First account for acknowledged writes after the backup and preserve evidence of remote effects. Disable scheduling until those effects have been reconciled by the current corrected writer. Never undo a remote merge by restoring the database.
+
 Restore a backup:
 
 ```bash
-crew service stop             # and close agent hosts running `crew mcp`
+crew service stop             # also stop direct workers, MCP hosts, dashboards and provider children
 cd ~/.local/share/crewyard  # your data directory
 mkdir -p backups/replaced
 mv crewyard.sqlite crewyard.sqlite-wal crewyard.sqlite-shm backups/replaced/ 2>/dev/null
@@ -121,7 +135,9 @@ cp backups/pre-migration-v3-2026-11-02T12-00-00Z-4242.sqlite crewyard.sqlite
 crew doctor
 ```
 
-After a restore, state is as of the backup. Crewyard reconciles with reality on the next start: live sessions and worktrees are inspected, GitHub PR/check/merge state is re-read and treated as authoritative, and stale leases are fenced. See [runbooks](incident-recovery/runbooks.md#database-busy-or-corrupted).
+After a restore, state is as of the backup; acknowledged later writes need explicit recovery, and legacy evidence must be invalidated under current acceptance rules. Crewyard reconciles with reality on the next start: live sessions and worktrees are inspected, GitHub PR/check/merge state is re-read and treated as authoritative, and stale leases are fenced. See [runbooks](incident-recovery/runbooks.md#database-busy-or-corrupted).
+
+Safe rollback disables new scheduling or performance behavior while retaining current schema and evidence/mutation guards. Reconcile attempted and ambiguous remote intents before cancelling confirmed unapplied legacy work; unknown outcomes need intervention.
 
 ### Re-authorize providers after a restore or a move
 

@@ -1,9 +1,9 @@
 import type { CrewConfig } from '@crewyard/config';
-import type { Actor } from '@crewyard/core';
+import { type Actor, nowIso } from '@crewyard/core';
 import { primaryRepository } from '@crewyard/projects';
-import { requestIntervention } from '@crewyard/reviews';
+import { requestInterventionInTx } from '@crewyard/reviews';
 import { type DiskSpace, diskSpace, gigabytes } from '@crewyard/scheduler';
-import type { CrewContext } from '@crewyard/storage';
+import { type CrewContext, one, recordTransition } from '@crewyard/storage';
 import { freeDiskBytes, type PrunedBuildOutput, pruneBuildOutput } from '@crewyard/workspaces';
 
 export interface DiskGuard {
@@ -19,25 +19,46 @@ export async function guardDiskSpace(
     config: CrewConfig;
     actor: Actor;
     alert: boolean;
+    prune: 'always' | 'when-low';
     measure?: (path: string) => number;
   },
 ): Promise<DiskGuard> {
-  if (input.config.scheduler.min_free_disk_gb === 0) {
-    return { freeDiskBytes: null, disk: diskSpace(null, input.config), pruned: [] };
-  }
   const measure = input.measure ?? freeDiskBytes;
-  const measured = measure(ctx.dirs.worktrees);
-  if (!diskSpace(measured, input.config).low) {
-    return { freeDiskBytes: measured, disk: diskSpace(measured, input.config), pruned: [] };
-  }
+  const measured = input.config.scheduler.min_free_disk_gb === 0 ? null : measure(ctx.dirs.worktrees);
   const repo = primaryRepository(ctx, input.projectId);
-  const pruned = await pruneBuildOutput(ctx, { repositoryId: repo.id, actor: input.actor, config: input.config });
-  const free = measure(ctx.dirs.worktrees);
+  const prune = input.prune === 'always' || diskSpace(measured, input.config).low;
+  const pruned = prune
+    ? await pruneBuildOutput(ctx, { repositoryId: repo.id, actor: input.actor, config: input.config })
+    : [];
+  const free = measured === null ? null : prune ? measure(ctx.dirs.worktrees) : measured;
   const disk = diskSpace(free, input.config);
-  if (disk.low && input.alert) {
+  ctx.store.immediate((db) => {
+    const previous = one<{ low: number }>(
+      db,
+      "SELECT json_extract(payload, '$.low') AS low FROM events WHERE type = 'service.disk_space_changed' AND project_id = ? ORDER BY seq DESC LIMIT 1",
+      input.projectId,
+    );
+    if ((previous?.low === 1) === disk.low) return;
+    const at = nowIso(ctx.clock);
+    recordTransition(
+      db,
+      {
+        type: 'service.disk_space_changed',
+        actor: input.actor,
+        projectId: input.projectId,
+        payload: { repositoryId: repo.id, ...disk },
+      },
+      {
+        action: 'service.disk_space',
+        input: { repositoryId: repo.id, ...disk },
+        decision: disk.low ? 'low' : 'recovered',
+      },
+      at,
+    );
+    if (!disk.low || !input.alert) return;
     const freed = pruned.reduce((sum, p) => sum + p.freedBytes, 0);
-    requestIntervention(
-      ctx,
+    requestInterventionInTx(
+      db,
       {
         projectId: input.projectId,
         title: `Disk space low for ${input.config.project.name}`,
@@ -50,7 +71,8 @@ export async function guardDiskSpace(
         ],
       },
       input.actor,
+      at,
     );
-  }
+  });
   return { freeDiskBytes: free, disk, pruned };
 }

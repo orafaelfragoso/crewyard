@@ -351,8 +351,8 @@ export function MetricsView({ theme, data }: ViewProps) {
           />
           <KeyValue
             theme={theme}
-            label="Queue wait p50/p95"
-            value={`${fmt(m.queueWaitMinutes.p50, 'm')} / ${fmt(m.queueWaitMinutes.p95, 'm')}`}
+            label="Integration p50/p95"
+            value={`${fmt(m.integrationMinutes.p50, 'm')} / ${fmt(m.integrationMinutes.p95, 'm')}`}
           />
           <KeyValue theme={theme} label="Open PR age p50" value={fmt(m.openPrAgeHours.p50, 'h')} />
           <KeyValue
@@ -367,9 +367,10 @@ export function MetricsView({ theme, data }: ViewProps) {
         </Panel>
         <Panel theme={theme} title="Efficiency">
           <KeyValue theme={theme} label="Review cache hit" value={fmt(m.reviewCache.hitRatio)} />
+          <KeyValue theme={theme} label="Review active joins" value={m.reviewCache.joined} />
           <KeyValue theme={theme} label="Context reduction" value={fmt(m.contextTokenReduction)} />
-          <KeyValue theme={theme} label="CI min / merge" value={fmt(m.ciMinutesPerMerge)} />
-          <KeyValue theme={theme} label="CI reruns" value={m.ciReruns} />
+          <KeyValue theme={theme} label="Local validation min / merge" value={fmt(m.localValidationMinutesPerMerge)} />
+          <KeyValue theme={theme} label="Local validation reruns" value={m.localValidationReruns} />
           <KeyValue theme={theme} label="Recoveries" value={m.recoveries} />
           <KeyValue
             theme={theme}

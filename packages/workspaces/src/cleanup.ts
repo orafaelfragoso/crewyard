@@ -10,6 +10,7 @@ export type CleanupBlockReason =
   | 'TASK_NOT_FINISHED'
   | 'LEASE_ACTIVE'
   | 'SESSION_ACTIVE'
+  | 'EXECUTION_ACTIVE'
   | 'PR_OPEN'
   | 'NEEDS_RECONCILIATION'
   | 'ALLOCATING';
@@ -74,6 +75,16 @@ export async function previewCleanup(
     ) {
       blockedBy.push('SESSION_ACTIVE');
     }
+    if (
+      ws.taskId &&
+      one(
+        db,
+        `SELECT 1 FROM execution_claims c JOIN outbox o ON json_extract(o.intent, '$.claim.attemptId') = c.attempt_id
+      WHERE o.kind = 'execution.launch' AND o.task_id = ? AND c.released_at IS NULL`,
+        ws.taskId,
+      )
+    )
+      blockedBy.push('EXECUTION_ACTIVE');
     const openPr = all<{ id: string }>(
       db,
       `SELECT id FROM pull_requests WHERE repository_id = ? AND state = 'open' AND (head_ref = ? OR (task_id IS NOT NULL AND task_id = ?))`,

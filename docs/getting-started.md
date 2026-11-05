@@ -1,17 +1,17 @@
 # Getting started
 
-This guide takes you from nothing to agents working on your repository. Every command here was run as written.
+This guide takes you from installation to agents working on your repository. Replace example IDs and the reviewer model with values from your setup. Live GitHub and authenticated provider acceptance is tracked in the [acceptance matrix](acceptance.md#not-yet-demonstrated).
 
 ## How it works
 
-You give Crewyard a **goal**. An **architect** agent splits it into **tasks**. The **service** hands each ready task to an **engineer** agent, which works in its own Git worktree using one of your **accounts**. A **reviewer** agent checks the work, and Crewyard opens and merges the pull request.
+You give Crewyard a **goal**. An **architect** agent splits it into **tasks**. The **service** hands each ready task to an **engineer** agent, which works in its own Git worktree using one of your **accounts**. A configured **reviewer** agent checks the work. Publication and merge then depend on autonomy, approvals, validation and current GitHub requirements.
 
 ```mermaid
 flowchart LR
   G[Goal] -->|architect plans| T[Tasks]
   T -->|service dispatches| E[Engineer agent<br/>own worktree]
   E -->|commits| R[Reviewer agent]
-  R -->|approved| PR[Pull request → merge]
+  R -->|policy + validation + GitHub checks| PR[Pull request → merge]
 ```
 
 | Thing | What it is | Created with |
@@ -20,7 +20,7 @@ flowchart LR
 | **Account** | A login for an agent CLI you already use (Claude Code, Codex, OpenCode) | `crew account add` |
 | **Agent** | A worker with a role (architect, engineer, reviewer) that uses an account | `crew agent create` |
 | **Goal → tasks** | What you want done, split into tasks with dependencies | `crew goal create` + `crew goal plan` |
-| **Service** | The background worker that keeps dispatching tasks | `crew service start` |
+| **Service** | The controller that keeps admitting bounded worker processes | `crew service start` |
 
 Everything is stored locally in one SQLite database. Nothing runs in the cloud except the agent CLIs' own model calls and GitHub.
 
@@ -36,7 +36,7 @@ Everything is stored locally in one SQLite database. Nothing runs in the cloud e
 | 6 | Connect your own agent tools | `crew install` | Optional |
 | 7 | Give it a goal and approve the plan | `crew goal create` · `crew goal plan` · `crew goal approve` | Yes |
 | 8 | Watch one task | `crew agent run engineer --task TASK-1` | Recommended |
-| 9 | Let it run | `crew service start` · `crew dashboard` | Yes |
+| 9 | Let it run | `crew service start` · `crew dashboard` | For continuous scheduling |
 
 ## 1. Install
 
@@ -47,7 +47,7 @@ npm install --global crewyard
 crew doctor
 ```
 
-Every line of `crew doctor` should say `OK`. A `provider.*` line that is not OK means that agent CLI is missing ([what each check means](doctor.md)).
+Resolve `error` checks before proceeding. `security.execution_isolation` deliberately reports `warn`: Crewyard does not provide an OS sandbox. An unused provider may report `skip`. Read each check's explanation and repair command ([check reference](doctor.md)).
 
 ## 2. Register your repository
 
@@ -76,7 +76,9 @@ Run these inside the repository. The provider comes from the account.
 ```bash
 crew agent create --name architect --role architect --account claude/personal
 crew agent create --name engineer  --account claude/personal
-crew agent create --name reviewer  --role reviewer  --account claude/personal
+# Replace this with a model ID supported by your account.
+REVIEW_MODEL='your-provider-model-id'
+crew agent create --name reviewer --role reviewer --account claude/personal --model "$REVIEW_MODEL"
 crew agent list
 ```
 
@@ -87,6 +89,8 @@ crew agent list
 An agent created inside a registered repository only works on that project (the `PROJECTS` column of `crew agent list`). To share one across projects: `crew agent update engineer --all-projects`.
 
 Agents can use different providers, and one agent can use several accounts in order. Changing, removing and sharing agents is covered in [Agents and policies](agents.md).
+
+AI review requires an explicit provider and model so evidence can be attributed and checked for reuse. The account supplies the provider; `--model` supplies the model. A reviewer created without one must be updated before use: `crew agent update reviewer --model "$REVIEW_MODEL"`.
 
 ## 5. Turn on AI review
 
@@ -143,7 +147,9 @@ crew goal create --title "Add a greeting helper" --description "Add greet(name) 
 
 It prints the goal ID, such as `GOAL-1`. Then plan it, in one of two ways.
 
-**Let the architect plan it.** Plans written by an AI wait for your approval:
+Define interfaces and dependencies before splitting parallel work. Give each task scope hints and observable acceptance checks. Disjoint paths do not prove changes are independent; review shared schemas, APIs and risk decisions before approval.
+
+**Let the architect plan it.** In the default `guarded` mode, AI plans wait for your approval:
 
 ```bash
 crew goal plan GOAL-1 --agent architect
@@ -164,7 +170,7 @@ Started the planning agent. This usually takes a few minutes.
 
 Ctrl-C stops the agent. `crew agent run` shows the same progress for a task.
 
-**Or write the plan yourself** as YAML or JSON. Your own plans are accepted immediately:
+**Or write the plan yourself** as YAML or JSON. In `guarded` mode, your own plans are accepted immediately:
 
 ```yaml
 # plan.yaml
@@ -207,7 +213,7 @@ Before you let Crewyard run on its own, watch a single task:
 crew agent run engineer --task TASK-1
 ```
 
-The engineer claims the task, gets its own Git worktree (your checkout is never touched), and works in the foreground until it finishes. `crew task show TASK-1` shows where the task ended up.
+The command drives a durable execution attempt. The engineer claims the task and gets its own Git worktree while you follow progress in the foreground. `crew task show TASK-1` shows where the task ended up. A resident service is not required for this command; closing the calling host does not guarantee background continuation.
 
 ## 9. Let it run
 
@@ -218,6 +224,14 @@ crew dashboard          # live view of tasks, agents, PRs and alerts
 
 The service picks an agent for each ready task by role (`engineer` unless the task asks for another), using agents that have free capacity (`--max-parallel`). To keep it running across reboots: `crew service install`.
 
+The worker pool defaults to six operations globally, four per project and one per project/domain, with a 90-minute deadline and 10-second shutdown grace. These limits are separate from task WIP, account capacity and budgets. To choose smaller limits, run the service in the foreground:
+
+```bash
+crew service run --workers 3 --workers-per-project 2 --workers-per-domain 1
+```
+
+These flags belong to `service run`; `service start` and `service install` use the defaults. There is no worker-pool section in repository YAML. See [execution limits](architecture/overview.md#execution-limits).
+
 | Question | Command |
 |---|---|
 | Why isn't TASK-2 running? | `crew task explain TASK-2` |
@@ -225,7 +239,9 @@ The service picks an agent for each ready task by role (`engineer` unless the ta
 | Show a session's output | `crew agent logs <sessionId>` |
 | Why isn't a PR merging? | `crew queue explain --pr <number>` |
 | Is the service up? | `crew service status` |
-| Stop it (running sessions are cancelled, their work is committed to the task branch, and the tasks return to `READY`) | `crew service stop` |
+| Stop service-owned workers; inspect preserved work and task outcomes afterward | `crew service stop` |
+
+Direct CLI/MCP callers may own other workers. Shutdown verifies and drains owned processes before recovery. Unverifiable processes or resources are preserved for intervention; a task already handed off is not reset. See [execution recovery](incident-recovery/runbooks.md#interrupted-execution-or-service-shutdown).
 
 ## Troubleshooting
 
@@ -236,7 +252,7 @@ The service picks an agent for each ready task by role (`engineer` unless the ta
 | `error APPROVAL_REQUIRED … confirmation required` | Add `--yes` to confirm, or `--dry-run` to preview |
 | `Goal … has no plan awaiting approval` | The plan was already accepted. Check `crew task list` |
 | Tasks stay `READY` | Start the service (`crew service start`), check `crew task explain <task>`, and that an agent with the right role works on this project (`crew agent list`) |
-| Reviews never use your reviewer agent | `crew config set review.reviewer_agent reviewer --yes` |
+| Reviews never use your reviewer agent | Check `review.reviewer_agent` and `crew agent show reviewer`; set an explicit supported model |
 | `✗ remote` in the readiness report | Add a GitHub `origin` remote and run `gh auth login` |
 
 More in [`crew doctor`](doctor.md) and the [recovery runbooks](incident-recovery/runbooks.md). Every command is in the [CLI reference](reference/cli.md).

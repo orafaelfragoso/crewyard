@@ -14,6 +14,8 @@ export type IdPrefix =
   | 'wsa'
   | 'pr'
   | 'rev'
+  | 'rrq'
+  | 'rat'
   | 'fnd'
   | 'val'
   | 'q'

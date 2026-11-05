@@ -26,6 +26,7 @@ async function setup(clock: ManualClock) {
     actor: { kind: 'operator', id: 'op' },
   });
   const claim = await claimAndPrepare(ctx, {
+    inProcess: true,
     taskId: task.id,
     holder: { kind: 'agent', id: 'agt_x' },
     actor: { kind: 'agent', id: 'agt_x' },
@@ -64,6 +65,7 @@ describe('crash recovery', () => {
     const state = showTask(c, taskId).task.state;
     if (state === 'READY') {
       const second = await claimAndPrepare(c, {
+        inProcess: true,
         taskId,
         holder: { kind: 'agent', id: 'agt_y' },
         actor: { kind: 'agent', id: 'agt_y' },

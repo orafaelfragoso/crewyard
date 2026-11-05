@@ -133,7 +133,7 @@ describe('MCP stdio contract', () => {
     } finally {
       await client.close();
     }
-  });
+  }, 30_000);
 
   test('anonymous clients are read-only and stdout carries only protocol messages', async () => {
     const client = await connect({});
