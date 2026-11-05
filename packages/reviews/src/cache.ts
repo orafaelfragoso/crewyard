@@ -55,7 +55,7 @@ export function reviewEvidenceValidity(review: ReviewArtifact, policy: ReviewAcc
   )
     return 'reviewer_changed';
   if (
-    review.reusedFrom !== null &&
+    (review.scope === 'reused' || review.scope === 'incremental') &&
     (!policy.cacheEnabled ||
       (review.reviewType === 'security' && inputs.securityClasses.length > 0 && policy.requireReviewForHighRisk))
   )

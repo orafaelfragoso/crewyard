@@ -264,6 +264,9 @@ describe('evidence fingerprint and cache', () => {
     while (status().length === 0) await Bun.sleep(5);
     expect(status()).toEqual([{ status: 'running' }]);
     await runRecovery(c);
+    expect(status()).toEqual([{ status: 'running' }]);
+    c.store.db.query("UPDATE execution_claims SET expires_at = '2000-01-01T00:00:00.000Z'").run();
+    await runRecovery(c);
     expect(status()).toEqual([{ status: 'failed' }]);
     const reviewer = new CountingReviewer();
     await requestReview(c, input, { reviewers: { code: reviewer }, config, context: new Context() });
@@ -468,4 +471,47 @@ describe('review acceptance gates', () => {
     );
     expect(result.outcomes[0]?.review?.status).toBe('invalidated');
   });
+});
+
+test('force starts a full execution while equivalent incremental work is active', async () => {
+  const { ctx: c, repositoryId, config } = setup();
+  const context = new Context();
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const scopes: string[] = [];
+  const reviewer: Reviewer = {
+    identity: 'scoped',
+    model: 'fixture',
+    promptVersion: '1',
+    evidenceScope: 'patch',
+    async review(input) {
+      scopes.push(input.scope);
+      if (input.scope === 'incremental') {
+        started.resolve();
+        await release.promise;
+      }
+      return { confidence: 0.9, findings: [] };
+    },
+  };
+  const input = {
+    repositoryId,
+    prId: 'pr_1',
+    commitSha: 'h1',
+    baseSha: 'b',
+    patch: diff('src/a.ts', ['a'], ['b']) + diff('src/b.ts', ['c'], ['d']),
+    types: ['code' as const],
+  };
+  await requestReview(c, input, { config, context, reviewers: { code: reviewer } });
+  const changed = { ...input, commitSha: 'h2', patch: diff('src/a.ts', ['a'], ['b']) + diff('src/b.ts', ['c'], ['e']) };
+  const incremental = requestReview(c, changed, { config, context, reviewers: { code: reviewer } });
+  await started.promise;
+  const forced = await requestReview(
+    c,
+    { ...changed, force: true },
+    { config, context, reviewers: { code: reviewer } },
+  );
+  expect(forced.outcomes[0]).toMatchObject({ decision: 'full', reviewerInvoked: true });
+  release.resolve();
+  await incremental;
+  expect(scopes).toEqual(['full', 'incremental', 'full']);
 });

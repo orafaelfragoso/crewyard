@@ -212,6 +212,7 @@ test('evidence expiring during provider work completes as invalidated', async ()
     ...reviewer,
     review: async () => {
       clock.advance(config.review.cache_ttl_hours * 3600);
+      ctx.store.db.query("UPDATE execution_claims SET expires_at = '2099-01-01T00:00:00.000Z'").run();
       return { confidence: 0.9, findings: [] };
     },
   };

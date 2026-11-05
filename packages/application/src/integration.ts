@@ -217,7 +217,9 @@ export class AgentReviewer implements Reviewer {
 
   async review(input: ReviewInput): Promise<StructuredFindings> {
     if (this.model === null || this.provider === null)
-      throw new CrewError('POLICY_DENIED', 'Review agents require an explicit provider and model');
+      throw new CrewError('POLICY_DENIED', 'Review agents require an explicit provider and model', {
+        suggestion: 'Set a model in the first provider preference of the configured review.reviewer_agent.',
+      });
     if (input.patch.length > 120_000)
       throw new CrewError('INVALID_INPUT', 'Review patch exceeds the agent complete-input limit');
     const patch = input.patch;
@@ -250,6 +252,7 @@ export class AgentReviewer implements Reviewer {
       },
       { tooling: sessionTooling(this.ctx) },
     );
+    if (session.pid !== null) this.ctx.execution?.onSpawn(session.pid);
     const record = await awaitSession(this.ctx, session.sessionId);
     if (record.model !== this.model || session.providerId !== this.provider)
       throw new CrewError('POLICY_DENIED', 'Review execution differs from its admitted provider and model');
@@ -274,11 +277,6 @@ export function reviewersFor(ctx: CrewContext, projectId: string, cwd: string): 
   return { code: agent, security: baseline, integration: agent };
 }
 
-async function headOf(path: string): Promise<string | null> {
-  const result = await git(path, ['rev-parse', 'HEAD'], { allowFailure: true });
-  return result.exitCode === 0 ? result.stdout.trim() : null;
-}
-
 export async function reviewPullRequest(
   ctx: CrewContext,
   input: PullRequestReviewInput,
@@ -293,9 +291,6 @@ export async function reviewPullRequest(
       env,
     });
   if (!loadProjectConfig(ctx, repo.projectId).config.review.reviewer_agent) return review(repo.canonicalPath);
-  for (const workspace of pr.taskId ? listWorkspaces(ctx, { taskId: pr.taskId }) : []) {
-    if (workspace.state !== 'cleaned' && (await headOf(workspace.path)) === pr.headSha) return review(workspace.path);
-  }
   await fetchIntegrationRefs(repo.canonicalPath, pr.governance?.integrationBase ?? pr.baseRef, [pr]);
   const worktree = join(ensureDir(join(ctx.dirs.worktrees, 'reviews')), newId('ws'));
   try {

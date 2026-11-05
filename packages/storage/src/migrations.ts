@@ -5,6 +5,7 @@ import { CrewError, ensureDir, nowIso, sha256 } from '@crewyard/core';
 import initialSql from '../migrations/0001_initial.sql' with { type: 'text' };
 import queueEntryProgressSql from '../migrations/0002_queue_entry_progress.sql' with { type: 'text' };
 import executionClaimsSql from '../migrations/0003_execution_claims.sql' with { type: 'text' };
+import reviewExecutionSql from '../migrations/0004_review_execution.sql' with { type: 'text' };
 import { all, type Store } from './db.ts';
 
 export interface Migration {
@@ -17,6 +18,7 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: '0001_initial', sql: initialSql },
   { version: 2, name: '0002_queue_entry_progress', sql: queueEntryProgressSql },
   { version: 3, name: '0003_execution_claims', sql: executionClaimsSql },
+  { version: 4, name: '0004_review_execution', sql: reviewExecutionSql },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

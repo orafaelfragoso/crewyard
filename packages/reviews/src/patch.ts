@@ -30,12 +30,14 @@ export function parseUnifiedDiff(patch: string): DiffFile[] {
   let current: DiffFile | null = null;
   let oldLine = 0;
   let newLine = 0;
+  let inHunk = false;
   for (const raw of patch.split('\n')) {
     if (raw.startsWith('diff --git ')) {
       const match = /^diff --git (\S+|"[^"]+") (\S+|"[^"]+")$/.exec(raw);
       const path = match ? stripPrefix(match[2]!) : raw.slice(11);
       current = { path, previousPath: null, status: 'modified', binary: false, lines: [] };
       files.push(current);
+      inHunk = false;
       continue;
     }
     if (!current) continue;
@@ -50,13 +52,14 @@ export function parseUnifiedDiff(patch: string): DiffFile[] {
       if (raw.startsWith('+++ ') && raw.slice(4) !== '/dev/null') current.path = stripPrefix(raw.slice(4));
     } else if (raw.startsWith('@@')) {
       const match = HUNK.exec(raw);
+      inHunk = match !== null;
       oldLine = match ? Number(match[1]) : 0;
       newLine = match ? Number(match[2]) : 0;
-    } else if (raw.startsWith('+')) {
+    } else if (inHunk && raw.startsWith('+')) {
       current.lines.push({ kind: 'add', text: raw.slice(1), line: newLine++ });
-    } else if (raw.startsWith('-')) {
+    } else if (inHunk && raw.startsWith('-')) {
       current.lines.push({ kind: 'del', text: raw.slice(1), line: oldLine++ });
-    } else if (raw.startsWith(' ')) {
+    } else if (inHunk && raw.startsWith(' ')) {
       oldLine++;
       newLine++;
     }

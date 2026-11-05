@@ -180,6 +180,7 @@ export async function runValidation(ctx: CrewContext, input: RunValidationInput)
     try {
       const shell = shellCommand(spec.command);
       const result = await run(shell.argv, {
+        ...(ctx.execution ? { onSpawn: ctx.execution.onSpawn, signal: ctx.execution.signal } : {}),
         verbatimArguments: shell.verbatimArguments,
         cwd: input.cwd,
         env,
