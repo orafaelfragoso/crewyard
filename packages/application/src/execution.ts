@@ -22,6 +22,7 @@ import {
   type OutboxOperation,
 } from '@crewyard/storage';
 import type { LeaseHolder } from '@crewyard/tasks';
+import { recordOperation } from '@crewyard/telemetry';
 
 export type ExecutionOperation =
   | { kind: 'index'; sha: string; ref?: string; worktreePath?: string; force?: boolean; indexRevision: string }
@@ -130,7 +131,9 @@ export function submitExecution(
   )
     throw new CrewError('INVALID_INPUT', 'Index execution requires an exact commit SHA and configuration revision');
   const scope = executionScope(request);
-  return ctx.store.immediate((db) => {
+  const started = performance.now();
+  let joined = false;
+  const admitted = ctx.store.immediate((db) => {
     const at = nowIso(ctx.clock);
     const current = getExecutionClaim(db, scope);
     if (current && current.releasedAt === null) {
@@ -158,6 +161,7 @@ export function submitExecution(
         ) {
           return null;
         }
+        joined = true;
         return operation as unknown as OutboxOperation<ExecutionLaunch>;
       }
       return null;
@@ -224,4 +228,15 @@ export function submitExecution(
       at,
     ) as unknown as OutboxOperation<ExecutionLaunch>;
   });
+  if (admitted)
+    recordOperation(ctx, {
+      operation: 'controller',
+      projectId: request.projectId,
+      repositoryId: request.repositoryId,
+      durationMs: performance.now() - started,
+      outcome: 'completed',
+      actor: request.actor,
+      counts: { admitted: joined ? 0 : 1, joined: joined ? 1 : 0 },
+    });
+  return admitted;
 }

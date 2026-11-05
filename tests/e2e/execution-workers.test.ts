@@ -85,6 +85,15 @@ test('durable capacity admits distinct domains without duplicate scopes', async 
   expect(submitExecution(c, request, limits)?.operationId).toBe(first.operationId);
   expect(submitExecution(c, { ...request, operation: { kind: 'cleanup' } }, limits)).not.toBeNull();
   expect(submitExecution(c, { ...request, operation: { kind: 'health' } }, limits)).toBeNull();
+  const admissions = listEvents(c.store, { types: ['operation.completed'] }).filter(
+    (event) => (event.payload.counts as Record<string, number>).admitted !== undefined,
+  );
+  expect(admissions.map((event) => event.payload.counts)).toEqual([
+    { admitted: 1, joined: 0 },
+    { admitted: 0, joined: 1 },
+    { admitted: 1, joined: 0 },
+  ]);
+  for (const event of admissions) expect(event.payload.durationMs as number).toBeGreaterThanOrEqual(0);
   expect(c.store.db.query('SELECT COUNT(*) AS n FROM execution_claims WHERE released_at IS NULL').get()).toEqual({
     n: 2,
   });
