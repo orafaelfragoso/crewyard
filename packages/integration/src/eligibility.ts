@@ -5,7 +5,9 @@ import {
   classifyPaths,
   type PathClassification,
   type ReviewAcceptancePolicy,
+  type ReviewArtifact,
   type ReviewSummary,
+  reviewContextPaths,
   reviewPolicyVersion,
   reviewSummary,
   StaticAnalysisReviewer,
@@ -264,6 +266,12 @@ export function integrationReviewAcceptance(
     minConfidence: 0.5,
     cacheEnabled: config.review.cache_enabled,
     requireReviewForHighRisk: config.review.require_review_for_high_risk,
+    ...(env.reviewContext
+      ? {
+          currentContext: (review: ReviewArtifact) =>
+            env.reviewContext!(review.repositoryId, review.commitSha, reviewContextPaths(review.fingerprintInputs)),
+        }
+      : {}),
     expectedReviewers:
       env.reviewAcceptance?.(repositoryId) ??
       (config.review.reviewer_agent ? {} : { code: reviewer, security: reviewer, integration: reviewer }),

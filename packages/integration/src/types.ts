@@ -10,7 +10,7 @@ import type {
   StackInfo,
 } from '@crewyard/github';
 import type { Repository } from '@crewyard/projects';
-import type { ReviewReviewerIdentity, ReviewType } from '@crewyard/reviews';
+import type { ReviewContext, ReviewReviewerIdentity, ReviewType } from '@crewyard/reviews';
 
 export interface TaskHookEvent {
   taskId: string;
@@ -37,6 +37,7 @@ export interface TaskHooks {
 export type GitHubClientFactory = (repository: Repository) => GitHubClient;
 
 export interface IntegrationEnv {
+  reviewContext?: (repositoryId: string, commitSha: string, paths: string[]) => ReviewContext | null;
   reviewAcceptance?: (repositoryId: string) => Partial<Record<ReviewType, ReviewReviewerIdentity>>;
   github?: GitHubClientFactory;
   hooks?: TaskHooks;
