@@ -151,7 +151,8 @@ describe('post-merge health', () => {
   });
 
   test('observe mode emits an actionable alert without admitting repair work; superseded commits do not open repairs', () => {
-    const f = fixture('observe');
+    const f = fixture('guarded');
+    f.ctx.store.db.query("UPDATE projects SET autonomy = 'observe' WHERE id = ?").run(f.projectId);
     const obs = observation(f.repositoryId, [check('failure')]);
     expect(recordMergeHealth(f.ctx, obs, f.env)).toMatchObject({ state: 'failed', repairTaskId: null });
     recordMergeHealth(f.ctx, obs, f.env);

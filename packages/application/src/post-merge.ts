@@ -1,6 +1,6 @@
 import { type Actor, CrewError, fingerprint, nowIso } from '@crewyard/core';
 import type { BranchRequirements, CheckResult } from '@crewyard/github';
-import { clientFor, configFor, type IntegrationEnv, pullRequestById } from '@crewyard/integration';
+import { autonomyFor, clientFor, configFor, type IntegrationEnv, pullRequestById } from '@crewyard/integration';
 import { getRepository } from '@crewyard/projects';
 import { requestInterventionInTx } from '@crewyard/reviews';
 import { all, type CrewContext, one, recordTransition } from '@crewyard/storage';
@@ -102,7 +102,11 @@ export function recordMergeHealth(
         originRef,
       )?.id ?? null;
     const changed = prior?.fingerprint !== healthFingerprint;
-    if (state === 'failed' && repairTaskId === null && ['guarded', 'autopilot'].includes(config.project.autonomy)) {
+    if (
+      state === 'failed' &&
+      repairTaskId === null &&
+      ['guarded', 'autopilot'].includes(autonomyFor(ctx, repository.projectId))
+    ) {
       const pr = pullRequestById(db, merged.id)!;
       repairTaskId = insertTaskInTx(
         db,
