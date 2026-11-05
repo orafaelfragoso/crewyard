@@ -1,7 +1,19 @@
 import type { Database } from 'bun:sqlite';
-import { type Actor, CrewError, newId, nowIso, revParse, SYSTEM_ACTOR, toCrewError } from '@crewyard/core';
+import {
+  type Actor,
+  CrewError,
+  type GitOptions,
+  newId,
+  nowIso,
+  revParse,
+  SYSTEM_ACTOR,
+  toCrewError,
+  withProcessLifecycle,
+} from '@crewyard/core';
 import { all, type CrewContext, one, recordTransition } from '@crewyard/storage';
+import { acquireIndexBuild, acquireSnapshotReader, hasIndexReaders } from './execution.ts';
 import { ancestors, diffTrees, hasCommit, listTree, readBlobs, treeSha } from './git-source.ts';
+import { forgetSnapshotModels } from './graph.ts';
 import { type BlobPlan, type BlobRecord, expectedParser, processBlob, SKIP_PARSER, skippedRecord } from './process.ts';
 import {
   basenameOf,
@@ -26,7 +38,6 @@ import {
 import type { FileKind, IndexConfig, Snapshot, SnapshotSelector } from './types.ts';
 import { type FileRow, writeBlobs, writeFiles } from './writer.ts';
 
-const STALE_BUILD_MS = 15 * 60 * 1000;
 const ANCESTOR_SEARCH_DEPTH = 1_000;
 
 export interface IndexOptions extends SnapshotSelector {
@@ -47,6 +58,9 @@ export interface IndexStats {
   reusedBlobs: number;
   redactedBlobs: number;
   durationMs: number;
+  membershipLoadMs: number;
+  membershipWriteMs: number;
+  membershipRowsWritten: number;
 }
 
 export interface IndexResult {
@@ -60,7 +74,11 @@ export interface ResolvedCommit {
   ref: string | null;
 }
 
-export async function resolveCommit(ctx: CrewContext, selector: SnapshotSelector): Promise<ResolvedCommit> {
+export async function resolveCommit(
+  ctx: CrewContext,
+  selector: SnapshotSelector,
+  options?: GitOptions,
+): Promise<ResolvedCommit> {
   const repo = loadRepository(ctx.store.db, selector.repositoryId);
   const sha = selector.sha?.toLowerCase();
   if (sha && FULL_SHA.test(sha) && snapshotByCommit(ctx.store.db, repo.id, sha)) {
@@ -68,7 +86,7 @@ export async function resolveCommit(ctx: CrewContext, selector: SnapshotSelector
   }
   const cwd = selector.worktreePath ?? repo.canonicalPath;
   const target = selector.sha ?? selector.ref ?? (selector.worktreePath ? 'HEAD' : repo.defaultBase);
-  const commitSha = await revParse(cwd, target);
+  const commitSha = await revParse(cwd, target, options);
   if (!commitSha) {
     throw new CrewError('NOT_FOUND', `Cannot resolve ${target} to a commit in ${cwd}`, {
       details: { repositoryId: repo.id, ref: target },
@@ -167,11 +185,14 @@ async function chooseParent(
   const byCommit = new Map(candidates.map((c) => [c.commit_sha, c.id]));
   for (const ancestor of await ancestors(repo.canonicalPath, commitSha, ANCESTOR_SEARCH_DEPTH)) {
     const id = byCommit.get(ancestor);
-    if (id) return { snapshot: snapshotById(ctx.store.db, id)! };
+    const snapshot = id ? snapshotById(ctx.store.db, id) : null;
+    if (snapshot) return { snapshot };
   }
   for (const candidate of candidates) {
-    if (await hasCommit(repo.canonicalPath, candidate.commit_sha))
-      return { snapshot: snapshotById(ctx.store.db, candidate.id)! };
+    if (await hasCommit(repo.canonicalPath, candidate.commit_sha)) {
+      const snapshot = snapshotById(ctx.store.db, candidate.id);
+      if (snapshot) return { snapshot };
+    }
   }
   return null;
 }
@@ -183,19 +204,14 @@ function claimSnapshot(
   revision: string,
   parentId: string | null,
   force: boolean,
+  actor: Actor,
 ): Snapshot | 'noop' {
   const at = nowIso(ctx.clock);
   return ctx.store.immediate((db) => {
     const existing = snapshotByCommit(db, resolved.repo.id, resolved.commitSha);
     if (existing?.status === 'available' && existing.revision === revision && !force) return 'noop';
-    if (
-      existing?.status === 'building' &&
-      ctx.clock.now().getTime() - Date.parse(existing.startedAt) < STALE_BUILD_MS
-    ) {
-      throw new CrewError('BUSY', `Snapshot for ${resolved.commitSha} is already being built`, {
-        details: { snapshotId: existing.id },
-        suggestion: 'Wait for the running index build to finish, then retry.',
-      });
+    if (existing && hasIndexReaders(db, existing.id)) {
+      throw new CrewError('BUSY', 'Snapshot has active readers; retry the rebuild after they finish');
     }
     if (existing) {
       db.query('UPDATE repository_snapshots SET parent_snapshot_id = NULL WHERE parent_snapshot_id = ?').run(
@@ -208,6 +224,26 @@ function claimSnapshot(
       `INSERT INTO repository_snapshots (id, repository_id, commit_sha, tree_sha, ref, parent_snapshot_id, status, symbol_graph_revision, started_at)
        VALUES (?, ?, ?, ?, ?, ?, 'building', ?, ?)`,
     ).run(id, resolved.repo.id, resolved.commitSha, tree, resolved.ref, parentId, revision, at);
+    recordTransition(
+      db,
+      {
+        type: 'index.snapshot_started',
+        actor,
+        projectId: resolved.repo.projectId,
+        payload: {
+          snapshotId: id,
+          repositoryId: resolved.repo.id,
+          commitSha: resolved.commitSha,
+          attemptId: ctx.execution!.claim.attemptId,
+        },
+      },
+      {
+        action: 'index.build',
+        input: { repositoryId: resolved.repo.id, commitSha: resolved.commitSha, revision, force },
+        decision: 'building',
+      },
+      at,
+    );
     return snapshotById(db, id)!;
   });
 }
@@ -227,13 +263,34 @@ function existingParsers(db: Database, shas: readonly string[]): Map<string, str
 
 export async function indexRepository(ctx: CrewContext, options: IndexOptions): Promise<IndexResult> {
   const started = performance.now();
+  const resolved = await resolveCommit(ctx, options);
+  const ownership = await acquireIndexBuild(
+    ctx,
+    resolved.repo.id,
+    resolved.commitSha,
+    indexRevision(options.config ?? DEFAULT_INDEX_CONFIG),
+  );
+  try {
+    return await withProcessLifecycle(ownership.ctx.execution!, () =>
+      buildOwnedRepository(ownership.ctx, options, resolved, started),
+    );
+  } finally {
+    ownership.release();
+  }
+}
+
+async function buildOwnedRepository(
+  ctx: CrewContext,
+  options: IndexOptions,
+  resolved: ResolvedCommit,
+  started: number,
+): Promise<IndexResult> {
   const config = options.config ?? DEFAULT_INDEX_CONFIG;
   if (!config.enabled) {
     throw new CrewError('POLICY_DENIED', 'Indexing is disabled by configuration (index.enabled: false)', {
       suggestion: 'Set index.enabled: true in .crewyard/config.yaml.',
     });
   }
-  const resolved = await resolveCommit(ctx, options);
   const { repo, commitSha } = resolved;
   const revision = indexRevision(config);
   const actor = options.actor ?? SYSTEM_ACTOR;
@@ -245,8 +302,16 @@ export async function indexRepository(ctx: CrewContext, options: IndexOptions): 
 
   const tree = await treeSha(repo.canonicalPath, commitSha);
   const parent = config.incremental && !force ? await chooseParent(ctx, repo, commitSha, revision) : null;
-  const claimed = claimSnapshot(ctx, resolved, tree, revision, parent?.snapshot.id ?? null, force);
+  const parentReader = parent ? acquireSnapshotReader(ctx, parent.snapshot) : null;
+  let claimed: Snapshot | 'noop';
+  try {
+    claimed = claimSnapshot(ctx, resolved, tree, revision, parent?.snapshot.id ?? null, force, actor);
+  } catch (error) {
+    parentReader?.release();
+    throw error;
+  }
   if (claimed === 'noop') {
+    parentReader?.release();
     const snapshot = snapshotByCommit(ctx.store.db, repo.id, commitSha)!;
     return { snapshot, stats: noopStats(snapshot, started) };
   }
@@ -257,8 +322,12 @@ export async function indexRepository(ctx: CrewContext, options: IndexOptions): 
     const files = new Map<string, PlannedFile>();
     let trackedFiles: number;
     let changedFiles: number;
+    let membershipLoadMs = 0;
+    let membershipWriteMs = 0;
+    let membershipRowsWritten = 0;
 
     if (parent) {
+      const loadStarted = performance.now();
       const parentRows = all<{ path: string; blob_sha: string; language: string | null; size: number; kind: FileKind }>(
         ctx.store.db,
         'SELECT path, blob_sha, language, size, kind FROM files WHERE snapshot_id = ?',
@@ -277,6 +346,7 @@ export async function indexRepository(ctx: CrewContext, options: IndexOptions): 
           parserLanguage: parserLanguageFor(row.path, row.language, config),
         });
       }
+      membershipLoadMs = performance.now() - loadStarted;
       const changes = await diffTrees(repo.canonicalPath, parent.snapshot.commitSha, commitSha);
       changedFiles = changes.length;
       const sizes = new Map<string, number>();
@@ -303,6 +373,7 @@ export async function indexRepository(ctx: CrewContext, options: IndexOptions): 
       }
     }
     assignPackageRoots(files.values());
+    parentReader?.release();
 
     const byBlob = new Map<string, PlannedFile[]>();
     for (const f of files.values()) {
@@ -326,8 +397,8 @@ export async function indexRepository(ctx: CrewContext, options: IndexOptions): 
         contentIndexed: first.contentIndexed,
       };
       const current = known.get(sha);
-      const wanted = expectedParser(plan);
-      const reusable = current !== undefined && !force && (current === wanted || wanted === SKIP_PARSER);
+      const wanted = !plan.contentIndexed || plan.size > config.max_file_bytes ? SKIP_PARSER : expectedParser(plan);
+      const reusable = current !== undefined && !force && current === wanted;
       if (reusable) {
         ready.push(...list);
         continue;
@@ -339,15 +410,59 @@ export async function indexRepository(ctx: CrewContext, options: IndexOptions): 
 
     const batchSize = options.batchSize ?? 250;
     const at = nowIso(ctx.clock);
-    for (const batch of chunked(ready, 2_000)) ctx.store.immediate((db) => writeFiles(db, claimed.id, batch));
+    const writeMembership = (db: Database, rows: readonly FileRow[]) => {
+      const writeStarted = performance.now();
+      writeFiles(db, claimed.id, rows);
+      membershipWriteMs += performance.now() - writeStarted;
+      membershipRowsWritten += rows.length;
+    };
+    for (const batch of chunked(ready, 2_000)) ctx.store.immediate((db) => writeMembership(db, batch));
     let parsedBlobs = 0;
     let redactedBlobs = 0;
     const flush = (records: BlobRecord[]) => {
       if (records.length === 0) return;
       const rows = records.flatMap((r) => byBlob.get(r.sha) ?? []);
       parsedBlobs += ctx.store.immediate((db) => {
+        const replaced = records.filter((record) => replace.has(record.sha)).map((record) => record.sha);
+        if (replaced.length > 0) {
+          if (
+            db
+              .query(
+                "SELECT 1 FROM execution_claims WHERE released_at IS NULL AND scope LIKE 'index:build:%' AND scope != ? LIMIT 1",
+              )
+              .get(ctx.execution!.claim.scope)
+          )
+            throw new CrewError('BUSY', 'Another index build may use this shared extraction; retry after it finishes');
+          const affected = all<{ id: string }>(
+            db,
+            `SELECT DISTINCT s.id FROM repository_snapshots s JOIN files f ON f.snapshot_id = s.id WHERE f.blob_sha IN (${replaced.map(() => '?').join(',')}) AND s.id != ? AND s.status IN ('available', 'building')`,
+            ...replaced,
+            claimed.id,
+          );
+          if (affected.some((snapshot) => hasIndexReaders(db, snapshot.id)))
+            throw new CrewError('BUSY', 'Shared index extraction has active readers; retry after they finish');
+          for (const snapshot of affected) {
+            db.query(
+              "UPDATE repository_snapshots SET status = 'stale', error = 'Shared extraction changed under another index configuration' WHERE id = ?",
+            ).run(snapshot.id);
+            db.query('DELETE FROM context_artifacts WHERE snapshot_id = ?').run(snapshot.id);
+          }
+          forgetSnapshotModels(affected.map((snapshot) => snapshot.id));
+          if (affected.length)
+            recordTransition(
+              db,
+              {
+                type: 'index.snapshots_invalidated',
+                actor,
+                projectId: repo.projectId,
+                payload: { snapshotIds: affected.map((snapshot) => snapshot.id), reason: 'shared_extraction_replaced' },
+              },
+              { action: 'index.replace_extraction', input: { blobShas: replaced }, decision: 'invalidated' },
+              at,
+            );
+        }
         const written = writeBlobs(db, records, replace, at);
-        writeFiles(db, claimed.id, rows);
+        writeMembership(db, rows);
         return written;
       });
       redactedBlobs += records.filter((r) => r.parseStatus === 'redacted').length;
@@ -387,11 +502,16 @@ export async function indexRepository(ctx: CrewContext, options: IndexOptions): 
         reusedBlobs: byBlob.size - parsedBlobs,
         redactedBlobs,
         durationMs: Math.round(performance.now() - started),
+        membershipLoadMs,
+        membershipWriteMs,
+        membershipRowsWritten,
       },
     };
   } catch (error) {
     failSnapshot(ctx, claimed.id, repo, error, actor);
     throw error;
+  } finally {
+    parentReader?.release();
   }
 }
 
@@ -512,5 +632,8 @@ function noopStats(snapshot: Snapshot, started: number): IndexStats {
     reusedBlobs: 0,
     redactedBlobs: 0,
     durationMs: Math.round(performance.now() - started),
+    membershipLoadMs: 0,
+    membershipWriteMs: 0,
+    membershipRowsWritten: 0,
   };
 }

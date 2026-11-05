@@ -7,6 +7,7 @@ import {
   enqueueOutbox,
   isLeader,
   listEvents,
+  MIGRATIONS,
   migrate,
   migrationStatus,
   openStore,
@@ -28,7 +29,7 @@ describe('storage', () => {
   test('dry-run reports pending migrations without applying them', () => {
     const store = openStore({ path: ':memory:' });
     const result = migrate(store, { dryRun: true });
-    expect(result.pending.map((p) => p.version)).toEqual([1, 2]);
+    expect(result.pending.map((p) => p.version)).toEqual(MIGRATIONS.map((migration) => migration.version));
     expect(migrationStatus(store).currentVersion).toBe(0);
   });
 
@@ -57,8 +58,8 @@ describe('storage', () => {
       enqueueOutbox(db, { kind: 'github.merge', intent: { pr: 1 }, idempotencyKey: 'merge:1' }),
     );
     expect(a.operationId).toBe(b.operationId);
-    expect(claimDueOutbox(c.store).length).toBe(1);
-    expect(claimDueOutbox(c.store).length).toBe(0);
+    expect(claimDueOutbox(c.store, { ownerId: 'worker', limit: 10, kinds: [], ttlSeconds: 60 }).length).toBe(1);
+    expect(claimDueOutbox(c.store, { ownerId: 'worker', limit: 10, kinds: [], ttlSeconds: 60 }).length).toBe(0);
   });
 
   test('leadership is exclusive and generation-fenced', () => {

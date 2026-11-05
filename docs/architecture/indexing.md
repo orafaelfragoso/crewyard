@@ -11,16 +11,20 @@ A snapshot is the index of one commit SHA of a registered repository (`repositor
 `(repository_id, commit_sha)`). Indexing never checks anything out:
 
 1. Resolve the selector (`sha`, `ref`, or the HEAD of a `worktreePath` that shares the object store) to a commit.
-2. Claim the snapshot row as `building` in a short transaction. A fresh `building` row owned by another process
-   yields `BUSY`; one older than 15 minutes is treated as crashed and rebuilt.
+2. Acquire a renewable, process-bound build claim for the repository and exact commit, then claim the snapshot
+   row as `building` in a short transaction. Every `indexRepository` caller uses this ownership path. A competing
+   build waits within a bounded budget; expiry alone does not permit reuse while the recorded process remains
+   live or unverifiable. Application workers also pin the exact commit and index configuration before admission,
+   so moving the selected branch cannot change an already admitted request.
 3. Choose the nearest `available` parent snapshot built with the same rules revision: the first hit walking
    `git rev-list` (up to 1,000 ancestors), otherwise the most recent snapshot whose commit exists locally.
-4. With a parent, load its `files` rows and apply `git diff-tree -r -z -M --raw` (adds, modifications, deletes,
+4. With a parent, load its complete `files` membership and apply `git diff-tree -r -z -M --raw` (adds, modifications, deletes,
    renames, with new blob SHAs). Without one, list the tree with `git ls-tree -r -z --long`.
 5. Blobs already present in `blobs` with the current parser identity are reused. Only new blobs are streamed
    through one `git cat-file --batch` process, parsed outside any transaction, then written in batches of 250
    blobs per `BEGIN IMMEDIATE` transaction (blob row, symbols, edges and full-text chunks of a blob always commit
    together, with the `files` rows that reference them).
+   Incremental parsing reuses unchanged blobs, but membership loading and writing remain O(N) per snapshot. `IndexStats` separately reports membership load time, row-write time (excluding transaction commit/fsync), and rows written; it does not claim O(changed files) total indexing.
 6. A final transaction checks the file count, marks the snapshot `available`, records `changed_count` /
    `parsed_count`, updates `repositories.index_coverage`, and writes an `index.snapshot_available` event and
    audit row. Failures mark the snapshot `failed` with an event.
@@ -29,7 +33,11 @@ A snapshot is the index of one commit SHA of a registered repository (`repositor
 A parent is only reused when the revision matches, so changing exclusion rules triggers a full listing (blobs
 are still reused). `blobs.parser` stores the grammar identity (`tree-sitter-typescript@0.23.2#1`, `text#1`,
 `skip#1`); bumping `EXTRACTOR_REVISION` re-parses blobs on next use. `force: true` re-parses every blob of the
-snapshot, which is the repair path after `verifyIndex` marks a snapshot `stale`.
+snapshot, which is the repair path after `verifyIndex` marks a snapshot `stale`. Extraction rows are shared by
+blob SHA across repositories. Replacing them refuses with `BUSY` while another build or a reader of affected
+snapshots may depend on them. Once safe, replacement marks affected historical snapshots stale and removes
+their derived context artifacts before changing extraction. Querying those snapshots requires rebuilding them;
+they cannot remain falsely fresh under another configuration.
 
 ## Inclusion rules
 
@@ -98,6 +106,11 @@ another commit. Every result carries `{repositoryId, commitSha, snapshotId, retr
 hit/excerpt carries a full `Provenance` with path, line range and blob SHA. `indexStatus()` reports
 `fresh | stale | building | failed | missing` for a ref (default: the repository's base branch).
 
+Queries pin the exact available snapshot with a durable reader claim. The pin spans awaited embedding calls,
+excerpt materialization and context-artifact insertion. Garbage collection rechecks ownership inside its write
+transaction; it cannot delete a snapshot or replace shared extraction while that reader is active. Expired pins
+are reclaimed only after the recorded process is proven gone or replaced, rather than from elapsed time alone.
+
 ## Search
 
 `search()` modes: `fts` (bm25), `exact` (FTS phrase prefilter, then literal line match), `regex` (bounded scan of
@@ -151,6 +164,7 @@ against the stored rows (`missing_file`, `unexpected_file`, `blob_mismatch`, `mi
 rebuilt with `force`.
 
 `collectGarbage` defaults to a dry run. It keeps the newest `retainLatest` available snapshots per repository,
-any `retainShas`, and running builds; deletes other snapshots, expired or orphaned artifacts, and blobs no longer
-referenced by any snapshot (with their chunks, symbols, edges and embeddings). Blob collection is skipped while a
-build is running so a build cannot lose blobs it has already decided to reuse.
+any `retainShas`, running builds and active readers; deletes other snapshots, expired or orphaned artifacts, and
+blobs no longer referenced by any snapshot (with their chunks, symbols, edges and embeddings). Blob collection
+is skipped while a build or reader is active. Each deletion rechecks current ownership, so a preview does not
+authorize removing resources acquired by another process afterward.

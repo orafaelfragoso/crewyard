@@ -1,5 +1,6 @@
 import {
   CrewService,
+  DEFAULT_EXECUTION_LIMITS,
   defaultServiceOptions,
   installServiceUnit,
   serviceStatus,
@@ -19,11 +20,24 @@ export function registerServiceCommands(program: Command): void {
     .command('run')
     .description('run the service in the foreground (what `service start` and the user service execute)')
     .option('--tick <seconds>', 'scheduling cycle interval', Number)
+    .option('--workers <count>', 'maximum concurrent execution workers', Number)
+    .option('--workers-per-project <count>', 'maximum workers for one project', Number)
+    .option('--workers-per-domain <count>', 'maximum workers for one domain within a project', Number)
+    .option('--worker-timeout <seconds>', 'execution worker deadline', Number)
+    .option('--shutdown-grace <seconds>', 'grace before verified worker termination', Number)
     .option('--no-dispatch', 'do not launch agent sessions (sync, queue and recovery only)')
     .action(
       action(async (ctx, opts) => {
         const svc = new CrewService(ctx, {
           ...defaultServiceOptions(),
+          execution: {
+            ...DEFAULT_EXECUTION_LIMITS,
+            ...(opts.workers !== undefined ? { global: Number(opts.workers) } : {}),
+            ...(opts.workersPerProject !== undefined ? { perProject: Number(opts.workersPerProject) } : {}),
+            ...(opts.workersPerDomain !== undefined ? { perDomain: Number(opts.workersPerDomain) } : {}),
+            ...(opts.workerTimeout !== undefined ? { timeoutSeconds: Number(opts.workerTimeout) } : {}),
+            ...(opts.shutdownGrace !== undefined ? { shutdownGraceSeconds: Number(opts.shutdownGrace) } : {}),
+          },
           ...(opts.tick ? { tickSeconds: Number(opts.tick) } : {}),
           dispatch: opts.dispatch !== false,
         });

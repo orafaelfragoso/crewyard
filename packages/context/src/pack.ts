@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { addSeconds, CrewError, newId, nowIso } from '@crewyard/core';
 import {
+  acquireSnapshotReader,
   DEFAULT_INDEX_CONFIG,
   type EmbeddingProvider,
   type FileFilter,
@@ -215,82 +216,88 @@ export async function buildContextPack(ctx: CrewContext, input: ContextPackInput
   const config = input.config ?? DEFAULT_INDEX_CONFIG;
   const budget = Math.max(256, input.budgetTokens ?? config.max_context_tokens);
   const maxLines = Math.min(Math.max(input.maxExcerptLines ?? 60, 5), 400);
-  const { envelope } = await requireSnapshot(ctx, input);
-  const hints: { paths?: string[]; symbols?: string[] } = {};
-  if (input.scope?.paths) hints.paths = input.scope.paths;
-  if (input.scope?.symbols) hints.symbols = input.scope.symbols;
-  const result = await search(ctx, {
-    repositoryId: envelope.repositoryId,
-    sha: envelope.commitSha,
-    query: input.query,
-    mode: 'hybrid',
-    limit: Math.min(input.maxCandidates ?? 120, 500),
-    contextLines: 6,
-    hints,
-    ...(input.filter ?? {}),
-    embeddingProvider: input.embeddingProvider ?? null,
-  });
-  const warnings: string[] = [];
-  const candidates = mergeCandidates(
-    result.hits.map((h) => ({
-      path: h.path,
-      blobSha: h.blobSha,
-      startLine: h.startLine,
-      endLine: h.endLine,
-      score: h.score,
-      reasons: h.reasons,
-      symbol: h.symbol,
-    })),
-    maxLines,
-    warnings,
-  );
-  if (candidates.length === 0) warnings.push('No indexed content matched the query at this commit.');
-  const page = materialize(ctx.store.db, envelope, candidates, { i: 0, l: 0 }, budget);
-  const packId = newId('ctx');
-  const payload: PackPayload = {
-    version: 1,
-    query: input.query,
-    repositoryId: envelope.repositoryId,
-    snapshotId: envelope.snapshotId,
-    commitSha: envelope.commitSha,
-    budgetTokens: budget,
-    scope: input.scope ?? null,
-    candidates,
-    notes: result.notes,
-  };
-  const at = nowIso(ctx.clock);
-  ctx.store.immediate((db) =>
-    db
-      .query(
-        `INSERT INTO context_artifacts (id, kind, repository_id, snapshot_id, commit_sha, query, payload, token_estimate, created_at, expires_at)
+  const { snapshot, envelope } = await requireSnapshot(ctx, input);
+  const reader = acquireSnapshotReader(ctx, snapshot);
+  try {
+    const hints: { paths?: string[]; symbols?: string[] } = {};
+    if (input.scope?.paths) hints.paths = input.scope.paths;
+    if (input.scope?.symbols) hints.symbols = input.scope.symbols;
+    const result = await search(ctx, {
+      repositoryId: envelope.repositoryId,
+      sha: envelope.commitSha,
+      query: input.query,
+      mode: 'hybrid',
+      limit: Math.min(input.maxCandidates ?? 120, 500),
+      contextLines: 6,
+      hints,
+      ...(input.filter ?? {}),
+      embeddingProvider: input.embeddingProvider ?? null,
+    });
+    const warnings: string[] = [];
+    const candidates = mergeCandidates(
+      result.hits.map((h) => ({
+        path: h.path,
+        blobSha: h.blobSha,
+        startLine: h.startLine,
+        endLine: h.endLine,
+        score: h.score,
+        reasons: h.reasons,
+        symbol: h.symbol,
+      })),
+      maxLines,
+      warnings,
+    );
+    if (candidates.length === 0) warnings.push('No indexed content matched the query at this commit.');
+    const page = materialize(ctx.store.db, envelope, candidates, { i: 0, l: 0 }, budget);
+    const packId = newId('ctx');
+    const payload: PackPayload = {
+      version: 1,
+      query: input.query,
+      repositoryId: envelope.repositoryId,
+      snapshotId: envelope.snapshotId,
+      commitSha: envelope.commitSha,
+      budgetTokens: budget,
+      scope: input.scope ?? null,
+      candidates,
+      notes: result.notes,
+    };
+    const at = nowIso(ctx.clock);
+    ctx.store.immediate((db) => {
+      reader.assertCurrent(db);
+      return db
+        .query(
+          `INSERT INTO context_artifacts (id, kind, repository_id, snapshot_id, commit_sha, query, payload, token_estimate, created_at, expires_at)
          VALUES (?, 'context_pack', ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        packId,
-        envelope.repositoryId,
-        envelope.snapshotId,
-        envelope.commitSha,
-        input.query,
-        JSON.stringify(payload),
-        page.tokens,
-        at,
-        addSeconds(at, (input.ttlHours ?? 168) * 3600),
-      ),
-  );
-  return {
-    ...envelope,
-    packId,
-    query: input.query,
-    page: 1,
-    budgetTokens: budget,
-    tokenEstimate: page.tokens,
-    tokenEstimator: TOKEN_ESTIMATOR,
-    excerpts: page.excerpts,
-    totalCandidates: candidates.length,
-    warnings: [...warnings, ...page.warnings],
-    notes: result.notes,
-    nextCursor: page.next ? encodeCursor({ p: packId, ...page.next, n: 2 }) : null,
-  };
+        )
+        .run(
+          packId,
+          envelope.repositoryId,
+          envelope.snapshotId,
+          envelope.commitSha,
+          input.query,
+          JSON.stringify(payload),
+          page.tokens,
+          at,
+          addSeconds(at, (input.ttlHours ?? 168) * 3600),
+        );
+    });
+    return {
+      ...envelope,
+      packId,
+      query: input.query,
+      page: 1,
+      budgetTokens: budget,
+      tokenEstimate: page.tokens,
+      tokenEstimator: TOKEN_ESTIMATOR,
+      excerpts: page.excerpts,
+      totalCandidates: candidates.length,
+      warnings: [...warnings, ...page.warnings],
+      notes: result.notes,
+      nextCursor: page.next ? encodeCursor({ p: packId, ...page.next, n: 2 }) : null,
+    };
+  } finally {
+    reader.release();
+  }
 }
 
 export interface FetchPageInput {
@@ -315,27 +322,33 @@ export async function fetchContextPackPage(ctx: CrewContext, input: FetchPageInp
       suggestion: indexCommand(payload.repositoryId, payload.commitSha),
     });
   }
-  const envelope: ResultEnvelope = {
-    repositoryId: payload.repositoryId,
-    commitSha: payload.commitSha,
-    snapshotId: payload.snapshotId,
-    retrievedAt: nowIso(ctx.clock),
-    indexStatus: 'fresh',
-  };
-  const budget = Math.max(256, input.budgetTokens ?? payload.budgetTokens);
-  const page = materialize(ctx.store.db, envelope, payload.candidates, { i: cursor.i, l: cursor.l }, budget);
-  return {
-    ...envelope,
-    packId: cursor.p,
-    query: payload.query,
-    page: cursor.n,
-    budgetTokens: budget,
-    tokenEstimate: page.tokens,
-    tokenEstimator: TOKEN_ESTIMATOR,
-    excerpts: page.excerpts,
-    totalCandidates: payload.candidates.length,
-    warnings: page.warnings,
-    notes: payload.notes,
-    nextCursor: page.next ? encodeCursor({ p: cursor.p, ...page.next, n: cursor.n + 1 }) : null,
-  };
+
+  const reader = acquireSnapshotReader(ctx, snapshot);
+  try {
+    const envelope: ResultEnvelope = {
+      repositoryId: payload.repositoryId,
+      commitSha: payload.commitSha,
+      snapshotId: payload.snapshotId,
+      retrievedAt: nowIso(ctx.clock),
+      indexStatus: 'fresh',
+    };
+    const budget = Math.max(256, input.budgetTokens ?? payload.budgetTokens);
+    const page = materialize(ctx.store.db, envelope, payload.candidates, { i: cursor.i, l: cursor.l }, budget);
+    return {
+      ...envelope,
+      packId: cursor.p,
+      query: payload.query,
+      page: cursor.n,
+      budgetTokens: budget,
+      tokenEstimate: page.tokens,
+      tokenEstimator: TOKEN_ESTIMATOR,
+      excerpts: page.excerpts,
+      totalCandidates: payload.candidates.length,
+      warnings: page.warnings,
+      notes: payload.notes,
+      nextCursor: page.next ? encodeCursor({ p: cursor.p, ...page.next, n: cursor.n + 1 }) : null,
+    };
+  } finally {
+    reader.release();
+  }
 }

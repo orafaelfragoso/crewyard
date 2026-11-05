@@ -35,7 +35,8 @@ async function setup(args: string[]) {
     origin: 'manual',
     actor: operator,
   });
-  const dispatch = async () => (await dispatchTask(c, { taskId: task.id, agent: agent.id, actor: operator })).done;
+  const dispatch = async () =>
+    (await dispatchTask(c, { taskId: task.id, agent: agent.id, actor: operator, inProcess: true })).done;
   const notifications = () => all(c.store.db, 'SELECT title FROM notifications WHERE task_id = ?', task.id);
   return { c, clock, projectId: project.id, taskId: task.id, dispatch, notifications };
 }

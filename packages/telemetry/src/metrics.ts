@@ -1,5 +1,6 @@
 import { nowIso } from '@crewyard/core';
 import { all, type CrewContext, one } from '@crewyard/storage';
+import type { OperationMetrics } from './operations.ts';
 
 export type Measured<T> = { value: T; status: 'measured' } | { value: null; status: 'unknown'; reason: string };
 
@@ -19,19 +20,24 @@ export interface UsageBreakdown {
 }
 
 export interface MetricsReport {
+  schemaVersion: 2;
   projectId: string | null;
   window: { since: string; until: string };
   throughput: { mergedPrs: number; perDay: number };
   leadTimeHours: { p50: Measured<number>; p95: Measured<number> };
-  queueWaitMinutes: { p50: Measured<number>; p95: Measured<number> };
+  integrationMinutes: { p50: Measured<number>; p95: Measured<number> };
   openPrAgeHours: { p50: Measured<number>; p95: Measured<number>; open: number };
   wip: Record<string, number>;
   recoveries: number;
   escalations: number;
-  reviewCache: { reviews: number; reused: number; hitRatio: Measured<number> };
+  reviewCache: { reviews: number; reused: number; joined: number; hitRatio: Measured<number> };
   contextTokenReduction: Measured<number>;
-  ciMinutesPerMerge: Measured<number>;
-  ciReruns: number;
+  localValidationMinutesPerMerge: Measured<number>;
+  localValidationReruns: number;
+  hostedCiMinutesPerMerge: Measured<number>;
+  observedHostedCheckMinutes: Measured<number>;
+  invalidatedValidationMinutes: Measured<number>;
+  operations: OperationMetrics[];
   usage: UsageBreakdown[];
 }
 
@@ -111,9 +117,10 @@ export function computeMetrics(
       ...p,
     )!.n;
 
-  const reviews = one<{ total: number; reused: number }>(
+  const reviews = one<{ total: number; reused: number; joined: number }>(
     db,
-    `SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN ra.reused_from IS NOT NULL THEN 1 ELSE 0 END), 0) AS reused
+    `SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN ra.scope = 'reused' AND ra.reused_from IS NOT NULL THEN 1 ELSE 0 END), 0) AS reused,
+       COALESCE(SUM(CASE WHEN ra.scope = 'joined' THEN 1 ELSE 0 END), 0) AS joined
      FROM review_artifacts ra JOIN repositories r ON r.id = ra.repository_id WHERE ra.created_at >= ? ${repoFilter}`,
     since,
     ...p,
@@ -152,12 +159,44 @@ export function computeMetrics(
     ...p,
   )!.n;
 
+  const wasted = one<{ ms: number | null }>(
+    db,
+    `SELECT SUM(v.duration_ms) AS ms FROM validation_runs v
+     JOIN integration_candidates c ON c.id = v.candidate_id
+     JOIN repositories r ON r.id = v.repository_id
+     WHERE c.status = 'invalid' AND v.completed_at >= ? ${repoFilter}`,
+    since,
+    ...p,
+  )!;
+  const operations = all<OperationMetrics>(
+    db,
+    `SELECT json_extract(payload, '$.operation') AS operation, COUNT(*) AS count,
+       SUM(json_extract(payload, '$.outcome') = 'failed') AS failed,
+       SUM(json_extract(payload, '$.outcome') = 'cancelled') AS cancelled,
+       SUM(json_extract(payload, '$.durationMs')) AS totalDurationMs,
+       AVG(json_extract(payload, '$.durationMs')) AS meanDurationMs,
+       MAX(json_extract(payload, '$.durationMs')) AS maxDurationMs
+     FROM events WHERE type = 'operation.completed' AND at >= ?
+       ${projectId ? 'AND project_id = ?' : ''}
+     GROUP BY operation ORDER BY operation`,
+    since,
+    ...p,
+  );
+  const hosted = one<{ ms: number | null }>(
+    db,
+    `SELECT SUM(json_extract(payload, '$.durationMs')) AS ms FROM events
+     WHERE type = 'postmerge.check_recorded' AND at >= ? ${projectId ? 'AND project_id = ?' : ''}`,
+    since,
+    ...p,
+  )!;
+
   return {
+    schemaVersion: 2,
     projectId,
     window: { since, until },
     throughput: { mergedPrs: merged.length, perDay: round(merged.length / sinceDays) },
     leadTimeHours: dist(leadTimes, 'completed task'),
-    queueWaitMinutes: dist(queueWaits, 'merged queue entry'),
+    integrationMinutes: dist(queueWaits, 'merged queue entry'),
     openPrAgeHours: { ...dist(openPrs, 'open PR'), open: openPrs.length },
     wip: Object.fromEntries(wipRows.map((r) => [r.state, r.n])),
     recoveries: eventCount('recovery.%'),
@@ -165,17 +204,26 @@ export function computeMetrics(
     reviewCache: {
       reviews: reviews.total,
       reused: reviews.reused,
+      joined: reviews.joined,
       hitRatio: reviews.total === 0 ? unknown('no reviews in window') : measured(round(reviews.reused / reviews.total)),
     },
     contextTokenReduction:
       sourceTokens === 0
         ? unknown('no context packs with source token estimates')
         : measured(round(1 - packTokens / sourceTokens)),
-    ciMinutesPerMerge:
+    localValidationMinutesPerMerge:
       merged.length === 0 || ci.ms === null
         ? unknown(merged.length === 0 ? 'no merges in window' : 'no validation runs recorded')
         : measured(round(ci.ms / 60_000 / merged.length)),
-    ciReruns: reruns,
+    localValidationReruns: reruns,
+    hostedCiMinutesPerMerge: unknown('observed check executions do not establish complete hosted CI usage'),
+    observedHostedCheckMinutes:
+      hosted.ms === null ? unknown('no hosted check execution timing recorded') : measured(round(hosted.ms / 60_000)),
+    invalidatedValidationMinutes:
+      wasted.ms === null
+        ? unknown('no invalidated validation durations recorded')
+        : measured(round(wasted.ms / 60_000)),
+    operations,
     usage: usageBreakdown(ctx, since, projectId),
   };
 }

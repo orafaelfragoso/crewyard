@@ -9,6 +9,7 @@ import {
   isSecretKeyName,
   killTree,
   nowIso,
+  processLifecycle,
   REDACTED,
   redact,
   type SessionOutcome,
@@ -174,6 +175,8 @@ export class ProcessSessions {
     if (this.running.has(input.sessionId)) {
       throw new CrewError('CONFLICT', `Session ${input.sessionId} is already running`);
     }
+    const lifecycle = processLifecycle({});
+    lifecycle.signal?.throwIfAborted();
     const scrub = createRedactor([...(spec.secretValues ?? []), ...collectSecretValues(spec.env)]);
     const log = new LogSink(input.logPath, scrub);
     const channel = createChannel<AgentEvent>();
@@ -196,6 +199,14 @@ export class ProcessSessions {
       });
     }
     const pid = proc.pid;
+    try {
+      lifecycle.onSpawn?.(pid);
+    } catch (error) {
+      killTree(pid, 'SIGKILL');
+      await proc.exited;
+      log.close();
+      throw error;
+    }
     if (spec.stdin != null && proc.stdin && typeof proc.stdin !== 'number') {
       try {
         proc.stdin.write(spec.stdin);
@@ -226,6 +237,13 @@ export class ProcessSessions {
       killProcessGroup(pid);
       await waitForGroupExit(pid, 2_000);
     };
+
+    const abort = () => {
+      cancelRequested = true;
+      void graceKill(this.cancelGraceMs);
+    };
+    if (lifecycle.signal?.aborted) abort();
+    else lifecycle.signal?.addEventListener('abort', abort, { once: true });
 
     const countBytes = (bytes: number): boolean => {
       if (limitExceeded) return false;
@@ -286,6 +304,7 @@ export class ProcessSessions {
       await drained;
       clearTimeout(late);
       clearTimeout(timer);
+      lifecycle.signal?.removeEventListener('abort', abort);
       this.running.delete(input.sessionId);
       const exitCode = proc.exitCode;
       const summary = spec.decoder.summary();

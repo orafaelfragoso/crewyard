@@ -1,5 +1,6 @@
 import { existsSync, rmSync, statSync } from 'node:fs';
 import { type Actor, CrewError, ensureDir, git, gitText, newId, nowIso, safeJoin, sha256 } from '@crewyard/core';
+import { fetchCommit } from '@crewyard/projects';
 import { type CrewContext, exec, recordTransition } from '@crewyard/storage';
 import {
   assertManagedWorkspacePath,
@@ -230,20 +231,7 @@ export async function mergeRemoteBranch(
   });
   if (!remoteHead) return result('current', previous);
   const noHooks = hooksDisabledArgs(ctx, repo);
-  await git(
-    path,
-    [
-      ...noHooks,
-      'fetch',
-      '--no-tags',
-      '--quiet',
-      'origin',
-      `+refs/heads/${ws.branch}:refs/remotes/origin/${ws.branch}`,
-    ],
-    {
-      timeoutMs: 180_000,
-    },
-  );
+  await fetchCommit(ctx, { repositoryId: repo.id, remote: 'origin', commitSha: remoteHead, actor: input.actor });
   if (await isAncestor(path, remoteHead, previous)) return result('current', previous);
   const dirty = parsePorcelain(
     (await git(path, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])).stdout,
@@ -434,6 +422,11 @@ function assertAuthorized(
 
 function assertNotLeased(ctx: CrewContext, ws: Workspace): void {
   if (!ws.taskId) return;
+  const execution = ctx.store.db
+    .query(`SELECT 1 FROM execution_claims c JOIN outbox o ON json_extract(o.intent, '$.claim.attemptId') = c.attempt_id
+    WHERE o.kind = 'execution.launch' AND o.task_id = ? AND c.released_at IS NULL`)
+    .get(ws.taskId);
+  if (execution) throw new CrewError('CONFLICT', `Workspace ${ws.id} belongs to an active or unverified execution`);
   const lease = ctx.store.db
     .query('SELECT generation FROM leases WHERE task_id = ? AND released_at IS NULL')
     .get(ws.taskId) as { generation: number } | null;
@@ -475,7 +468,6 @@ export async function removeWorkspace(
       : null;
   const hooks = hooksDisabledArgs(ctx, repo);
   if (inspection.exists) await git(repo.canonicalPath, [...hooks, 'worktree', 'remove', '--force', '--', path]);
-  await git(repo.canonicalPath, ['worktree', 'prune']);
   let branchDeleted = false;
   if (deleteBranch) {
     const result = await git(repo.canonicalPath, ['branch', '-D', '--', ws.branch], { allowFailure: true });

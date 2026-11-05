@@ -50,6 +50,8 @@ export interface MockCheck {
   status: 'queued' | 'in_progress' | 'completed';
   conclusion: 'success' | 'failure' | 'neutral' | 'skipped' | 'cancelled' | 'timed_out' | null;
   appId: number;
+  startedAt?: string;
+  completedAt?: string;
 }
 
 export interface MockQueueEntry {
@@ -799,6 +801,8 @@ export class MockGitHub {
           head_sha: c.sha,
           app: { id: c.appId },
           details_url: null,
+          started_at: c.startedAt ?? null,
+          completed_at: c.completedAt ?? null,
         }));
       return this.respond(req, 200, { total_count: runs.length, check_runs: runs });
     }

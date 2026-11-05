@@ -8,9 +8,13 @@ import {
   invalidateReviews,
   listFindings,
   normalizePatch,
+  type RequestReviewInput,
+  type ReviewContext,
+  type ReviewDeps,
   type Reviewer,
   type ReviewInput,
-  requestReview,
+  requestReview as requestReviewWithEvidence,
+  reviewPolicyVersion,
   runValidation,
   StaticAnalysisReviewer,
   type StructuredFindings,
@@ -19,6 +23,10 @@ import {
 } from '@crewyard/reviews';
 import { all } from '@crewyard/storage';
 import { createTestContext, type TestContext, tempDir } from '../../helpers/index.ts';
+
+function requestReview(ctx: TestContext, input: RequestReviewInput, deps: ReviewDeps) {
+  return requestReviewWithEvidence(ctx, { ...input, source: { kind: 'synthetic' } }, deps);
+}
 
 let ctx: TestContext | undefined;
 afterEach(() => ctx?.cleanup());
@@ -41,6 +49,7 @@ class CountingReviewer implements Reviewer {
   readonly identity: string;
   readonly model = 'test-model-1';
   readonly promptVersion = 'p1';
+  readonly evidenceScope = 'patch';
   calls: ReviewInput[] = [];
   constructor(
     identity = 'llm-reviewer',
@@ -56,14 +65,21 @@ class CountingReviewer implements Reviewer {
 
 class Context implements ContextFingerprintProvider {
   schema = 'schema-v1';
-  async interfaceFingerprint(): Promise<string> {
-    return this.schema;
-  }
-  async relatedDependencyFingerprint(): Promise<string> {
-    return `deps:${this.schema}`;
-  }
-  async symbolGraphRevision(): Promise<string | null> {
-    return 'graph-1';
+  async collect(): Promise<ReviewContext> {
+    return {
+      dependencyFingerprint: `deps:${this.schema}`,
+      interfaceFingerprint: this.schema,
+      symbolGraphRevision: 'graph-1',
+      contentFingerprint: this.schema,
+      coverage: {
+        kind: 'whole-tree',
+        depth: null,
+        limit: null,
+        truncated: false,
+        missingPaths: [],
+        unresolvedImports: [],
+      },
+    };
   }
 }
 
@@ -96,11 +112,11 @@ function setup(overrides: Record<string, unknown> = {}): {
 const PATCH = diff('src/service.ts', ['export const a = 1;'], ['export const a = 2;']);
 
 describe('evidence fingerprint and cache', () => {
-  test('normalised patches ignore whitespace and context lines', () => {
+  test('patch identity preserves whitespace and context lines', () => {
     const a = normalizePatch(diff('src/x.ts', ['let a=1;'], ['let a = 2;']));
     const b = normalizePatch(diff('src/x.ts', ['let  a = 1;'], ['let a=2;'], ['  other context']));
     const c = normalizePatch(diff('src/x.ts', ['let a=1;'], ['let a = 3;']));
-    expect(a.patchHash).toBe(b.patchHash);
+    expect(a.patchHash).not.toBe(b.patchHash);
     expect(a.patchHash).not.toBe(c.patchHash);
   });
 
@@ -128,7 +144,7 @@ describe('evidence fingerprint and cache', () => {
     });
     expect(second.outcomes[0]!.review!.fingerprintInputs).toMatchObject({
       patchHash: normalizePatch(PATCH).patchHash,
-      policyVersion: '1',
+      policyVersion: reviewPolicyVersion(config),
     });
   });
 
@@ -248,6 +264,9 @@ describe('evidence fingerprint and cache', () => {
     while (status().length === 0) await Bun.sleep(5);
     expect(status()).toEqual([{ status: 'running' }]);
     await runRecovery(c);
+    expect(status()).toEqual([{ status: 'running' }]);
+    c.store.db.query("UPDATE execution_claims SET expires_at = '2000-01-01T00:00:00.000Z'").run();
+    await runRecovery(c);
     expect(status()).toEqual([{ status: 'failed' }]);
     const reviewer = new CountingReviewer();
     await requestReview(c, input, { reviewers: { code: reviewer }, config, context: new Context() });
@@ -362,4 +381,137 @@ describe('validation', () => {
     });
     expect(slow).toMatchObject({ status: 'failed', failureClass: 'transient_ci' });
   }, 15_000);
+});
+
+describe('review acceptance gates', () => {
+  test.each(['forced', 'cache_disabled', 'expired', 'low_confidence', 'context_changed'] as const)(
+    '%s prevents incremental reuse and carried findings',
+    async (gate) => {
+      const { ctx: c, repositoryId, config } = setup();
+      const context = new Context();
+      let calls = 0;
+      const reviewer: Reviewer = {
+        identity: 'scoped',
+        model: 'fixture',
+        promptVersion: '1',
+        evidenceScope: 'patch',
+        review: async () => ({
+          confidence: gate === 'low_confidence' ? 0.1 : 0.9,
+          findings:
+            calls++ === 0 ? [{ severity: 'low', confidence: 0.9, path: 'src/a.ts', reason: 'old finding' }] : [],
+        }),
+      };
+      const input = {
+        repositoryId,
+        prId: 'pr_1',
+        commitSha: 'h1',
+        baseSha: 'b',
+        patch: diff('src/a.ts', ['a'], ['b']) + diff('src/b.ts', ['c'], ['d']),
+        types: ['code' as const],
+      };
+      const first = await requestReview(c, input, { reviewers: { code: reviewer }, config, context });
+      if (gate === 'cache_disabled') config.review.cache_enabled = false;
+      if (gate === 'expired')
+        c.store.db
+          .query('UPDATE review_artifacts SET expires_at = ? WHERE id = ?')
+          .run('2000-01-01T00:00:00.000Z', first.outcomes[0]!.review!.id);
+      if (gate === 'context_changed') context.schema = 'changed';
+      const next = await requestReview(
+        c,
+        {
+          ...input,
+          commitSha: 'h2',
+          patch: diff('src/a.ts', ['a'], ['b']) + diff('src/b.ts', ['c'], ['e']),
+          force: gate === 'forced',
+        },
+        { reviewers: { code: reviewer }, config, context },
+      );
+      expect(next.outcomes[0]?.decision).toBe('full');
+      expect(next.outcomes[0]?.review?.findings).toEqual([]);
+    },
+  );
+
+  test('missing context is a visible failure before the reviewer runs', async () => {
+    const { ctx: c, repositoryId, config } = setup();
+    const reviewer = new CountingReviewer();
+    await expect(
+      requestReview(
+        c,
+        { repositoryId, commitSha: 'head', baseSha: 'base', patch: PATCH },
+        {
+          reviewers: { code: reviewer },
+          config,
+          context: {
+            collect: async () => {
+              throw new Error('index unavailable');
+            },
+          },
+        },
+      ),
+    ).rejects.toThrow('index unavailable');
+    expect(reviewer.calls).toHaveLength(0);
+  });
+
+  test('changed context during provider work invalidates the completed review', async () => {
+    const { ctx: c, repositoryId, config } = setup();
+    const context = new Context();
+    const reviewer: Reviewer = {
+      identity: 'changing',
+      model: 'fixture',
+      promptVersion: '1',
+      review: async () => {
+        context.schema = 'new';
+        return { confidence: 0.9, findings: [] };
+      },
+    };
+    const result = await requestReview(
+      c,
+      { repositoryId, commitSha: 'head', baseSha: 'base', patch: PATCH, types: ['code'] },
+      { reviewers: { code: reviewer }, config, context },
+    );
+    expect(result.outcomes[0]?.review?.status).toBe('invalidated');
+  });
+});
+
+test('force starts a full execution while equivalent incremental work is active', async () => {
+  const { ctx: c, repositoryId, config } = setup();
+  const context = new Context();
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const scopes: string[] = [];
+  const reviewer: Reviewer = {
+    identity: 'scoped',
+    model: 'fixture',
+    promptVersion: '1',
+    evidenceScope: 'patch',
+    async review(input) {
+      scopes.push(input.scope);
+      if (input.scope === 'incremental') {
+        started.resolve();
+        await release.promise;
+      }
+      return { confidence: 0.9, findings: [] };
+    },
+  };
+  const input = {
+    repositoryId,
+    prId: 'pr_1',
+    commitSha: 'h1',
+    baseSha: 'b',
+    patch: diff('src/a.ts', ['a'], ['b']) + diff('src/b.ts', ['c'], ['d']),
+    types: ['code' as const],
+  };
+  await requestReview(c, input, { config, context, reviewers: { code: reviewer } });
+  const changed = { ...input, commitSha: 'h2', patch: diff('src/a.ts', ['a'], ['b']) + diff('src/b.ts', ['c'], ['e']) };
+  const incremental = requestReview(c, changed, { config, context, reviewers: { code: reviewer } });
+  await started.promise;
+  const forced = await requestReview(
+    c,
+    { ...changed, force: true },
+    { config, context, reviewers: { code: reviewer } },
+  );
+  expect(forced.outcomes[0]).toMatchObject({ decision: 'full', reviewerInvoked: true });
+  release.resolve();
+  await incremental;
+  expect(scopes).toEqual(['full', 'incremental', 'full']);
 });

@@ -11,13 +11,15 @@ on:
       - '.github/CODEOWNERS'
       - '.github/dependabot.yml'
   pull_request:
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -81,8 +83,23 @@ jobs:
 
   test-macos:
     name: Test (macOS)
-    if: "${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    if: "${{ !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun test
+
+  test-windows:
+    name: Test (Windows)
+    if: "${{ !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
+    runs-on: windows-2025
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

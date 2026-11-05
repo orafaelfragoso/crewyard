@@ -1,6 +1,25 @@
 import type { Database } from 'bun:sqlite';
-import { backoffWithJitter, newId, nowIso, redactObject, sha256, stableStringify, toIso } from '@crewyard/core';
+import {
+  backoffWithJitter,
+  CrewError,
+  newId,
+  nowIso,
+  redactObject,
+  sha256,
+  stableStringify,
+  toIso,
+} from '@crewyard/core';
 import { all, one, parseJson, type Store } from './db.ts';
+import { recordTransition } from './events.ts';
+import {
+  acquireExecutionClaim,
+  assertExecutionClaim,
+  bindExecutionProcess,
+  type ExecutionClaim,
+  type ExecutionProcessIdentity,
+  releaseExecutionClaim,
+  renewExecutionClaim,
+} from './execution-claims.ts';
 
 export type OutboxStatus = 'pending' | 'attempted' | 'succeeded' | 'failed' | 'ambiguous' | 'cancelled';
 
@@ -124,53 +143,153 @@ export function listOutbox(
   return all<OutboxRow>(store.db, sql, ...params).map((r) => mapRow(r));
 }
 
-export function claimDueOutbox(store: Store, limit = 10, kinds?: string[]): OutboxOperation[] {
-  const at = nowIso(store.clock);
-  return store.immediate((db) => {
-    const params: (string | number)[] = [at];
-    let sql = `SELECT * FROM outbox WHERE status IN ('pending', 'attempted', 'ambiguous') AND next_attempt_at <= ?`;
-    if (kinds && kinds.length > 0) {
-      sql += ` AND kind IN (${kinds.map(() => '?').join(',')})`;
-      params.push(...kinds);
-    }
-    sql += ` ORDER BY next_attempt_at LIMIT ${limit}`;
-    const rows = all<OutboxRow>(db, sql, ...params);
-    for (const row of rows) {
-      const lease = toIso(new Date(Date.parse(at) + 60_000));
-      db.query(
-        `UPDATE outbox SET status = CASE WHEN status = 'pending' THEN 'attempted' ELSE status END, attempts = attempts + 1, next_attempt_at = ?, updated_at = ? WHERE operation_id = ?`,
-      ).run(lease, at, row.operation_id);
-    }
-    return rows.map((r) =>
-      mapRow({ ...r, status: r.status === 'pending' ? 'attempted' : r.status, attempts: r.attempts + 1 }),
+export interface ClaimedOutboxOperation<TIntent = Record<string, unknown>> extends OutboxOperation<TIntent> {
+  claim: ExecutionClaim;
+}
+
+export interface ClaimDueOutboxInput {
+  ownerId: string;
+  limit: number;
+  kinds: string[];
+  ttlSeconds: number;
+  operationIds?: readonly string[];
+  process?: ExecutionProcessIdentity;
+  preserveProcessClaims?: boolean;
+}
+
+function outboxInputIdentity(row: OutboxRow): string {
+  return sha256(
+    stableStringify({
+      operationId: row.operation_id,
+      kind: row.kind,
+      intent: row.intent,
+      expectedState: row.expected_state,
+    }),
+  );
+}
+
+function recordDelivery(db: Database, op: ClaimedOutboxOperation, action: string, at: string): void {
+  recordTransition(
+    db,
+    {
+      type: `outbox.${action}`,
+      actor: { kind: 'system', id: op.claim.ownerId },
+      projectId: op.projectId,
+      taskId: op.taskId,
+      correlationId: op.operationId,
+      payload: { operationId: op.operationId, attemptId: op.claim.attemptId, generation: op.claim.generation },
+    },
+    { action: `outbox.${action}`, input: op.claim, decision: action },
+    at,
+  );
+}
+
+export function claimDueOutbox(store: Store, input: ClaimDueOutboxInput): ClaimedOutboxOperation[] {
+  if (
+    !input.ownerId ||
+    !Number.isSafeInteger(input.limit) ||
+    input.limit < 1 ||
+    input.limit > 1000 ||
+    !Number.isSafeInteger(input.ttlSeconds) ||
+    input.ttlSeconds <= 0
+  ) {
+    throw new CrewError(
+      'INVALID_INPUT',
+      'Outbox claim requires an owner, a limit from 1 to 1000 and positive integer TTL',
     );
+  }
+  return store.immediate((db) => {
+    const at = nowIso(store.clock);
+    const params: (string | number)[] = [at, at];
+    let sql = `SELECT * FROM outbox WHERE status IN ('pending', 'attempted', 'ambiguous') AND next_attempt_at <= ?
+      AND NOT EXISTS (SELECT 1 FROM execution_claims c WHERE c.scope = 'outbox:' || outbox.operation_id
+        AND c.released_at IS NULL AND (c.expires_at > ?${input.preserveProcessClaims ? ' OR c.process_pid IS NOT NULL' : ''}))`;
+    if (input.operationIds) {
+      if (input.operationIds.length === 0) return [];
+      sql += ` AND operation_id IN (${input.operationIds.map(() => '?').join(',')})`;
+      params.push(...input.operationIds);
+    }
+    if (input.kinds.length > 0) {
+      sql += ` AND kind IN (${input.kinds.map(() => '?').join(',')})`;
+      params.push(...input.kinds);
+    }
+    sql += ' ORDER BY next_attempt_at, operation_id LIMIT ?';
+    params.push(input.limit);
+    return all<OutboxRow>(db, sql, ...params).map((row) => {
+      let claim = acquireExecutionClaim(
+        db,
+        {
+          scope: `outbox:${row.operation_id}`,
+          attemptId: newId('lease'),
+          ownerId: input.ownerId,
+          inputIdentity: outboxInputIdentity(row),
+          ttlSeconds: input.ttlSeconds,
+        },
+        at,
+      );
+      if (!claim) throw new CrewError('INTERNAL', 'Due outbox operation already has an active delivery claim');
+      if (input.process) claim = bindExecutionProcess(db, claim, input.process, at);
+      const updated = one<OutboxRow>(
+        db,
+        `UPDATE outbox SET status = CASE WHEN status = 'pending' THEN 'attempted' ELSE status END,
+          attempts = attempts + 1, updated_at = ? WHERE operation_id = ? RETURNING *`,
+        at,
+        row.operation_id,
+      );
+      const op = { ...mapRow<Record<string, unknown>>(updated!), claim };
+      recordDelivery(db, op, 'claimed', at);
+      return op;
+    });
   });
 }
 
-export function completeOutbox(
-  db: Database,
-  operationId: string,
-  outcome:
-    | { status: 'succeeded'; remoteCorrelation?: Record<string, unknown> }
-    | { status: 'failed'; error: string; remoteCorrelation?: Record<string, unknown> }
-    | { status: 'ambiguous'; error: string; remoteCorrelation?: Record<string, unknown> }
-    | { status: 'retry'; error: string; attempts: number }
-    | { status: 'cancelled'; error: string },
-  at: string = nowIso(),
-): void {
+export function assertOutboxClaim(db: Database, op: ClaimedOutboxOperation, at: string): ExecutionClaim {
+  const claim = assertExecutionClaim(db, op.claim, at);
+  const current = one<OutboxRow>(db, 'SELECT * FROM outbox WHERE operation_id = ?', op.operationId);
+  if (
+    !current ||
+    claim.scope !== `outbox:${op.operationId}` ||
+    outboxInputIdentity(current) !== claim.inputIdentity ||
+    !['pending', 'attempted', 'ambiguous'].includes(current.status)
+  ) {
+    throw new CrewError('STALE_LEASE', `Outbox delivery for ${op.operationId} is no longer current`);
+  }
+  return claim;
+}
+
+export function renewOutboxClaim(store: Store, op: ClaimedOutboxOperation, ttlSeconds: number): ExecutionClaim {
+  return store.immediate((db) => {
+    const at = nowIso(store.clock);
+    assertOutboxClaim(db, op, at);
+    return renewExecutionClaim(db, op.claim, ttlSeconds, at);
+  });
+}
+
+export type OutboxOutcome =
+  | { status: 'succeeded'; remoteCorrelation?: Record<string, unknown> }
+  | { status: 'failed'; error: string; remoteCorrelation?: Record<string, unknown> }
+  | { status: 'ambiguous'; error: string; remoteCorrelation?: Record<string, unknown>; nextAttemptAt?: string }
+  | { status: 'retry'; error: string; attempts: number; nextAttemptAt?: string }
+  | { status: 'cancelled'; error: string; remoteCorrelation?: Record<string, unknown> };
+
+export function completeOutbox(db: Database, op: ClaimedOutboxOperation, outcome: OutboxOutcome, at: string): void {
+  assertOutboxClaim(db, op, at);
   if (outcome.status === 'retry') {
-    const next = toIso(new Date(Date.parse(at) + backoffWithJitter(outcome.attempts)));
+    const next = outcome.nextAttemptAt ?? toIso(new Date(Date.parse(at) + backoffWithJitter(outcome.attempts)));
     db.query(
       `UPDATE outbox SET status = 'attempted', last_error = ?, next_attempt_at = ?, updated_at = ? WHERE operation_id = ?`,
-    ).run(outcome.error, next, at, operationId);
-    return;
+    ).run(outcome.error, next, at, op.operationId);
+  } else {
+    const correlation =
+      'remoteCorrelation' in outcome && outcome.remoteCorrelation ? JSON.stringify(outcome.remoteCorrelation) : null;
+    const next =
+      outcome.status === 'ambiguous' ? (outcome.nextAttemptAt ?? toIso(new Date(Date.parse(at) + 5_000))) : at;
+    db.query(
+      `UPDATE outbox SET status = ?, last_error = ?, remote_correlation = COALESCE(?, remote_correlation), next_attempt_at = ?, updated_at = ? WHERE operation_id = ?`,
+    ).run(outcome.status, 'error' in outcome ? outcome.error : null, correlation, next, at, op.operationId);
   }
-  const correlation =
-    'remoteCorrelation' in outcome && outcome.remoteCorrelation ? JSON.stringify(outcome.remoteCorrelation) : null;
-  const next = outcome.status === 'ambiguous' ? toIso(new Date(Date.parse(at) + 5_000)) : at;
-  db.query(
-    `UPDATE outbox SET status = ?, last_error = ?, remote_correlation = COALESCE(?, remote_correlation), next_attempt_at = ?, updated_at = ? WHERE operation_id = ?`,
-  ).run(outcome.status, 'error' in outcome ? outcome.error : null, correlation, next, at, operationId);
+  releaseExecutionClaim(db, op.claim, at);
+  recordDelivery(db, op, outcome.status, at);
 }
 
 export interface RemoteOperationInput {

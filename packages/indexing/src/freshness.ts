@@ -3,6 +3,7 @@ import type { CrewContext } from '@crewyard/storage';
 import { type IndexOptions, indexRepository, resolveCommit } from './build.ts';
 import {
   DEFAULT_INDEX_CONFIG,
+  indexRevision,
   latestAvailable,
   loadRepository,
   type RepositoryRecord,
@@ -25,7 +26,7 @@ export function indexCommand(repositoryId: string, sha: string, force = false): 
   return `crew index update --repo ${repositoryId} --ref ${sha}${force ? ' --force' : ''}`;
 }
 
-function envelopeFor(ctx: CrewContext, snapshot: Snapshot): ResultEnvelope {
+export function snapshotEnvelope(ctx: CrewContext, snapshot: Snapshot): ResultEnvelope {
   return {
     repositoryId: snapshot.repositoryId,
     commitSha: snapshot.commitSha,
@@ -38,7 +39,11 @@ function envelopeFor(ctx: CrewContext, snapshot: Snapshot): ResultEnvelope {
 export async function requireSnapshot(ctx: CrewContext, request: SnapshotRequest): Promise<ResolvedSnapshot> {
   const { repo, commitSha } = await resolveCommit(ctx, request);
   let snapshot = snapshotByCommit(ctx.store.db, repo.id, commitSha);
-  if (snapshot?.status !== 'available' && request.onDemand) {
+  const expectedRevision = request.config ? indexRevision(request.config) : null;
+  if (
+    (snapshot?.status !== 'available' || (expectedRevision !== null && snapshot.revision !== expectedRevision)) &&
+    request.onDemand
+  ) {
     const options: IndexOptions = {
       repositoryId: repo.id,
       sha: commitSha,
@@ -47,14 +52,14 @@ export async function requireSnapshot(ctx: CrewContext, request: SnapshotRequest
     if (request.ref !== undefined) options.ref = request.ref;
     snapshot = (await indexRepository(ctx, options)).snapshot;
   }
-  if (snapshot?.status !== 'available') {
-    const status: IndexStatus = snapshot ? snapshot.status : 'missing';
+  if (snapshot?.status !== 'available' || (expectedRevision !== null && snapshot.revision !== expectedRevision)) {
+    const status: IndexStatus = snapshot?.status === 'available' ? 'stale' : (snapshot?.status ?? 'missing');
     throw new CrewError('INDEX_STALE', `No available index for ${repo.id}@${commitSha} (status: ${status})`, {
       details: { repositoryId: repo.id, commitSha, status },
       suggestion: indexCommand(repo.id, commitSha, status === 'stale'),
     });
   }
-  return { repo, snapshot, envelope: envelopeFor(ctx, snapshot) };
+  return { repo, snapshot, envelope: snapshotEnvelope(ctx, snapshot) };
 }
 
 export interface IndexStatusReport {

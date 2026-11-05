@@ -16,7 +16,12 @@ export function openCrewStore(options: OpenCrewStoreOptions = {}): Store {
     durability: options.durability ?? 'full',
     ...(options.clock ? { clock: options.clock } : {}),
   });
-  if (options.migrate !== false) migrate(store, { backupDir: dirs.backups });
+  try {
+    if (options.migrate !== false) migrate(store, { backupDir: dirs.backups });
+  } catch (error) {
+    store.close();
+    throw error;
+  }
   return store;
 }
 

@@ -22,6 +22,9 @@ export interface GitOptions {
   allowFailure?: boolean;
   env?: Record<string, string>;
   timeoutMs?: number;
+  maxOutputBytes?: number;
+  signal?: AbortSignal;
+  onSpawn?: (pid: number) => void;
 }
 
 export async function git(cwd: string, args: readonly string[], options: GitOptions = {}): Promise<RunResult> {
@@ -30,7 +33,10 @@ export async function git(cwd: string, args: readonly string[], options: GitOpti
     env: gitEnv(options.env),
     allowFailure: true,
     timeoutMs: options.timeoutMs ?? 120_000,
+    ...(options.maxOutputBytes === undefined ? {} : { maxOutputBytes: options.maxOutputBytes }),
     ...(options.input === undefined ? {} : { input: options.input }),
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+    ...(options.onSpawn === undefined ? {} : { onSpawn: options.onSpawn }),
   });
   if (result.exitCode !== 0 && !options.allowFailure) {
     throw new CrewError('EXTERNAL_FAILURE', `git ${args[0]} failed: ${result.stderr.trim().slice(0, 500)}`, {
@@ -45,8 +51,12 @@ export async function gitText(cwd: string, args: readonly string[], options: Git
   return (await git(cwd, args, options)).stdout.trim();
 }
 
-export async function revParse(cwd: string, ref: string): Promise<string | null> {
-  const result = await git(cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { allowFailure: true });
+export async function revParse(cwd: string, ref: string, options?: GitOptions): Promise<string | null> {
+  const result = await git(cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], {
+    ...options,
+    allowFailure: true,
+  });
+  if (result.timedOut) throw new CrewError('BUSY', 'Git revision resolution exceeded its deadline');
   return result.exitCode === 0 ? result.stdout.trim() : null;
 }
 

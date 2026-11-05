@@ -1,7 +1,7 @@
 import { listSessions, reapOrphans } from '@crewyard/agents';
 import { type Actor, isProcessAlive, nowIso, SYSTEM_ACTOR, toCrewError } from '@crewyard/core';
 import { failOrphanedReviews } from '@crewyard/reviews';
-import { appendEvent, type CrewContext, listOutbox, listWorkers, migrationStatus } from '@crewyard/storage';
+import { appendEvent, type CrewContext, listOutbox, migrationStatus } from '@crewyard/storage';
 import {
   expireLeases,
   listTasksNeedingReconciliation,
@@ -68,12 +68,6 @@ function taskProcessAlive(ctx: CrewContext, taskId: string): boolean {
   );
 }
 
-function otherServiceAlive(ctx: CrewContext): boolean {
-  return listWorkers(ctx.store, 'service').some(
-    (w) => w.status === 'running' && w.pid !== process.pid && isProcessAlive(w.pid),
-  );
-}
-
 export async function reconcileLeases(
   ctx: CrewContext,
   options: { projectId?: string; actor?: Actor } = {},
@@ -120,9 +114,7 @@ export async function runRecovery(ctx: CrewContext, options: RecoveryOptions = {
     });
     return { reconciled: results.map((r) => ({ taskId: r.taskId, outcome: r.outcome })) };
   });
-  await step(steps, 'reconcile-reviews', () =>
-    otherServiceAlive(ctx) ? { skipped: 'service_running' } : { failed: failOrphanedReviews(ctx, actor) },
-  );
+  await step(steps, 'reconcile-reviews', () => ({ failed: failOrphanedReviews(ctx, actor) }));
   await step(steps, 'inspect-workspaces', async () => {
     const flagged: string[] = [];
     for (const ws of listWorkspaces(ctx, { states: ['needs_reconciliation'] })) flagged.push(ws.id);

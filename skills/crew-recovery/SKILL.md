@@ -4,7 +4,7 @@ description: Diagnoses a failed CI run, failed integration, merge conflict or re
 compatibility: Requires Crewyard via the MCP server (`crew mcp`) or the `crew` CLI on PATH.
 metadata:
   author: crewyard
-  version: "1.0"
+  version: "1.1"
 ---
 
 # Crewyard recovery
@@ -42,6 +42,8 @@ Crewyard gives recovery work the relevant failure evidence (failure fingerprint,
 
 These apply to every Crewyard task, whatever this skill is used for:
 
+Skills are advisory. Worktrees and attempt directories isolate cooperative work; agents still run as the operating-system user. A lease fences Crewyard mutations and cannot revoke an already issued external request or arbitrary filesystem access.
+
 1. Inspect `crew_get_state` and the project policy before acting.
 2. Claim the task with `crew_claim_task` before modifying anything.
 3. Work only in the assigned worktree returned by the claim.
@@ -53,6 +55,9 @@ These apply to every Crewyard task, whatever this skill is used for:
 9. After a handoff, request the next safe action with `crew_get_next_action`.
 
 ## Skill rules
+
+- Correlate a post-merge failure with its recorded merge SHA and actual target branch, then inspect the current base before proposing a repair. Preserve one linked failure identity and use ordinary task approval and retry limits.
+- Preserve resources when a recorded process identity cannot be verified. Do not reuse or delete an unknown attempt directory to clear a blocker. A failed hook can be retried; callback effects must be idempotent or reconciled.
 
 - Never weaken or skip a check to make it pass: no deleting or skipping tests, lowering thresholds or editing CI workflows, unless that is the task's stated objective and policy allows it.
 - Do not rebase, reset or force-push proactively. Preserve existing commits; add fix commits.

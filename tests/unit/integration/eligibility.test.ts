@@ -232,7 +232,7 @@ function item(id: string, overrides: Partial<QueueEntry> = {}, extra: Partial<Or
     pr: pr({
       id,
       changedFiles: [
-        { path: `src/${id}.ts`, previousPath: null, status: 'modified', additions: 1, deletions: 0, blobSha: null },
+        { path: `src/${id}.ts`, previousPath: null, status: 'added', additions: 1, deletions: 0, blobSha: null },
       ],
     }),
     eligible: entry.status === 'eligible',
@@ -280,12 +280,14 @@ describe('queue ordering', () => {
       ),
       item('other'),
     ];
-    expect(selectGroup(stacked, config, 1).map((i) => i.pr.id)).toEqual(['s1', 's2']);
+    expect(selectGroup(stacked, config, 1).map((i) => i.pr.id)).toEqual(['s1']);
     const speculative = crewConfigSchema.parse({
       version: 1,
       project: { name: 'p' },
       integration: { speculative_validation: true },
+      validation: { broad: [{ name: 'prefix', command: 'true' }] },
     });
+    expect(selectGroup(stacked, speculative, 1).map((i) => i.pr.id)).toEqual(['s1', 's2']);
     const flat = [item('a'), item('b'), item('c', { risk: 'high' })];
     expect(selectGroup(flat, speculative, 3).map((i) => i.pr.id)).toEqual(['a', 'b']);
     expect(selectGroup(flat, speculative, 1).map((i) => i.pr.id)).toEqual(['a']);

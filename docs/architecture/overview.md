@@ -18,7 +18,7 @@ flowchart TB
   CORE --> SCH[Scheduler + Leases]
   CORE --> INT[Review + Integration Engine]
   SCH --> WRK[Agent Process Supervisor]
-  WRK --> WT[Git Worktrees / Sandbox]
+  WRK --> WT[Git Worktrees]
   INT <--> GH[GitHub / GitHub Actions]
   CORE --> EVT[Durable Event Log]
   EVT --> TUI[Terminal Dashboard]
@@ -69,12 +69,27 @@ flowchart LR
 
 | Process | Lifetime | Role |
 |---|---|---|
-| `crew <command>` | Short-lived | Calls application services directly, or reads the state the service maintains |
+| `crew <command>` | Command lifetime | Calls application services; long operations join or drive durable subprocess execution |
 | `crew mcp` | One per MCP host session | stdio MCP server: protocol on stdout, diagnostics on stderr. Many can run at once. |
-| `crew service run` | Long-running, optional | Task dispatch, provider sessions, GitHub polling, queue processing, reconciliation |
+| `crew service run` | Long-running, optional | Admits finite subprocess operations, maintains leadership and schedules reconciliation |
+| Private execution worker | One bounded operation | Executes pinned domain input under a renewable, fenced claim |
 | `crew dashboard` | Interactive | Follows the durable event stream; operator actions go through the same services |
 
 The service is optional for installation, but continuous autonomous execution needs `crew service run`, `crew service start` or an installed user service. Closing an MCP host does not imply work continues.
+
+Indexing, review, candidate validation, task dispatch/workspace preparation, synchronization, publication and
+maintenance use the same durable execution path from direct CLI/MCP calls and the resident service. The
+application owns admission and supervision; each domain retains its own state, evidence and retry rules.
+Production workers run in separate processes so a blocked worker does not hold the controller event loop.
+Default admission allows six global operations, four per project and one per project/domain. A worker's
+deadline, lease and shutdown grace are recorded with its launch intent; these bounds do not replace provider,
+task-budget or integration-policy limits.
+
+Launches and cancellation requests use the outbox. A worker must bind its exact attempt and process birth
+identity before acting, renew ownership while running and recheck ownership before recording results.
+Recovery preserves resources belonging to live or unverifiable processes. Task worktrees can contain user
+changes and are distinct from disposable review/validation worktrees. Worktrees, redaction and cooperative
+worker checks provide isolation between operations; they do not provide an operating-system sandbox.
 
 ```mermaid
 sequenceDiagram

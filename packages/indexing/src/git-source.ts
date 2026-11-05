@@ -1,4 +1,4 @@
-import { CrewError, DEFAULT_ENV_ALLOWLIST, run, sanitizeEnv } from '@crewyard/core';
+import { CrewError, DEFAULT_ENV_ALLOWLIST, killTree, processLifecycle, run, sanitizeEnv } from '@crewyard/core';
 
 const MAX_LISTING_BYTES = 1024 * 1024 * 1024;
 
@@ -218,13 +218,26 @@ class StreamBuffer {
 
 export async function* readBlobs(cwd: string, shas: readonly string[], maxBytes: number): AsyncGenerator<BlobContent> {
   if (shas.length === 0) return;
+  const lifecycle = processLifecycle({});
+  lifecycle.signal?.throwIfAborted();
   const proc = Bun.spawn(['git', 'cat-file', '--batch'], {
     cwd,
     env: gitEnv(),
     stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
+    detached: process.platform !== 'win32',
   });
+  try {
+    lifecycle.onSpawn?.(proc.pid);
+  } catch (error) {
+    killTree(proc.pid, 'SIGKILL');
+    await proc.exited;
+    throw error;
+  }
+  const abort = () => killTree(proc.pid, 'SIGKILL');
+  if (lifecycle.signal?.aborted) abort();
+  else lifecycle.signal?.addEventListener('abort', abort, { once: true });
   const writer = (async () => {
     for (let i = 0; i < shas.length; i++) {
       proc.stdin.write(`${shas[i]}\n`);
@@ -248,7 +261,8 @@ export async function* readBlobs(cwd: string, shas: readonly string[], maxBytes:
     }
     await writer;
   } finally {
-    if (proc.exitCode === null) proc.kill();
+    lifecycle.signal?.removeEventListener('abort', abort);
+    if (proc.exitCode === null) killTree(proc.pid, 'SIGKILL');
     await proc.exited;
     await writer.catch(() => undefined);
   }

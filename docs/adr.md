@@ -1,6 +1,6 @@
 # Architecture decision records
 
-The twelve decisions behind Crewyard v1.0. Each is accepted; superseding one requires a new ADR.
+The decisions behind Crewyard. Each is accepted; superseding one requires a new ADR.
 
 ## ADR-001: Bun and TypeScript across core and interfaces
 
@@ -80,3 +80,11 @@ The twelve decisions behind Crewyard v1.0. Each is accepted; superseding one req
   - Otherwise, serialize admission per base branch, and merge through branch-protected APIs after re-reading base and head SHAs.
 - **Why:** Avoid reimplementing what GitHub provides while still serving repositories without a queue.
 - **Consequences:** When the host cannot attest required checks for the exact integrated result, the candidate is labeled "not yet integration-validated".
+
+## ADR-013: Domain-owned fenced execution and evidence v2
+
+- **Decision:** Reviews own durable requests/attempts; integration owns candidate prefixes and remote admission. Storage supplies renewable immutable attempt/generation claims and fenced outbox delivery. Application supervises finite subprocess work without introducing a generic jobs/DAG service. Direct interfaces retain execution without a daemon.
+- **Why:** Concurrent processes must share valid work without allowing a stale owner to publish or settle; slow provider/validation/index work must not stall unrelated controller duties.
+- **Consequences:** Writable resources are attempt-local and process identity is verified before recovery. Unknown live resources are preserved. Callback/provider launches are at least once with reconciliation, never advertised as exactly once. Skills and process boundaries remain cooperative and provide no OS sandbox.
+- **Evidence:** Reviews bind actual Git objects and complete recorded context/coverage; summaries and mutation retries apply current acceptance. Every exposed prefix needs matching evidence. Guarded fallback's base race is detected after actual-tree observation, not prevented by local fencing.
+- **Upgrade:** Quiesce all writers/children; migration v5 rejects legacy database connections without the current writer protocol. Rollback retains current schema and corrected guards; restoring a backup is disaster recovery with acknowledged-write and remote reconciliation.
