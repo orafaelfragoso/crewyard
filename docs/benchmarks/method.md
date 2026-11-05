@@ -71,3 +71,51 @@ Real files are larger than the synthetic ones, so per-file cold cost is higher.
 Indexed search p95 is well under 1 s and the 100-file incremental update is well under 30 s on this machine for
 50,000 tracked files. These numbers come from synthetic content and the machine above; they are evidence for
 this configuration, not a guarantee for other repositories or hardware.
+
+## Remediation baseline and experiment decisions (2026-11-05)
+
+The same Ryzen 5800X / 31.2 GB / Linux 7.2.11 / Bun 1.4.4 machine, local btrfs NVMe under
+`~/.cache/crew-remediation-bench`, SQLite WAL with `FULL` durability. Independent temporary databases and
+repositories were used; this was a shared development machine with concurrent tests and builds. Five cold
+samples establish an observed range and median, not a reliable tail estimate or a controlled percentage win.
+No real provider or hosted CI workload was substituted with these measurements.
+
+| Workload | Cold samples | Cold median / range | 100-file incremental median / range |
+|---|---:|---|---|
+| Synthetic, 50,101 tracked files | 5 | 27.973 s / 26.346–31.876 s | 2.898 s / 2.755–3.082 s |
+| Crewyard, 397–402 tracked files | 5 | 1.295 s / 0.890–1.489 s | Not measured |
+| Larger local real repository, 2,083 tracked files | 5 | 9.471 s / 8.581–11.296 s | Not measured |
+
+Crewyard's source changed during these samples; they are workload observations, not paired comparisons of an
+optimization. Each cold run used 200 queries per search mode and 50 context packs. Synthetic hybrid search
+p95 ranged 13.8–17.9 ms; the largest context-pack p95 was 41.2 ms. The existing indexed-search p95 <1 s and
+100-file incremental <30 s budgets pass for this documented workload. One additional 50k run with schema-v5
+writer guards under concurrent load measured 32.867 s cold, 3.741 s incremental and 28.1 ms hybrid p95; it is
+one observation, not a before/after distribution.
+
+Thirty warm exact-snapshot index calls measured 1.0–10.2 ms on the synthetic workload. Thirty independent
+full worktree materializations measured 1.575–2.179 s (median 1.672 s) for 50k files and 25.5–28.7 ms
+(median 26.8 ms) for Crewyard. Worktree metadata alone was 1.8–2.9 ms and 2.0–2.9 ms respectively.
+Only disposable, attempt-owned worktrees were created and removed; bootstrap/provider execution was excluded.
+
+Reproduce cold/query runs with the commands above. `--warm-runs 30` adds warm index samples and a scratch
+SQL membership-copy comparison; `--warm-concurrency 6` runs each warm batch at the configured default global
+capacity, alternating available base/head snapshots. The schema permits larger explicit operator limits, but
+the experiment does not increase any operator limit. JSON now records exact source commit/tree identities and
+warm concurrency. Cold means a fresh index/database, not a flushed operating-system page cache.
+
+### Decisions on repeated work
+
+| Finding | Evidence and decision |
+|---|---|
+| Repeated Git fetches | Adopt exact-OID cross-process coalescing. Ten processes transfer one commit once; moving branch refs and `FETCH_HEAD` remain unchanged. Shared failure, remote identity change and killed-owner cases are real-process tests. Bytes transferred are unknown, so no byte-saving claim. Fresh remote branch observations remain separate. |
+| Sparse checkout | Reject for this rollout. Full materialization is small relative to indexing, and there is no operator-verified dependency/config/test closure. Scope hints cannot establish equivalence. Full checkout remains the explicit supported behavior; no sparse prototype or silent fallback ships. |
+| Bootstrap/artifact reuse | Reject for this rollout. Crewyard has no configured bootstrap commands in this assessed checkout and no verified immutable artifact manifest. The general bootstrap path runs arbitrary approved commands and may inject referenced secrets; writable `node_modules` cannot be a shared artifact boundary. No measured bootstrap bottleneck or safe general reuse boundary was established. |
+| Snapshot overlays | Reject. Incremental parsing changes 100 blobs, but membership still loads/writes all 50,101 rows: load 51–57 ms, row writes 0.893–1.078 s before commit/fsync in the five samples. Thirty scratch `INSERT ... SELECT` copies measured 76.6–113.3 ms; this is a lower bound without full production semantics. Both current budgets pass, so retain flat snapshots and remove no correctness checks. |
+| Adaptive scheduler tuning | Reject. Retain fixed defaults: six execution slots, eight open PRs, 120-minute queue-age backpressure and one recovery reservation. A deterministic 100-task burst replay exercised 30 seeds × four provider capacities (including offline) × four backlog levels × two queue ages: 960 decisions per policy. Default, stricter and looser policies each had zero hard-limit violations and admitted recovery whenever capacity existed. Stricter/looser thresholds changed implementation admissions (210/630 versus default 420), but this decision replay supplies no measured production completion-latency improvement. |
+
+The scheduler replay shadows pure decisions only; it launches no providers or remote mutations. Slow-worker
+acceptance is tested causally with process barriers: an unrelated ready project and same-branch synchronization
+must progress while validation is held, and integration leadership must renew. There is no invented throughput
+or percentage target. SQLite acquisition has a 1,000 ms total default wait budget (plus one ≤50 ms native poll),
+bounded retries and observed contention counters; a real locked-database process test measured about 1.05 s.
