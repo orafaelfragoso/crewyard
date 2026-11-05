@@ -11,7 +11,6 @@ import {
 } from '@crewyard/core';
 import type { ReviewType } from '@crewyard/reviews';
 import {
-  abandonExecutionClaim,
   acquireExecutionClaim,
   all,
   type CrewContext,
@@ -23,10 +22,9 @@ import {
   type OutboxOperation,
 } from '@crewyard/storage';
 import type { LeaseHolder } from '@crewyard/tasks';
-import { executionResourcesState } from './execution-processes.ts';
 
 export type ExecutionOperation =
-  | { kind: 'index'; sha?: string; ref?: string; worktreePath?: string; force?: boolean }
+  | { kind: 'index'; sha?: string; ref?: string; worktreePath?: string; force?: boolean; indexRevision?: string }
   | { kind: 'sync' | 'publish' | 'outbox' | 'cleanup' | 'health' }
   | {
       kind: 'queue';
@@ -127,17 +125,6 @@ export function submitExecution(
       throw new CrewError('INVALID_INPUT', 'Execution limits must be positive integers');
   }
   const scope = executionScope(request);
-  const observed = getExecutionClaim(ctx.store.db, scope);
-  let observedState = observed ? executionProcessState(observed) : 'dead';
-  if (observed && observedState === 'dead') {
-    const row = all<{ intent: string }>(
-      ctx.store.db,
-      `SELECT intent FROM outbox WHERE kind = ? AND json_extract(intent, '$.claim.attemptId') = ?`,
-      EXECUTION_LAUNCH_KIND,
-      observed.attemptId,
-    )[0];
-    if (row) observedState = executionResourcesState((JSON.parse(row.intent) as ExecutionLaunch).directory);
-  }
   return ctx.store.immediate((db) => {
     const at = nowIso(ctx.clock);
     const current = getExecutionClaim(db, scope);
@@ -152,26 +139,43 @@ export function submitExecution(
         if (!existing) throw new CrewError('INTERNAL', `Execution ${current.attemptId} has no launch intent`);
         const operation = getOutbox(db, existing.operation_id)!;
         const launch = operation.intent as unknown as ExecutionLaunch;
-        if (fingerprint(launch.operation) !== fingerprint(request.operation)) {
+        if (
+          fingerprint({
+            projectId: launch.projectId,
+            repositoryId: launch.repositoryId,
+            operation: launch.operation,
+          }) !==
+          fingerprint({
+            projectId: request.projectId,
+            repositoryId: request.repositoryId,
+            operation: request.operation,
+          })
+        ) {
           return null;
         }
         return operation as unknown as OutboxOperation<ExecutionLaunch>;
       }
-      if (observed?.attemptId !== current.attemptId || observedState !== 'dead') return null;
-      abandonExecutionClaim(db, current, at);
+      return null;
     }
-    const active = all<{ projectId: string; kind: string }>(
+    const active = all<{
+      projectId: string;
+      kind: string;
+      globalLimit: number;
+      projectLimit: number;
+      domainLimit: number;
+    }>(
       db,
-      `SELECT json_extract(o.intent, '$.projectId') AS projectId, json_extract(o.intent, '$.operation.kind') AS kind
+      `SELECT json_extract(o.intent, '$.projectId') AS projectId, json_extract(o.intent, '$.operation.kind') AS kind, json_extract(o.intent, '$.limits.global') AS globalLimit, json_extract(o.intent, '$.limits.perProject') AS projectLimit, json_extract(o.intent, '$.limits.perDomain') AS domainLimit
        FROM execution_claims c JOIN outbox o ON json_extract(o.intent, '$.claim.attemptId') = c.attempt_id
        WHERE o.kind = ? AND c.released_at IS NULL`,
       EXECUTION_LAUNCH_KIND,
     );
+    const projectActive = active.filter((row) => row.projectId === request.projectId);
+    const domainActive = projectActive.filter((row) => row.kind === request.operation.kind);
     if (
-      active.length >= limits.global ||
-      active.filter((row) => row.projectId === request.projectId).length >= limits.perProject ||
-      active.filter((row) => row.projectId === request.projectId && row.kind === request.operation.kind).length >=
-        limits.perDomain
+      active.length >= Math.min(limits.global, ...active.map((row) => row.globalLimit)) ||
+      projectActive.length >= Math.min(limits.perProject, ...projectActive.map((row) => row.projectLimit)) ||
+      domainActive.length >= Math.min(limits.perDomain, ...domainActive.map((row) => row.domainLimit))
     )
       return null;
     const attemptId = newId('lease');

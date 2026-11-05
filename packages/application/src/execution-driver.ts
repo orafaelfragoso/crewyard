@@ -16,7 +16,12 @@ export async function startExecution(
   const supervisor = new ExecutionSupervisor(ctx, newId('wrk'), limits);
   const deadline = performance.now() + limits.timeoutSeconds * 1000;
   let operationId: string | null = null;
+  let nextRecovery = 0;
   while (!operationId && performance.now() < deadline) {
+    if (performance.now() >= nextRecovery) {
+      await supervisor.recover();
+      nextRecovery = performance.now() + 1_000;
+    }
     operationId = submitExecution(ctx, request, limits)?.operationId ?? null;
     if (!operationId) await Bun.sleep(25);
   }

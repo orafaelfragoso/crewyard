@@ -3,6 +3,7 @@ export * from './db.ts';
 export * from './events.ts';
 export * from './execution-claims.ts';
 export * from './execution-context.ts';
+export * from './execution-worktrees.ts';
 export * from './leadership.ts';
 export * from './migrations.ts';
 export * from './open.ts';

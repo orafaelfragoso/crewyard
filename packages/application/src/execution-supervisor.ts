@@ -14,12 +14,14 @@ import { requestInterventionInTx } from '@crewyard/reviews';
 import {
   abandonExecutionClaim,
   assertExecutionClaim,
+  assertOutboxClaim,
   type ClaimedOutboxOperation,
   type CrewContext,
   claimDueOutbox,
   completeOutbox,
   getExecutionClaim,
   getOutbox,
+  recordTransition,
   releaseExecutionClaim,
 } from '@crewyard/storage';
 import {
@@ -29,7 +31,8 @@ import {
   type ExecutionLimits,
   executionProcessState,
 } from './execution.ts';
-import { finishExecutionProcesses, stopExecutionProcesses } from './execution-processes.ts';
+import { stopExecutionProcesses } from './execution-processes.ts';
+import { finishExecutionResources } from './execution-worktrees.ts';
 import { crewInvocation } from './service-control.ts';
 
 interface RunningExecution {
@@ -44,6 +47,7 @@ interface RunningExecution {
 export class ExecutionSupervisor {
   private readonly running = new Map<string, RunningExecution>();
   private stopping = false;
+  private readonly reconciling = new Set<Promise<void>>();
 
   constructor(
     private readonly ctx: CrewContext,
@@ -60,7 +64,7 @@ export class ExecutionSupervisor {
     if (!current || ['succeeded', 'failed', 'cancelled'].includes(current.status)) return;
     const domain = getExecutionClaim(this.ctx.store.db, launch.claim.scope);
     if (!domain || domain.attemptId !== launch.claim.attemptId || domain.releasedAt !== null) return;
-    const children = await finishExecutionProcesses(launch.directory, 1_000);
+    const children = await finishExecutionResources(this.ctx, launch);
     try {
       this.ctx.store.immediate((db) => {
         const at = nowIso(this.ctx.clock);
@@ -68,18 +72,20 @@ export class ExecutionSupervisor {
           db,
           op,
           {
-            status: children.unverifiable || children.pending ? 'ambiguous' : 'failed',
+            status: children.unverifiable || children.pending || children.cleanupError ? 'ambiguous' : 'failed',
             error: `Worker exited ${exitCode} before completion${children.unverifiable ? '; unverifiable children remain, resources preserved' : ''}`,
           },
           at,
         );
-        if (children.unverifiable) {
+        if (children.unverifiable || children.cleanupError) {
           requestInterventionInTx(
             db,
             {
               projectId: launch.projectId,
               title: `Execution ${launch.claim.attemptId} needs process verification`,
-              reasons: ['Unverifiable child processes remain. Attempt resources are preserved.'],
+              reasons: [
+                children.cleanupError ?? 'Unverifiable child processes remain. Attempt resources are preserved.',
+              ],
               once: true,
             },
             launch.actor,
@@ -96,6 +102,73 @@ export class ExecutionSupervisor {
     }
   }
 
+  private recoverDelivery(operationId: string, launch: ExecutionLaunch): ClaimedOutboxOperation | null {
+    const observed = getExecutionClaim(this.ctx.store.db, launch.claim.scope);
+    if (!observed || observed.attemptId !== launch.claim.attemptId || observed.releasedAt !== null) return null;
+    if (
+      executionProcessState(observed) !== 'dead' ||
+      (!observed.process && observed.expiresAt > nowIso(this.ctx.clock))
+    )
+      return null;
+    const recovered = this.ctx.store.immediate((db) => {
+      const current = getExecutionClaim(db, observed.scope);
+      const operation = getOutbox(db, operationId);
+      const at = nowIso(this.ctx.clock);
+      if (
+        current?.attemptId !== observed.attemptId ||
+        current.releasedAt !== null ||
+        !operation ||
+        ['succeeded', 'failed', 'cancelled'].includes(operation.status)
+      )
+        return false;
+      const delivery = getExecutionClaim(db, `outbox:${operationId}`);
+      if (delivery?.releasedAt === null) {
+        if (delivery.expiresAt > at) {
+          assertOutboxClaim(db, { ...operation, claim: delivery }, at);
+          releaseExecutionClaim(db, delivery, at);
+        } else abandonExecutionClaim(db, delivery, at);
+      }
+      db.query('UPDATE outbox SET next_attempt_at = ?, updated_at = ? WHERE operation_id = ?').run(at, at, operationId);
+      recordTransition(
+        db,
+        {
+          type: 'execution.delivery_recovered',
+          actor: launch.actor,
+          projectId: launch.projectId,
+          payload: { operationId, attemptId: observed.attemptId },
+        },
+        { action: 'execution.recover_delivery', input: { operationId }, decision: 'verified_worker_exit' },
+        at,
+      );
+      return true;
+    });
+    if (!recovered) return null;
+    return (
+      claimDueOutbox(this.ctx.store, {
+        ownerId: this.ownerId,
+        kinds: [EXECUTION_LAUNCH_KIND],
+        limit: 1,
+        ttlSeconds: this.limits.leaseSeconds,
+        operationIds: [operationId],
+      })[0] ?? null
+    );
+  }
+
+  async recover(): Promise<void> {
+    const operations = this.ctx.store.db
+      .query(
+        "SELECT o.operation_id FROM outbox o JOIN execution_claims c ON c.attempt_id = json_extract(o.intent, '$.claim.attemptId') WHERE o.kind = 'execution.launch' AND o.status IN ('pending','attempted','ambiguous') AND c.released_at IS NULL ORDER BY o.created_at LIMIT 100",
+      )
+      .all() as { operation_id: string }[];
+    for (const row of operations) {
+      if (this.running.has(row.operation_id)) continue;
+      const operation = getOutbox(this.ctx.store.db, row.operation_id)!;
+      const launch = operation.intent as unknown as ExecutionLaunch;
+      const delivery = this.recoverDelivery(operation.operationId, launch);
+      if (delivery) await this.settleExited(delivery, launch, -1);
+    }
+  }
+
   private processCancellations(): void {
     const cancellations = claimDueOutbox(this.ctx.store, {
       ownerId: this.ownerId,
@@ -108,7 +181,7 @@ export class ExecutionSupervisor {
       const target = getOutbox(this.ctx.store.db, operationId);
       const launch = target?.intent as unknown as ExecutionLaunch | undefined;
       const claim = launch ? getExecutionClaim(this.ctx.store.db, launch.claim.scope) : null;
-      let status: 'succeeded' | 'ambiguous' | 'failed' = 'succeeded';
+      let status: 'succeeded' | 'ambiguous' = 'succeeded';
       let error: string | undefined;
       if (
         target &&
@@ -118,11 +191,43 @@ export class ExecutionSupervisor {
         claim.releasedAt === null
       ) {
         const state = executionProcessState(claim);
-        if (claim.process && state === 'live') killTree(claim.process.pid, 'SIGTERM');
-        else if (state === 'unknown') {
-          status = 'failed';
+        if (claim.process && state === 'live') {
+          const elapsed = Date.now() - Date.parse(cancellation.createdAt);
+          const force = elapsed >= launch!.limits.shutdownGraceSeconds * 1000;
+          if (force) stopExecutionProcesses(launch!.directory);
+          killTree(claim.process.pid, force ? 'SIGKILL' : 'SIGTERM');
+          status = 'ambiguous';
+          error = 'Cancellation requested; awaiting verified execution exit';
+        } else if (state === 'unknown') {
+          status = 'ambiguous';
           error = 'Cannot verify execution process identity for cancellation';
+          this.ctx.store.immediate((db) =>
+            requestInterventionInTx(
+              db,
+              {
+                projectId: launch!.projectId,
+                title: `Execution ${claim.attemptId} needs process verification`,
+                reasons: [error!],
+                once: true,
+              },
+              launch!.actor,
+              nowIso(this.ctx.clock),
+            ),
+          );
         } else {
+          if (claim.process) {
+            const recovered = this.recoverDelivery(operationId, launch!);
+            if (recovered) {
+              const pending = this.settleExited(recovered, launch!, -1)
+                .catch((failure: unknown) =>
+                  this.ctx.logger.error('cancelled execution reconciliation failed', {
+                    error: toCrewError(failure).message,
+                  }),
+                )
+                .finally(() => this.reconciling.delete(pending));
+              this.reconciling.add(pending);
+            }
+          }
           const [delivery] = claim.process
             ? []
             : claimDueOutbox(this.ctx.store, {
@@ -150,9 +255,7 @@ export class ExecutionSupervisor {
           cancellation,
           status === 'succeeded'
             ? { status }
-            : status === 'failed'
-              ? { status, error: error! }
-              : { status, error: error!, nextAttemptAt: new Date(Date.now() + 1_000).toISOString() },
+            : { status, error: error!, nextAttemptAt: new Date(Date.now() + 1_000).toISOString() },
           nowIso(this.ctx.clock),
         ),
       );
@@ -218,41 +321,15 @@ export class ExecutionSupervisor {
         }
       }
       if (domain.expiresAt <= at || domain.process) {
-        const children = stopExecutionProcesses(launch.directory);
-        if (children.unverifiable || children.pending) {
-          this.ctx.store.immediate((db) => {
-            const now = nowIso(this.ctx.clock);
-            completeOutbox(
-              db,
-              op,
-              { status: 'ambiguous', error: 'Unverifiable children remain; resources preserved' },
-              now,
-            );
-            if (children.unverifiable)
-              requestInterventionInTx(
-                db,
-                {
-                  projectId: launch.projectId,
-                  title: `Execution ${launch.claim.attemptId} needs process verification`,
-                  reasons: ['Unverifiable child processes remain. Attempt resources are preserved.'],
-                  once: true,
-                },
-                launch.actor,
-                now,
-              );
-          });
-          continue;
-        }
-        this.ctx.store.immediate((db) => {
-          completeOutbox(
-            db,
-            op,
-            { status: 'failed', error: 'Prior execution ended without completion' },
-            nowIso(this.ctx.clock),
-          );
-          if (domain.expiresAt <= nowIso(this.ctx.clock)) abandonExecutionClaim(db, domain, nowIso(this.ctx.clock));
-          else releaseExecutionClaim(db, domain, nowIso(this.ctx.clock));
-        });
+        const recovery = this.settleExited(op, launch, -1)
+          .catch((error: unknown) =>
+            this.ctx.logger.error('execution recovery failed', {
+              operationId: op.operationId,
+              error: toCrewError(error).message,
+            }),
+          )
+          .finally(() => this.reconciling.delete(recovery));
+        this.reconciling.add(recovery);
         continue;
       }
       this.ctx.store.immediate((db) => assertExecutionClaim(db, launch.claim, nowIso(this.ctx.clock)));
@@ -321,6 +398,6 @@ export class ExecutionSupervisor {
       )
         killTree(claim.process.pid, 'SIGKILL');
     }
-    await Promise.race([Promise.all(workers.map((worker) => worker.done)), Bun.sleep(1_000)]);
+    await Promise.race([Promise.all([...workers.map((worker) => worker.done), ...this.reconciling]), Bun.sleep(1_000)]);
   }
 }

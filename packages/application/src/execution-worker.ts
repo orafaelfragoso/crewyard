@@ -31,7 +31,8 @@ import {
 import { type OperationKind, recordOperation } from '@crewyard/telemetry';
 import { type Dispatch, dispatchTask } from './agents.ts';
 import { EXECUTION_LAUNCH_KIND, type ExecutionLaunch } from './execution.ts';
-import { finishExecutionProcesses, recordExecutionProcess, stopExecutionProcesses } from './execution-processes.ts';
+import { recordExecutionProcess, stopExecutionProcesses } from './execution-processes.ts';
+import { finishExecutionResources } from './execution-worktrees.ts';
 import { integrationEnv, reviewPullRequest, runIntegrationTick } from './integration.ts';
 import { cleanFinishedWorkspaces } from './maintenance.ts';
 import { scanPostMergeHealth } from './post-merge.ts';
@@ -212,10 +213,20 @@ export async function runExecutionWorker(
   const requestCancel = () => {
     cancelled = true;
     if (dispatch) {
-      void dispatch.interrupt('execution worker stopping').catch((error: unknown) => {
-        ownershipError = error;
-        cancellation.abort(error);
-      });
+      void dispatch
+        .interrupt(
+          (
+            ctx.store.db
+              .query(
+                "SELECT json_extract(intent, '$.reason') AS reason FROM outbox WHERE kind = 'execution.cancel' AND subject_id = ? ORDER BY created_at DESC LIMIT 1",
+              )
+              .get(operationId) as { reason: string } | null
+          )?.reason ?? 'execution worker stopping',
+        )
+        .catch((error: unknown) => {
+          ownershipError = error;
+          cancellation.abort(error);
+        });
     } else {
       stopExecutionProcesses(directory);
       cancellation.abort(new CrewError('CONFLICT', 'Execution cancelled'));
@@ -285,9 +296,10 @@ export async function runExecutionWorker(
     process.removeListener('SIGTERM', requestCancel);
     process.removeListener('SIGINT', requestCancel);
   }
-  const children = await finishExecutionProcesses(directory, 1_000);
+  const children = await finishExecutionResources(ctx, launch);
   if (children.unverifiable > 0)
     failure = new CrewError('CONFLICT', 'Unverifiable execution children remain; attempt resources preserved');
+  if (children.cleanupError) failure = new CrewError('CONFLICT', children.cleanupError);
   if (ownershipError) throw ownershipError;
   const completionContext = executionContext(ctx, {
     claim: launch.claim,
@@ -310,7 +322,7 @@ export async function runExecutionWorker(
     completeOutbox(
       db,
       claimed,
-      children.unverifiable || children.pending
+      children.unverifiable || children.pending || children.cleanupError
         ? { status: 'ambiguous', error: 'Child process exit is not verified; attempt resources preserved' }
         : cancelled
           ? { status: 'cancelled', error: 'Execution cancelled', remoteCorrelation: { result } }
@@ -323,13 +335,13 @@ export async function runExecutionWorker(
             : { status: 'succeeded', remoteCorrelation: { result } },
       at,
     );
-    if (children.unverifiable) {
+    if (children.unverifiable || children.cleanupError) {
       requestInterventionInTx(
         db,
         {
           projectId: launch.projectId,
           title: `Execution ${launch.claim.attemptId} needs process verification`,
-          reasons: ['Unverifiable child processes remain. Attempt resources are preserved.'],
+          reasons: [children.cleanupError ?? 'Unverifiable child processes remain. Attempt resources are preserved.'],
           once: true,
         },
         launch.actor,
