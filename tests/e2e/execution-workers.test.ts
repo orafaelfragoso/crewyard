@@ -7,6 +7,7 @@ import {
   DEFAULT_EXECUTION_LIMITS,
   ExecutionSupervisor,
   initRepository,
+  prepareDispatchExecution,
   submitExecution,
 } from '@crewyard/application';
 import { isProcessAlive } from '@crewyard/core';
@@ -235,7 +236,7 @@ test('production dispatch worker tracks the provider through handoff without dup
       repositoryId: repository.id,
       actor,
       leaderId: 'dispatch-test',
-      operation: { kind: 'dispatch', taskId: task.id, agentId },
+      operation: prepareDispatchExecution(c, { taskId: task.id, agent: agentId, actor }),
     },
     limits,
   )!;

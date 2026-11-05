@@ -1,4 +1,4 @@
-import { CrewError, newId, nowIso, redact } from '@crewyard/core';
+import { CrewError, ERROR_EXIT_CODES, newId, nowIso, redact, type SerializedCrewError } from '@crewyard/core';
 import { type CrewContext, enqueueOutbox, getOutbox } from '@crewyard/storage';
 import { EXECUTION_CANCEL_KIND, type ExecutionLimits, type ExecutionRequest, submitExecution } from './execution.ts';
 import { ExecutionSupervisor } from './execution-supervisor.ts';
@@ -27,13 +27,15 @@ export async function startExecution(
       while (performance.now() < deadline) {
         supervisor.pump(admittedId);
         const current = getOutbox(ctx.store.db, admittedId)!;
-        if (current.status === 'succeeded') {
+        if (current.status === 'succeeded' || (current.status === 'cancelled' && current.remoteCorrelation?.result)) {
           const output = current.remoteCorrelation?.result;
           if (!output || typeof output !== 'object' || Array.isArray(output))
             throw new CrewError('INTERNAL', `Execution ${admittedId} has no result`);
           return output as Record<string, unknown>;
         }
         if (current.status === 'failed' || current.status === 'cancelled') {
+          const failure = current.remoteCorrelation?.failure as SerializedCrewError | undefined;
+          if (failure && failure.code in ERROR_EXIT_CODES) throw new CrewError(failure.code, failure.message, failure);
           throw new CrewError('EXTERNAL_FAILURE', current.lastError ?? `Execution ${admittedId} ${current.status}`);
         }
         await Bun.sleep(25);

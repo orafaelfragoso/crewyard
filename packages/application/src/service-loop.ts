@@ -15,7 +15,7 @@ import {
 } from '@crewyard/storage';
 import { showTask } from '@crewyard/tasks';
 import { recordOperation } from '@crewyard/telemetry';
-import { type Dispatch, dispatchTask } from './agents.ts';
+import { type Dispatch, dispatchTask, prepareDispatchExecution } from './agents.ts';
 import {
   DEFAULT_EXECUTION_LIMITS,
   type ExecutionLimits,
@@ -23,6 +23,7 @@ import {
   submitExecution,
 } from './execution.ts';
 import { ExecutionSupervisor } from './execution-supervisor.ts';
+import { prepareQueueExecution } from './integration.ts';
 import { buildIndex, indexState } from './retrieval.ts';
 
 export interface ProjectCycle {
@@ -274,6 +275,7 @@ export class CrewService {
           taskId: admission.taskId,
           agent: agent.id,
           actor: SERVICE_ACTOR,
+          inProcess: true,
         });
         this.log(
           'service.dispatched',
@@ -324,7 +326,7 @@ export class CrewService {
       schedule({ kind: 'sync' }, loaded.config.integration.poll_interval_seconds);
       schedule({ kind: 'publish' }, 5);
       schedule({ kind: 'outbox' }, 5);
-      schedule({ kind: 'queue' }, 5);
+      schedule(prepareQueueExecution(this.ctx, repo.id, { sync: false, maxCandidates: 3, processOutbox: false }), 5);
       schedule({ kind: 'health' }, 30);
     }
     if (loaded.config.index.enabled) schedule({ kind: 'index' }, 300);
@@ -338,7 +340,11 @@ export class CrewService {
       const plan = planDispatch(this.ctx, projectId, { config: loaded.config });
       for (const admission of plan.admitted) {
         const agent = selectAgentForTask(this.ctx, admission.taskId);
-        if (agent) schedule({ kind: 'dispatch', taskId: admission.taskId, agentId: agent.id }, 5);
+        if (agent)
+          schedule(
+            prepareDispatchExecution(this.ctx, { taskId: admission.taskId, agent: agent.id, actor: SERVICE_ACTOR }),
+            5,
+          );
       }
     }
     const keyFor = (operation: ExecutionOperation) =>

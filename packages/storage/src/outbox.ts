@@ -265,7 +265,7 @@ export type OutboxOutcome =
   | { status: 'failed'; error: string; remoteCorrelation?: Record<string, unknown> }
   | { status: 'ambiguous'; error: string; remoteCorrelation?: Record<string, unknown>; nextAttemptAt?: string }
   | { status: 'retry'; error: string; attempts: number; nextAttemptAt?: string }
-  | { status: 'cancelled'; error: string };
+  | { status: 'cancelled'; error: string; remoteCorrelation?: Record<string, unknown> };
 
 export function completeOutbox(db: Database, op: ClaimedOutboxOperation, outcome: OutboxOutcome, at: string): void {
   assertOutboxClaim(db, op, at);

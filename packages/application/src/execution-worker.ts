@@ -6,10 +6,11 @@ import {
   nowIso,
   processIdentity,
   redact,
+  redactObject,
   toCrewError,
   withProcessLifecycle,
 } from '@crewyard/core';
-import { processIntegrationOutbox, queueTick, syncRepository } from '@crewyard/integration';
+import { processIntegrationOutbox, syncRepository } from '@crewyard/integration';
 import { primaryRepository } from '@crewyard/projects';
 import { reconcileLeases } from '@crewyard/recovery';
 import { failOrphanedReviews, requestInterventionInTx } from '@crewyard/reviews';
@@ -31,12 +32,13 @@ import { type OperationKind, recordOperation } from '@crewyard/telemetry';
 import { type Dispatch, dispatchTask } from './agents.ts';
 import { EXECUTION_LAUNCH_KIND, type ExecutionLaunch } from './execution.ts';
 import { finishExecutionProcesses, recordExecutionProcess, stopExecutionProcesses } from './execution-processes.ts';
-import { integrationEnv, reconcileMergedTasks } from './integration.ts';
+import { integrationEnv, reviewPullRequest, runIntegrationTick } from './integration.ts';
 import { cleanFinishedWorkspaces } from './maintenance.ts';
 import { scanPostMergeHealth } from './post-merge.ts';
 import { blockDivergedPublication, publishTask, tasksAwaitingPublication } from './publish.ts';
 import { buildIndex } from './retrieval.ts';
 import { resumeSessionRetries } from './session-retries.ts';
+import { allocateTaskWorkspace } from './work.ts';
 
 async function execute(
   ctx: CrewContext,
@@ -52,11 +54,42 @@ async function execute(
       return (await syncRepository(ctx, repositoryId, env)) as unknown as Record<string, unknown>;
     case 'outbox':
       return (await processIntegrationOutbox(ctx, { leaderId, env })) as unknown as Record<string, unknown>;
-    case 'queue': {
-      const queue = await queueTick(ctx, repositoryId, { leaderId, env, sync: false });
-      const reconciled = await reconcileMergedTasks(ctx, repositoryId, env);
-      return { queue, reconciled };
-    }
+    case 'queue':
+      return (await runIntegrationTick(
+        ctx,
+        {
+          repositoryId,
+          leaderId,
+          actor,
+          sync: operation.sync,
+          maxCandidates: operation.maxCandidates,
+          processOutbox: operation.processOutbox,
+          expected: operation,
+        },
+        env,
+      )) as unknown as Record<string, unknown>;
+    case 'review':
+      return (await reviewPullRequest(
+        ctx,
+        {
+          prId: operation.prId,
+          expectedHeadSha: operation.expectedHeadSha,
+          expectedBaseSha: operation.expectedBaseSha,
+          configurationFingerprint: operation.configurationFingerprint,
+          types: operation.types,
+          force: operation.force,
+        },
+        env,
+      )) as unknown as Record<string, unknown>;
+    case 'workspace':
+      return (await allocateTaskWorkspace(ctx, {
+        taskId: operation.taskId,
+        actor,
+        baseRef: operation.baseRef,
+        baseSha: operation.baseSha,
+        expectedLease: operation.lease,
+        configurationFingerprint: operation.configurationFingerprint,
+      })) as unknown as Record<string, unknown>;
     case 'health':
       return (await scanPostMergeHealth(ctx, { repositoryId, actor, limit: 20 }, env)) as unknown as Record<
         string,
@@ -85,7 +118,13 @@ async function execute(
       return { reconciled, resumed, failedReviews, removed: removed.map((r) => r.workspace.id) };
     }
     case 'dispatch': {
-      const dispatch = await dispatchTask(ctx, { taskId: operation.taskId, agent: operation.agentId, actor });
+      const dispatch = await dispatchTask(ctx, {
+        taskId: operation.taskId,
+        agent: operation.agentId,
+        actor,
+        model: operation.model,
+        expected: operation,
+      });
       onDispatch(dispatch);
       if (dispatch.session.pid) ctx.execution!.onSpawn(dispatch.session.pid);
       ctx.store.immediate((db) =>
@@ -117,7 +156,7 @@ async function execute(
           nowIso(ctx.clock),
         ),
       );
-      return { sessionId: dispatch.session.sessionId, outcome };
+      return { claim: dispatch.claim, session: dispatch.session, outcome };
     }
   }
 }
@@ -132,6 +171,9 @@ function metricKind(launch: ExecutionLaunch): OperationKind {
       return 'publish';
     case 'queue':
       return 'validation';
+    case 'review':
+      return 'review';
+    case 'workspace':
     case 'dispatch':
       return 'workspace';
     case 'cleanup':
@@ -211,6 +253,27 @@ export async function runExecutionWorker(
     result = await withProcessLifecycle(guarded.execution!, () =>
       execute(guarded, launch, (active) => {
         dispatch = active;
+        guarded.store.immediate((db) => {
+          const at = nowIso(ctx.clock);
+          assertOutboxClaim(db, claimed, at);
+          db.query('UPDATE outbox SET remote_correlation = ?, updated_at = ? WHERE operation_id = ?').run(
+            JSON.stringify({ progress: { claim: active.claim, session: active.session } }),
+            at,
+            operationId,
+          );
+          recordTransition(
+            db,
+            {
+              type: 'execution.progress',
+              actor: launch.actor,
+              projectId: launch.projectId,
+              taskId: active.claim.taskId,
+              payload: { operationId, sessionId: active.session.sessionId },
+            },
+            { action: 'execution.progress', input: { operationId }, decision: 'session_started' },
+            at,
+          );
+        });
         if (cancelled) requestCancel();
       }),
     );
@@ -250,9 +313,13 @@ export async function runExecutionWorker(
       children.unverifiable || children.pending
         ? { status: 'ambiguous', error: 'Child process exit is not verified; attempt resources preserved' }
         : cancelled
-          ? { status: 'cancelled', error: 'Execution cancelled' }
+          ? { status: 'cancelled', error: 'Execution cancelled', remoteCorrelation: { result } }
           : failure
-            ? { status: 'failed', error: redact(toCrewError(failure).message) }
+            ? {
+                status: 'failed',
+                error: redact(toCrewError(failure).message),
+                remoteCorrelation: { failure: redactObject(toCrewError(failure).toJSON()) },
+              }
             : { status: 'succeeded', remoteCorrelation: { result } },
       at,
     );

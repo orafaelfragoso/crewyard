@@ -9,6 +9,7 @@ import {
   newId,
   nowIso,
 } from '@crewyard/core';
+import type { ReviewType } from '@crewyard/reviews';
 import {
   abandonExecutionClaim,
   acquireExecutionClaim,
@@ -21,12 +22,46 @@ import {
   getOutbox,
   type OutboxOperation,
 } from '@crewyard/storage';
+import type { LeaseHolder } from '@crewyard/tasks';
 import { executionResourcesState } from './execution-processes.ts';
 
 export type ExecutionOperation =
   | { kind: 'index'; sha?: string; ref?: string; worktreePath?: string; force?: boolean }
-  | { kind: 'sync' | 'publish' | 'queue' | 'outbox' | 'cleanup' | 'health' }
-  | { kind: 'dispatch'; taskId: string; agentId: string };
+  | { kind: 'sync' | 'publish' | 'outbox' | 'cleanup' | 'health' }
+  | {
+      kind: 'queue';
+      sync: boolean;
+      maxCandidates: number;
+      processOutbox: boolean;
+      configurationFingerprint: string;
+      queueRevision: string;
+    }
+  | {
+      kind: 'review';
+      prId: string;
+      expectedHeadSha: string;
+      expectedBaseSha: string;
+      configurationFingerprint: string;
+      types: ReviewType[];
+      force: boolean;
+    }
+  | {
+      kind: 'workspace';
+      taskId: string;
+      baseRef: string;
+      baseSha: string;
+      configurationFingerprint: string;
+      lease: { id: string; generation: number; holder: LeaseHolder };
+    }
+  | {
+      kind: 'dispatch';
+      taskId: string;
+      agentId: string;
+      model: string | null;
+      taskRevision: number;
+      configurationFingerprint: string;
+      agentConfigurationFingerprint: string;
+    };
 
 export interface ExecutionRequest {
   projectId: string;
@@ -65,7 +100,12 @@ export const EXECUTION_LAUNCH_KIND = 'execution.launch';
 export const EXECUTION_CANCEL_KIND = 'execution.cancel';
 
 export function executionScope(request: ExecutionRequest): string {
-  const subject = request.operation.kind === 'dispatch' ? request.operation.taskId : 'project';
+  const subject =
+    request.operation.kind === 'dispatch' || request.operation.kind === 'workspace'
+      ? request.operation.taskId
+      : request.operation.kind === 'review'
+        ? request.operation.prId
+        : 'project';
   return `execution:${request.projectId}:${request.operation.kind}:${subject}`;
 }
 
@@ -163,7 +203,10 @@ export function submitExecution(
       {
         kind: EXECUTION_LAUNCH_KIND,
         projectId: request.projectId,
-        taskId: request.operation.kind === 'dispatch' ? request.operation.taskId : null,
+        taskId:
+          request.operation.kind === 'dispatch' || request.operation.kind === 'workspace'
+            ? request.operation.taskId
+            : null,
         subjectId: scope,
         intent: intent as unknown as Record<string, unknown>,
         idempotencyKey: `execution:${attemptId}`,
