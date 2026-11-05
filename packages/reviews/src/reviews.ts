@@ -378,9 +378,10 @@ function recordReviewRequest(
   attemptId: string | null,
   fp: string,
   at: string,
+  ownerProcess: ExecutionProcessIdentity,
 ): void {
-  db.query(`INSERT INTO review_requests (id, attempt_id, review_id, repository_id, pr_id, task_id, fingerprint, force, status, created_at, completed_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+  db.query(`INSERT INTO review_requests (id, attempt_id, review_id, repository_id, pr_id, task_id, fingerprint, force, status, created_at, completed_at, process_host, process_pid, process_start_identity)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     newId('rrq'),
     attemptId,
     reviewId,
@@ -392,7 +393,34 @@ function recordReviewRequest(
     attemptId === null ? 'completed' : 'waiting',
     at,
     attemptId === null ? at : null,
+    ownerProcess.host,
+    ownerProcess.pid,
+    ownerProcess.startIdentity,
   );
+}
+
+function abandonReviewAttachment(db: Database, reviewId: string, actor: Actor, at: string): ReviewArtifact {
+  const review = mapReview(db, one<ReviewRow>(db, 'SELECT * FROM review_artifacts WHERE id = ?', reviewId)!);
+  if (review.status !== 'pending') return review;
+  db.query(
+    "UPDATE review_requests SET status = 'interrupted', completed_at = ? WHERE review_id = ? AND status = 'waiting'",
+  ).run(at, reviewId);
+  db.query(
+    "UPDATE review_artifacts SET status = 'invalidated', completed_at = ?, invalidated_reason = 'attachment_interrupted' WHERE id = ?",
+  ).run(at, reviewId);
+  recordTransition(
+    db,
+    {
+      type: 'review.invalidated',
+      actor,
+      prId: review.prId,
+      taskId: review.taskId,
+      payload: { reviewIds: [reviewId], reason: 'attachment_interrupted' },
+    },
+    { action: 'review.attachment_abandon', input: { reviewId }, decision: 'invalidated' },
+    at,
+  );
+  return mapReview(db, one<ReviewRow>(db, 'SELECT * FROM review_artifacts WHERE id = ?', reviewId)!);
 }
 
 function interruptReviewAttempt(db: Database, attempt: ReviewAttemptRow, at: string, actor: Actor): void {
@@ -486,7 +514,7 @@ function admitReview(
         at,
       });
       insertFindings(db, id, reviewer.identity, input.commitSha, carriedFindings(source, null), at);
-      recordReviewRequest(db, input, id, null, fp, at);
+      recordReviewRequest(db, input, id, null, fp, at, ownerProcess);
       recordTransition(
         db,
         {
@@ -536,7 +564,7 @@ function admitReview(
         expiresAt: source.expires_at!,
         at,
       });
-      recordReviewRequest(db, input, id, attempt.id, fp, at);
+      recordReviewRequest(db, input, id, attempt.id, fp, at, ownerProcess);
       recordTransition(
         db,
         {
@@ -591,7 +619,7 @@ function admitReview(
     db.query(
       "INSERT INTO review_attempts (id, repository_id, fingerprint, mode, review_id, status, created_at) VALUES (?, ?, ?, ?, ?, 'running', ?)",
     ).run(claim.attemptId, input.repositoryId, fp, mode, id, at);
-    recordReviewRequest(db, input, id, claim.attemptId, fp, at);
+    recordReviewRequest(db, input, id, claim.attemptId, fp, at, ownerProcess);
     recordTransition(
       db,
       {
@@ -737,80 +765,99 @@ export async function requestReview(
       continue;
     }
     if (admission.kind === 'joined') {
-      const sourceReview = await awaitReviewAttempt(ctx, admission.attemptId, actor);
-      if (sourceReview === null) {
-        queue.unshift(type);
-        continue;
-      }
-      const completedContext = await resolveContext(input, paths, deps.context, source);
-      const completed = nowIso(ctx.clock);
-      const joined = ctx.store.immediate((db) => {
-        const request = one<{ status: string; attempt_id: string; fingerprint: string }>(
-          db,
-          'SELECT status, attempt_id, fingerprint FROM review_requests WHERE review_id = ?',
-          admission.id,
-        );
-        if (
-          request?.status !== 'waiting' ||
-          request.attempt_id !== admission.attemptId ||
-          request.fingerprint !== evidenceFingerprint(inputs)
-        )
-          throw new CrewError('CONFLICT', 'Review attachment no longer belongs to this request');
-        if (getReview(ctx, admission.id).status !== 'pending')
-          throw new CrewError('CONFLICT', 'Review attachment was invalidated');
-        const current = getReview(ctx, sourceReview.id);
-        const valid =
-          current.fingerprint === evidenceFingerprint(inputs) &&
-          current.expiresAt !== null &&
-          current.expiresAt > completed &&
-          inputs.policyVersion === reviewPolicyVersion(deps.config) &&
-          fingerprint(completedContext) === fingerprint(context) &&
-          (current.confidence ?? 0) >= (deps.minConfidence ?? 0.5);
-        const status = current.status === 'failed' ? 'failed' : valid ? current.status : 'invalidated';
-        insertFindings(db, admission.id, reviewer.identity, input.commitSha, carriedFindings(current, null), completed);
-        db.query(
-          'UPDATE review_artifacts SET status = ?, confidence = ?, expires_at = ?, completed_at = ?, invalidated_reason = ? WHERE id = ?',
-        ).run(
-          status,
-          current.confidence,
-          current.expiresAt,
-          completed,
-          valid ? null : 'joined_evidence_no_longer_valid',
-          admission.id,
-        );
-        db.query('UPDATE review_requests SET status = ?, completed_at = ? WHERE review_id = ?').run(
-          status === 'failed' ? 'failed' : 'completed',
-          completed,
-          admission.id,
-        );
-        recordTransition(
-          db,
-          {
-            type: status === 'invalidated' ? 'review.invalidated' : 'review.attached',
-            actor,
-            taskId: input.taskId ?? null,
-            prId: input.prId ?? null,
-            payload: {
-              reviewId: admission.id,
-              reviewType: type,
-              attemptId: admission.attemptId,
-              sourceReviewId: current.id,
-              status,
+      try {
+        const sourceReview = await awaitReviewAttempt(ctx, admission.attemptId, actor);
+        if (sourceReview === null) {
+          queue.unshift(type);
+          continue;
+        }
+        const completedContext = await resolveContext(input, paths, deps.context, source);
+        const completed = nowIso(ctx.clock);
+        const joined = ctx.store.immediate((db) => {
+          const request = one<{ status: string; attempt_id: string; fingerprint: string }>(
+            db,
+            'SELECT status, attempt_id, fingerprint FROM review_requests WHERE review_id = ?',
+            admission.id,
+          );
+          if (
+            request?.status !== 'waiting' ||
+            request.attempt_id !== admission.attemptId ||
+            request.fingerprint !== evidenceFingerprint(inputs)
+          )
+            throw new CrewError('CONFLICT', 'Review attachment no longer belongs to this request');
+          if (getReview(ctx, admission.id).status !== 'pending')
+            throw new CrewError('CONFLICT', 'Review attachment was invalidated');
+          const current = getReview(ctx, sourceReview.id);
+          const valid =
+            current.fingerprint === evidenceFingerprint(inputs) &&
+            current.expiresAt !== null &&
+            current.expiresAt > completed &&
+            inputs.policyVersion === reviewPolicyVersion(deps.config) &&
+            fingerprint(completedContext) === fingerprint(context) &&
+            (current.confidence ?? 0) >= (deps.minConfidence ?? 0.5);
+          const status = current.status === 'failed' ? 'failed' : valid ? current.status : 'invalidated';
+          insertFindings(
+            db,
+            admission.id,
+            reviewer.identity,
+            input.commitSha,
+            carriedFindings(current, null),
+            completed,
+          );
+          db.query(
+            'UPDATE review_artifacts SET status = ?, confidence = ?, expires_at = ?, completed_at = ?, invalidated_reason = ? WHERE id = ?',
+          ).run(
+            status,
+            current.confidence,
+            current.expiresAt,
+            completed,
+            valid ? null : 'joined_evidence_no_longer_valid',
+            admission.id,
+          );
+          db.query('UPDATE review_requests SET status = ?, completed_at = ? WHERE review_id = ?').run(
+            status === 'failed' ? 'failed' : 'completed',
+            completed,
+            admission.id,
+          );
+          recordTransition(
+            db,
+            {
+              type: status === 'invalidated' ? 'review.invalidated' : 'review.attached',
+              actor,
+              taskId: input.taskId ?? null,
+              prId: input.prId ?? null,
+              payload: {
+                reviewId: admission.id,
+                reviewType: type,
+                attemptId: admission.attemptId,
+                sourceReviewId: current.id,
+                status,
+              },
             },
-          },
-          { action: 'review.attach', input: { reviewId: admission.id }, decision: status },
-          completed,
-        );
-        return getReview(ctx, admission.id);
-      });
-      outcomes.push({
-        reviewType: type,
-        decision: decision.decision,
-        reasons: decision.reasons,
-        reviewerInvoked: false,
-        review: joined,
-        error: joined.status === 'failed' ? 'Shared review execution failed' : null,
-      });
+            { action: 'review.attach', input: { reviewId: admission.id }, decision: status },
+            completed,
+          );
+          return getReview(ctx, admission.id);
+        });
+        outcomes.push({
+          reviewType: type,
+          decision: decision.decision,
+          reasons: decision.reasons,
+          reviewerInvoked: false,
+          review: joined,
+          error: joined.status === 'failed' ? 'Shared review execution failed' : null,
+        });
+      } catch (cause) {
+        const review = ctx.store.immediate((db) => abandonReviewAttachment(db, admission.id, actor, nowIso(ctx.clock)));
+        outcomes.push({
+          reviewType: type,
+          decision: decision.decision,
+          reasons: decision.reasons,
+          reviewerInvoked: false,
+          review,
+          error: cause instanceof Error ? cause.message : String(cause),
+        });
+      }
       continue;
     }
     const { id, claim, expiresAt } = admission;
@@ -1140,6 +1187,20 @@ export function failOrphanedReviews(ctx: CrewContext, actor: Actor = SYSTEM_ACTO
     )
       deadAttempts.add(attempt.id);
   }
+  const abandonedRequests = all<{
+    review_id: string;
+    process_host: string;
+    process_pid: number;
+    process_start_identity: string;
+  }>(
+    ctx.store.db,
+    "SELECT q.review_id, q.process_host, q.process_pid, q.process_start_identity FROM review_requests q JOIN review_artifacts r ON r.id = q.review_id WHERE q.status = 'waiting' AND r.scope = 'joined' AND r.status = 'pending'",
+  ).filter(
+    (request) =>
+      request.process_host === hostname() &&
+      (!isProcessAlive(request.process_pid) ||
+        matchesRecordedProcess(request.process_pid, request.process_start_identity) === false),
+  );
   return ctx.store.immediate((db) => {
     const failed: string[] = [];
     const attempts = all<ReviewAttemptRow>(db, "SELECT * FROM review_attempts WHERE status = 'running'");
@@ -1158,6 +1219,16 @@ export function failOrphanedReviews(ctx: CrewContext, actor: Actor = SYSTEM_ACTO
       );
       interruptReviewAttempt(db, attempt, at, actor);
       failed.push(...ids.map((row) => row.review_id));
+    }
+    for (const request of abandonedRequests) {
+      const current = one<{ status: string }>(
+        db,
+        'SELECT status FROM review_requests WHERE review_id = ?',
+        request.review_id,
+      );
+      if (current?.status !== 'waiting') continue;
+      abandonReviewAttachment(db, request.review_id, actor, at);
+      failed.push(request.review_id);
     }
     const legacy = all<Pick<ReviewRow, 'id' | 'review_type' | 'pr_id' | 'task_id'>>(
       db,

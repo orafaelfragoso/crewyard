@@ -167,3 +167,28 @@ test('a process crash after provider work is recovered by its own identity and r
     { status: 'completed' },
   ]);
 }, 20_000);
+
+test('a crashed joining caller cannot leave pending evidence masking the completed review', async () => {
+  const fx = await fixture('file.ts');
+  const owner = worker(fx, false, { cacheEnabled: true, type: 'code' });
+  await waitFor(() => existsSync(fx.marker));
+  const joiner = worker(fx, false, { cacheEnabled: true, type: 'code' });
+  await waitFor(() => count(fx.ctx, 'review_requests') === 2);
+  joiner.kill('SIGKILL');
+  await joiner.exited;
+  writeFileSync(fx.release, 'release');
+  await finish(owner);
+  expect(failOrphanedReviews(fx.ctx)).toHaveLength(1);
+  expect(fx.ctx.store.db.query('SELECT status FROM review_requests ORDER BY created_at, id').all()).toEqual([
+    { status: 'completed' },
+    { status: 'interrupted' },
+  ]);
+  expect(fx.ctx.store.db.query('SELECT status FROM review_artifacts ORDER BY created_at, id').all()).toEqual([
+    { status: 'passed' },
+    { status: 'invalidated' },
+  ]);
+  const retry = await finish(worker(fx, false, { cacheEnabled: true, type: 'code' }));
+  expect(retry.outcomes[0]?.review.status).toBe('passed');
+  expect(retry.outcomes[0]?.reviewerInvoked).toBe(false);
+  expect(readFileSync(fx.marker, 'utf8').trim().split('\n')).toHaveLength(1);
+}, 20_000);
