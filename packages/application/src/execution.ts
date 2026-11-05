@@ -126,7 +126,7 @@ export function submitExecution(
   }
   if (
     request.operation.kind === 'index' &&
-    (!/^[a-f0-9]{40}$/.test(request.operation.sha) || !request.operation.indexRevision)
+    (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(request.operation.sha) || !request.operation.indexRevision)
   )
     throw new CrewError('INVALID_INPUT', 'Index execution requires an exact commit SHA and configuration revision');
   const scope = executionScope(request);

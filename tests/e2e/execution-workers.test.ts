@@ -11,7 +11,7 @@ import {
   prepareIndexExecution,
   submitExecution,
 } from '@crewyard/application';
-import { isProcessAlive } from '@crewyard/core';
+import { git, gitText, isProcessAlive } from '@crewyard/core';
 import { claimDueOutbox, getExecutionClaim, getOutbox, listEvents } from '@crewyard/storage';
 import { addTask, showTask } from '@crewyard/tasks';
 import { commitFiles, createTempGitRepo, createTestContext, type TestContext } from '../helpers/index.ts';
@@ -53,6 +53,22 @@ test('direct index callers join one durable source worker and both receive its r
   expect(claim.process?.pid).not.toBe(process.pid);
   expect(claim.releasedAt).not.toBeNull();
   expect(listEvents(c.store, { types: ['index.snapshot_available'] })).toHaveLength(1);
+}, 30_000);
+
+test('direct index execution accepts an exact SHA-256 repository commit', async () => {
+  ctx = createTestContext();
+  const repo = join(ctx.root, 'sha256');
+  mkdirSync(repo);
+  await git(repo, ['init', '--object-format=sha256', '-b', 'main']);
+  await git(repo, ['config', 'user.name', 'Test']);
+  await git(repo, ['config', 'user.email', 'test@example.com']);
+  writeFileSync(join(repo, 'index.ts'), 'export const sha256 = true;\n');
+  await git(repo, ['add', '.']);
+  await git(repo, ['commit', '-m', 'Initial']);
+  const { project } = await initRepository(ctx, { repoPath: repo, actor, index: false });
+  const result = await buildIndex(ctx, { projectId: project.id, actor });
+  expect(result.snapshot.commitSha).toBe(await gitText(repo, ['rev-parse', 'HEAD']));
+  expect(result.snapshot.commitSha).toHaveLength(64);
 }, 30_000);
 
 test('durable capacity admits distinct domains without duplicate scopes', async () => {
