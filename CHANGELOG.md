@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.6.0](https://github.com/orafaelfragoso/crewyard/compare/v0.5.0...v0.6.0) (2026-11-05)
+
+
+### Features
+
+* coordinate bounded workers with current source-control evidence ([#45](https://github.com/orafaelfragoso/crewyard/issues/45)) ([23352a7](https://github.com/orafaelfragoso/crewyard/commit/23352a7b3ca61ccab6d0a4be41f2223854d0db60))
+
+
+### Bug Fixes
+
+* **indexing:** protect exact snapshots through builds and reads ([23352a7](https://github.com/orafaelfragoso/crewyard/commit/23352a7b3ca61ccab6d0a4be41f2223854d0db60))
+* **storage:** quiesce upgrades and fence legacy writers ([23352a7](https://github.com/orafaelfragoso/crewyard/commit/23352a7b3ca61ccab6d0a4be41f2223854d0db60))
+* **telemetry:** distinguish local validation from hosted CI ([23352a7](https://github.com/orafaelfragoso/crewyard/commit/23352a7b3ca61ccab6d0a4be41f2223854d0db60))
+
+
+### Performance
+
+* **git:** share exact commit fetches across processes ([23352a7](https://github.com/orafaelfragoso/crewyard/commit/23352a7b3ca61ccab6d0a4be41f2223854d0db60))
+
+
+### Documentation
+
+* align setup and recovery with execution and evidence rules ([23352a7](https://github.com/orafaelfragoso/crewyard/commit/23352a7b3ca61ccab6d0a4be41f2223854d0db60))
+
 ## [0.5.0](https://github.com/orafaelfragoso/crewyard/compare/v0.4.5...v0.5.0) (2026-11-04)
 
 
