@@ -30,12 +30,14 @@ async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<voi
   }
 }
 
-for (const restarted of [false, true]) {
+for (const mode of ['direct', 'restart', 'deadline', 'stop'] as const) {
+  const cancelled = mode === 'direct' || mode === 'restart';
   test.skipIf(process.platform === 'win32')(
-    `forced cancellation ${restarted ? 'after supervisor replacement' : 'from a direct caller'} preserves work and settles exact domain state`,
+    `forced ${mode} termination respects pinned grace, preserves work and settles exact domain state`,
     async () => {
       const f = await createGitHubFixture();
-      const replacement = new ExecutionSupervisor(f.ctx, 'replacement', limits);
+      const admittedLimits = { ...limits, timeoutSeconds: mode === 'deadline' ? 3 : limits.timeoutSeconds };
+      const replacement = new ExecutionSupervisor(f.ctx, 'replacement', { ...limits, shutdownGraceSeconds: 10 });
       let workerPid = 0;
       let controller: Bun.Subprocess | null = null;
       let result: Promise<Record<string, unknown>> | null = null;
@@ -67,11 +69,12 @@ for (const restarted of [false, true]) {
           leaderId: actor.id,
           operation: prepareDispatchExecution(f.ctx, { taskId: task.id, agent: agentId, actor }),
         };
-        const handle = restarted
-          ? submitExecution(f.ctx, request, limits)!
-          : await startExecution(f.ctx, request, limits);
+        const handle =
+          mode === 'direct'
+            ? await startExecution(f.ctx, request, admittedLimits)
+            : submitExecution(f.ctx, request, admittedLimits)!;
         if ('result' in handle) result = handle.result;
-        else {
+        else if (mode === 'restart') {
           controller = Bun.spawn(
             [
               process.execPath,
@@ -91,6 +94,7 @@ for (const restarted of [false, true]) {
             },
           );
         }
+        if (mode === 'deadline' || mode === 'stop') replacement.pump(handle.operationId);
         const operationId = handle.operationId;
         await waitFor(() => !!getOutbox(f.ctx.store.db, operationId)?.remoteCorrelation?.progress, 10_000);
         const op = getOutbox(f.ctx.store.db, operationId)!;
@@ -102,12 +106,13 @@ for (const restarted of [false, true]) {
         const claim = getExecutionClaim(f.ctx.store.db, (op.intent.claim as { scope: string }).scope)!;
         workerPid = claim.process!.pid;
         f.ctx.store.immediate(() => process.kill(workerPid, 'SIGSTOP'));
-        cancelExecution(f.ctx, operationId, 'operator requested cancellation');
+        if (cancelled) cancelExecution(f.ctx, operationId, 'operator requested cancellation');
         if (controller) {
           controller.kill('SIGKILL');
           await controller.exited;
         }
         const started = performance.now();
+        if (mode === 'stop') await replacement.stop();
         if (result) {
           const output = await result;
           expect(output.outcome).toMatchObject({ kind: 'interrupted', commits: [expect.any(String)] });
@@ -115,22 +120,24 @@ for (const restarted of [false, true]) {
           await waitFor(() => {
             replacement.pump(operationId);
             return (
-              getOutbox(f.ctx.store.db, operationId)!.status === 'cancelled' &&
-              (
-                f.ctx.store.db.query("SELECT status FROM outbox WHERE kind = 'execution.cancel'").get() as {
-                  status: string;
-                } | null
-              )?.status === 'succeeded'
+              getOutbox(f.ctx.store.db, operationId)!.status === (cancelled ? 'cancelled' : 'failed') &&
+              (!cancelled ||
+                (
+                  f.ctx.store.db.query("SELECT status FROM outbox WHERE kind = 'execution.cancel'").get() as {
+                    status: string;
+                  } | null
+                )?.status === 'succeeded')
             );
           }, 8_000);
         }
         expect(performance.now() - started).toBeLessThan(8_000);
         expect(isProcessAlive(workerPid)).toBe(false);
         expect(isProcessAlive(progress.session.pid)).toBe(false);
-        expect(getOutbox(f.ctx.store.db, operationId)!.status).toBe('cancelled');
-        expect(f.ctx.store.db.query("SELECT status FROM outbox WHERE kind = 'execution.cancel'").get()).toEqual({
-          status: 'succeeded',
-        });
+        expect(getOutbox(f.ctx.store.db, operationId)!.status).toBe(cancelled ? 'cancelled' : 'failed');
+        if (cancelled)
+          expect(f.ctx.store.db.query("SELECT status FROM outbox WHERE kind = 'execution.cancel'").get()).toEqual({
+            status: 'succeeded',
+          });
         expect(showTask(f.ctx, task.id).task.state).toBe('READY');
         expect(f.ctx.store.db.query('SELECT state FROM sessions WHERE id = ?').get(progress.session.sessionId)).toEqual(
           { state: 'cancelled' },
