@@ -284,6 +284,7 @@
       "dependencies": {
         "@crewyard/config": "workspace:*",
         "@crewyard/core": "workspace:*",
+        "@crewyard/projects": "workspace:*",
         "@crewyard/storage": "workspace:*",
       },
     },

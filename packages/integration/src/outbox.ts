@@ -698,12 +698,13 @@ async function admitMutation(
     if (observed.baseRef !== target) return refuse('target_changed');
     observations.push(
       await observePullRequest(
+        hc.ctx,
         client,
         observed,
         baseRef,
         new Map<string, BranchRequirements>(),
         record.headSha,
-        repository.canonicalPath,
+        repository,
       ),
     );
     for (const dependency of dependenciesOf(hc.ctx.store.db, record.id)) {
@@ -1242,11 +1243,13 @@ async function handleCreatePullRequest(hc: HandlerContext, op: ClaimedOutboxOper
     }
     const created = pr;
     const observed = await observePullRequest(
+      hc.ctx,
       client,
       created,
       created.baseRef,
       new Map<string, BranchRequirements>(),
       null,
+      repository,
     );
     settle(
       hc,

@@ -41,9 +41,11 @@ async function prepare(files: readonly Record<string, string>[], command: string
     group.push({ entry, pr: showPullRequest(f.ctx, { prId: entry.prId }) });
   }
   const baseSha = await fetchIntegrationRefs(
-    f.repo,
-    'main',
+    f.ctx,
+    getRepository(f.ctx, f.repositoryId),
+    await gitText(f.repo, ['rev-parse', 'main']),
     group.map((g) => g.pr),
+    actor,
   );
   const candidate = createCandidate(
     f.ctx,

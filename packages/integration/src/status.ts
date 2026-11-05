@@ -8,7 +8,7 @@ import {
 } from '@crewyard/reviews';
 import { type CrewContext, listOutbox } from '@crewyard/storage';
 import { fetchIntegrationRefs } from './candidates.ts';
-import { configFor, repositoryFor } from './env.ts';
+import { clientFor, configFor, repositoryFor } from './env.ts';
 import { GITHUB_OUTBOX_KINDS } from './outbox.ts';
 import { type QueueStatus, queueStatusFor } from './queue.ts';
 import { candidateById, listCandidatesForQueue, queuesForRepository, requirePullRequest } from './records.ts';
@@ -75,7 +75,9 @@ export async function requestPullRequestReview(
   const repository = repositoryFor(ctx, pr.repositoryId);
   const config = configFor(ctx, deps.env ?? {}, repository.projectId);
   const base = pr.governance?.integrationBase ?? pr.baseRef;
-  const baseSha = await fetchIntegrationRefs(repository.canonicalPath, base, [pr]);
+  const client = await clientFor(ctx, deps.env ?? {}, repository);
+  const liveBase = await client.getBranch(base);
+  const baseSha = await fetchIntegrationRefs(ctx, repository, liveBase.sha, [pr], { kind: 'service', id: 'reviews' });
   const patch = await collectPatch(repository.canonicalPath, baseSha, pr.headSha);
   return requestReview(
     ctx,

@@ -23,6 +23,8 @@ export interface GitOptions {
   env?: Record<string, string>;
   timeoutMs?: number;
   maxOutputBytes?: number;
+  signal?: AbortSignal;
+  onSpawn?: (pid: number) => void;
 }
 
 export async function git(cwd: string, args: readonly string[], options: GitOptions = {}): Promise<RunResult> {
@@ -33,6 +35,8 @@ export async function git(cwd: string, args: readonly string[], options: GitOpti
     timeoutMs: options.timeoutMs ?? 120_000,
     ...(options.maxOutputBytes === undefined ? {} : { maxOutputBytes: options.maxOutputBytes }),
     ...(options.input === undefined ? {} : { input: options.input }),
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+    ...(options.onSpawn === undefined ? {} : { onSpawn: options.onSpawn }),
   });
   if (result.exitCode !== 0 && !options.allowFailure) {
     throw new CrewError('EXTERNAL_FAILURE', `git ${args[0]} failed: ${result.stderr.trim().slice(0, 500)}`, {

@@ -1,5 +1,6 @@
 import { existsSync, rmSync, statSync } from 'node:fs';
 import { type Actor, CrewError, ensureDir, git, gitText, newId, nowIso, safeJoin, sha256 } from '@crewyard/core';
+import { fetchCommit } from '@crewyard/projects';
 import { type CrewContext, exec, recordTransition } from '@crewyard/storage';
 import {
   assertManagedWorkspacePath,
@@ -230,20 +231,7 @@ export async function mergeRemoteBranch(
   });
   if (!remoteHead) return result('current', previous);
   const noHooks = hooksDisabledArgs(ctx, repo);
-  await git(
-    path,
-    [
-      ...noHooks,
-      'fetch',
-      '--no-tags',
-      '--quiet',
-      'origin',
-      `+refs/heads/${ws.branch}:refs/remotes/origin/${ws.branch}`,
-    ],
-    {
-      timeoutMs: 180_000,
-    },
-  );
+  await fetchCommit(ctx, { repositoryId: repo.id, remote: 'origin', commitSha: remoteHead, actor: input.actor });
   if (await isAncestor(path, remoteHead, previous)) return result('current', previous);
   const dirty = parsePorcelain(
     (await git(path, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])).stdout,

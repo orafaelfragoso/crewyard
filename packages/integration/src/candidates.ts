@@ -13,7 +13,7 @@ import {
   nowIso,
   sanitizeEnv,
 } from '@crewyard/core';
-import type { Repository } from '@crewyard/projects';
+import { fetchCommit, type Repository } from '@crewyard/projects';
 import { environmentFingerprint, runValidation, selectValidation, type ValidationRun } from '@crewyard/reviews';
 import {
   acquireExecutionClaim,
@@ -40,57 +40,17 @@ const SYNTH_ENV = {
   GIT_COMMITTER_DATE: '2000-01-01T00:00:00+0000',
 };
 
-async function hasCommit(repoPath: string, sha: string): Promise<boolean> {
-  return (await git(repoPath, ['cat-file', '-e', `${sha}^{commit}`], { allowFailure: true })).exitCode === 0;
-}
-
 export async function fetchIntegrationRefs(
-  repoPath: string,
-  baseBranch: string,
-  prs: readonly Pick<PullRequestRecord, 'number' | 'headRef' | 'headSha'>[],
+  ctx: CrewContext,
+  repository: Repository,
+  expectedBaseSha: string,
+  prs: readonly Pick<PullRequestRecord, 'headSha'>[],
+  actor: Actor,
 ): Promise<string> {
-  const namespace = newId('lease');
-  const baseRef = `refs/crew/fetch/${namespace}/base`;
-  await git(repoPath, [
-    'fetch',
-    '--no-write-fetch-head',
-    '--no-tags',
-    '--quiet',
-    'origin',
-    `+refs/heads/${baseBranch}:${baseRef}`,
-  ]);
-  for (const pr of prs) {
-    if (await hasCommit(repoPath, pr.headSha)) continue;
-    const target = `refs/crew/fetch/${namespace}/pr/${pr.number}`;
-    const viaPull = await git(
-      repoPath,
-      ['fetch', '--no-write-fetch-head', '--no-tags', '--quiet', 'origin', `+refs/pull/${pr.number}/head:${target}`],
-      {
-        allowFailure: true,
-      },
-    );
-    if (viaPull.exitCode !== 0 || !(await hasCommit(repoPath, pr.headSha))) {
-      await git(
-        repoPath,
-        ['fetch', '--no-write-fetch-head', '--no-tags', '--quiet', 'origin', `+refs/heads/${pr.headRef}:${target}`],
-        {
-          allowFailure: true,
-        },
-      );
-    }
-    if (!(await hasCommit(repoPath, pr.headSha))) {
-      await git(repoPath, ['fetch', '--no-write-fetch-head', '--no-tags', '--quiet', 'origin', pr.headSha], {
-        allowFailure: true,
-      });
-    }
-    if (!(await hasCommit(repoPath, pr.headSha))) {
-      throw new CrewError('EXTERNAL_FAILURE', `Head ${pr.headSha} of #${pr.number} is not available locally`, {
-        retryable: true,
-        details: { number: pr.number, headSha: pr.headSha },
-      });
-    }
+  for (const commitSha of new Set([expectedBaseSha, ...prs.map((pr) => pr.headSha)])) {
+    await fetchCommit(ctx, { repositoryId: repository.id, remote: 'origin', commitSha, actor });
   }
-  return gitText(repoPath, ['rev-parse', baseRef]);
+  return expectedBaseSha;
 }
 
 export type SynthesisResult =

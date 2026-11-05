@@ -592,9 +592,11 @@ async function crewManaged(
       if (group.length === 0) return;
       const live = await client.getBranch(queue.baseBranch);
       const localBase = await fetchIntegrationRefs(
-        repository.canonicalPath,
-        queue.baseBranch,
+        ctx,
+        repository,
+        live.sha,
         group.map((g) => g.pr),
+        { kind: 'service', id: scope.leaderId },
       );
       if (localBase !== live.sha) {
         result.notes.push('local fetch of base does not match GitHub yet');

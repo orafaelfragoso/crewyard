@@ -6,7 +6,6 @@ import { type Actor, CrewError, ensureDir, fingerprint, git, newId, type TaskSta
 import { dependencyGraph } from '@crewyard/indexing';
 import {
   createClientFactory,
-  fetchIntegrationRefs,
   type IntegrationEnv,
   type PendingHook,
   type PullRequestReviewInput,
@@ -16,7 +15,7 @@ import {
   type TaskHookEvent,
   type TaskHooks,
 } from '@crewyard/integration';
-import { getRepository, loadProjectConfig } from '@crewyard/projects';
+import { fetchCommit, getRepository, loadProjectConfig } from '@crewyard/projects';
 import {
   type ContextFingerprintProvider,
   type RequestReviewResult,
@@ -291,7 +290,12 @@ export async function reviewPullRequest(
       env,
     });
   if (!loadProjectConfig(ctx, repo.projectId).config.review.reviewer_agent) return review(repo.canonicalPath);
-  await fetchIntegrationRefs(repo.canonicalPath, pr.governance?.integrationBase ?? pr.baseRef, [pr]);
+  await fetchCommit(ctx, {
+    repositoryId: repo.id,
+    remote: 'origin',
+    commitSha: pr.headSha,
+    actor: { kind: 'service', id: 'reviews' },
+  });
   const worktree = join(ensureDir(join(ctx.dirs.worktrees, 'reviews')), newId('ws'));
   try {
     await git(repo.canonicalPath, ['worktree', 'add', '--detach', '--force', worktree, pr.headSha]);
@@ -299,7 +303,6 @@ export async function reviewPullRequest(
   } finally {
     await git(repo.canonicalPath, ['worktree', 'remove', '--force', worktree], { allowFailure: true });
     rmSync(worktree, { recursive: true, force: true });
-    await git(repo.canonicalPath, ['worktree', 'prune'], { allowFailure: true });
   }
 }
 

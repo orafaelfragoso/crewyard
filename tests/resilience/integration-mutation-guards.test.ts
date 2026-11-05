@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { CrewError, nowIso } from '@crewyard/core';
+import { CrewError, gitText, nowIso } from '@crewyard/core';
 import {
   buildAndValidateCandidate,
   createCandidate,
@@ -42,7 +42,13 @@ async function queuedMutation(retry: boolean) {
   );
   const pr = showPullRequest(f.ctx, { prId: entry.prId });
   const queue = queueById(f.ctx.store.db, entry.queueId)!;
-  const baseSha = await fetchIntegrationRefs(f.repo, 'main', [pr]);
+  const baseSha = await fetchIntegrationRefs(
+    f.ctx,
+    getRepository(f.ctx, f.repositoryId),
+    await gitText(f.repo, ['rev-parse', 'main']),
+    [pr],
+    actor,
+  );
   const created = createCandidate(
     f.ctx,
     {
