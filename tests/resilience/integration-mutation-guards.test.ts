@@ -17,6 +17,7 @@ import {
 } from '@crewyard/integration';
 import { getRepository } from '@crewyard/projects';
 import { acquireLeadership, all, claimDueOutbox, getOutbox } from '@crewyard/storage';
+import { overviewProjection } from '@crewyard/telemetry';
 import { ManualClock } from '../helpers/index.ts';
 import { createGitHubFixture, type GitHubFixture } from '../integration/github-fixture.ts';
 
@@ -277,6 +278,21 @@ test('a base race inside the host merge request is detected afterward and pauses
     matched: false,
     mergeCommitSha: f.mock.pull(pr.number).mergeCommitSha,
   });
+  const alerts = overviewProjection(f.ctx, f.projectId).alerts;
+  expect(alerts).toHaveLength(1);
+  expect(alerts[0]).toMatchObject({
+    level: 'action_required',
+    prId: pr.id,
+    title: 'Merged tree differs from the validated candidate',
+  });
+  expect(alerts[0]!.body).toContain(f.mock.pull(pr.number).mergeCommitSha!);
+  f.ctx.store.db
+    .query("UPDATE outbox SET status = 'ambiguous', next_attempt_at = ? WHERE operation_id = ?")
+    .run(nowIso(f.ctx.clock), op.operationId);
+  await processIntegrationOutbox(f.ctx, { leaderId: 'worker', env: f.env });
+  expect(getOutbox(f.ctx.store.db, op.operationId)!.status).toBe('succeeded');
+  expect(overviewProjection(f.ctx, f.projectId).alerts).toEqual(alerts);
+  expect(all(f.ctx.store.db, 'SELECT id FROM notifications')).toHaveLength(1);
 }, 30_000);
 
 test('expired delivery and leadership cannot mutate or settle after the final remote observation', async () => {

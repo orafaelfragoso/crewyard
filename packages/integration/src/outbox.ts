@@ -10,7 +10,7 @@ import type {
   MergeResult,
   UpdatePullRequestInput,
 } from '@crewyard/github';
-import { invalidateUnusableReviewEvidenceInTx } from '@crewyard/reviews';
+import { invalidateUnusableReviewEvidenceInTx, requestInterventionInTx } from '@crewyard/reviews';
 import {
   acquireLeadership,
   assertOutboxClaim,
@@ -844,6 +844,22 @@ async function verifyMergedTree(
     if (tree !== step.treeSha) {
       invalidateCandidatesInTx(db, { candidateId }, 'merged_tree_differs_from_candidate', OUTBOX_ACTOR, at);
       db.query('UPDATE integration_queues SET paused = 1, updated_at = ? WHERE id = ?').run(at, candidate.queueId);
+      requestInterventionInTx(
+        db,
+        {
+          projectId: repository.projectId,
+          prId,
+          title: 'Merged tree differs from the validated candidate',
+          reasons: [
+            `Merge ${mergeSha} landed with tree ${tree}; the validated prefix expected ${step.treeSha}.`,
+            'Further local merges are paused. Inspect the current base and required checks before approving a repair or resuming the queue.',
+          ],
+          level: 'action_required',
+          once: true,
+        },
+        OUTBOX_ACTOR,
+        at,
+      );
     }
   });
 }
