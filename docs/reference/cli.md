@@ -82,8 +82,6 @@ Metrics schema version 2 reports `localValidationMinutesPerMerge` and
 entire enqueue-to-merge interval. Hosted CI durations remain `unknown` until actual
 execution timing is recorded; observation timestamps are not execution durations.
 
-
-
 | Option | Description |
 |---|---|
 | `--days <n>` | window in days (default: `30`) |
@@ -799,6 +797,11 @@ run the service in the foreground (what `service start` and the user service exe
 | Option | Description |
 |---|---|
 | `--tick <seconds>` | scheduling cycle interval |
+| `--workers <count>` | maximum concurrent execution workers |
+| `--workers-per-project <count>` | maximum workers for one project |
+| `--workers-per-domain <count>` | maximum workers for one domain within a project |
+| `--worker-timeout <seconds>` | execution worker deadline |
+| `--shutdown-grace <seconds>` | grace before verified worker termination |
 | `--no-dispatch` | do not launch agent sessions (sync, queue and recovery only) |
 
 #### `crew service start`
