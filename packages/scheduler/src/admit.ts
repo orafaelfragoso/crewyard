@@ -18,6 +18,7 @@ export type DispatchReasonCode =
   | 'BACKPRESSURE_OPEN_PRS'
   | 'BACKPRESSURE_QUEUE_AGE'
   | 'BUDGET_EXHAUSTED'
+  | 'DISK_SPACE_LOW'
   | 'TASK_BUDGET_EXCEEDS_REMAINING'
   | 'CAPACITY_EXHAUSTED'
   | 'WIP_REPOSITORY'
@@ -58,6 +59,12 @@ export interface CapacityLimit {
   remaining: number | null;
 }
 
+export interface DiskSpace {
+  low: boolean;
+  freeGb: number | null;
+  minFreeGb: number;
+}
+
 export interface IntakeCapacity {
   total: number;
   implementation: number;
@@ -73,6 +80,7 @@ export interface IntakeCapacity {
     maxQueueAgeMinutes: number;
   };
   exhaustedBudget: BudgetStatus | null;
+  disk: DiskSpace;
 }
 
 export interface CapacityInput {
@@ -82,6 +90,7 @@ export interface CapacityInput {
   recoveryDemand: number;
   budgets: readonly BudgetStatus[];
   providerCapacity: number | null;
+  freeDiskBytes: number | null;
 }
 
 export interface AdmissionResult {
@@ -95,6 +104,17 @@ export interface AdmissionResult {
 
 const DISPATCHABLE_STATES: ReadonlySet<TaskState> = new Set(['READY', 'REVISION']);
 const OVERRIDE_BONUS = 1000;
+const GB = 1024 ** 3;
+
+export function gigabytes(bytes: number): number {
+  return Math.floor((bytes / GB) * 10) / 10;
+}
+
+export function diskSpace(freeDiskBytes: number | null, config: CrewConfig): DiskSpace {
+  const minFreeGb = config.scheduler.min_free_disk_gb;
+  const freeGb = freeDiskBytes === null ? null : gigabytes(freeDiskBytes);
+  return { low: freeDiskBytes !== null && freeDiskBytes < minFreeGb * GB, freeGb, minFreeGb };
+}
 
 function budgetExhausted(budget: BudgetStatus): boolean {
   return (
@@ -127,7 +147,9 @@ export function computeIntakeCapacity(input: CapacityInput, config: CrewConfig):
     },
   ];
   const exhaustedBudget = input.budgets.find(budgetExhausted) ?? null;
-  const total = exhaustedBudget ? 0 : Math.min(...limits.map((l) => l.remaining ?? Number.POSITIVE_INFINITY));
+  const disk = diskSpace(input.freeDiskBytes, config);
+  const total =
+    exhaustedBudget || disk.low ? 0 : Math.min(...limits.map((l) => l.remaining ?? Number.POSITIVE_INFINITY));
   const maxOpenPrs = config.scheduler.max_open_prs;
   const maxQueueAge = config.scheduler.max_queue_age_minutes;
   const reason =
@@ -152,6 +174,7 @@ export function computeIntakeCapacity(input: CapacityInput, config: CrewConfig):
       maxQueueAgeMinutes: maxQueueAge,
     },
     exhaustedBudget,
+    disk,
   };
 }
 
@@ -270,6 +293,7 @@ export function admitTasks(snapshot: SchedulerSnapshot, config: CrewConfig): Adm
       recoveryDemand: snapshot.recoveryDemand,
       budgets: snapshot.budgets,
       providerCapacity: snapshot.providerCapacity,
+      freeDiskBytes: snapshot.freeDiskBytes,
     },
     config,
   );
@@ -289,6 +313,14 @@ export function admitTasks(snapshot: SchedulerSnapshot, config: CrewConfig): Adm
     const workClass = workClassOf(task);
     const defer = (code: DispatchReasonCode, message: string, details: Record<string, unknown> = {}) =>
       deferred.push({ taskId: task.id, code, message, details });
+    if (capacity.disk.low) {
+      defer(
+        'DISK_SPACE_LOW',
+        `Free disk space ${capacity.disk.freeGb} GB is below scheduler.min_free_disk_gb ${capacity.disk.minFreeGb} GB; no new sessions start`,
+        { disk: capacity.disk },
+      );
+      continue;
+    }
     if (capacity.exhaustedBudget) {
       defer(
         'BUDGET_EXHAUSTED',

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/orafaelfragoso/crewyard/compare/v0.4.5...v0.5.0) (2026-11-04)
+
+
+### Features
+
+* **scheduler:** hold dispatch on low disk space and prune idle build ([a7bcd72](https://github.com/orafaelfragoso/crewyard/commit/a7bcd726b47e5b3ae634302d3a1e588ce0e00750))
+* **scheduler:** hold dispatch on low disk space and prune idle build output ([#44](https://github.com/orafaelfragoso/crewyard/issues/44)) ([a7bcd72](https://github.com/orafaelfragoso/crewyard/commit/a7bcd726b47e5b3ae634302d3a1e588ce0e00750))
+
+
+### Bug Fixes
+
+* **workspaces:** clean finished worktrees whose commits shipped in a ([008bf62](https://github.com/orafaelfragoso/crewyard/commit/008bf62fe54a46fcc1a405edc2472fc03f165b62))
+* **workspaces:** clean finished worktrees whose commits shipped in a merged PR ([#42](https://github.com/orafaelfragoso/crewyard/issues/42)) ([008bf62](https://github.com/orafaelfragoso/crewyard/commit/008bf62fe54a46fcc1a405edc2472fc03f165b62))
+
 ## [0.4.5](https://github.com/orafaelfragoso/crewyard/compare/v0.4.4...v0.4.5) (2026-11-03)
 
 

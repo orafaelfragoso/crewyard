@@ -35,6 +35,7 @@ scheduler:
   integration_capacity_per_branch: 1
   reserve_recovery_capacity: 1    # slots kept free for recovery/CI/review work
   tick_interval_seconds: 15
+  min_free_disk_gb: 10            # start no agent session while the worktree disk has less free; 0 disables
 
 index:
   enabled: true
@@ -99,6 +100,7 @@ workspace:
   timeout_seconds: 600
   cleanup: after_merge            # after_merge | manual | retention
   retention_days: 14
+  build_output: []                # ignored, untracked build dirs pruned from idle worktrees, e.g. [target]
 
 validation:                       # example overrides; fast and broad both default to []
   fast:                           # selected by affected paths

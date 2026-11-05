@@ -37,6 +37,8 @@ security:
 | `agents.allow_profile_fallback` | `false` | No routing to another account profile without opt-in |
 | `scheduler.protect_high_risk_scopes` | `true` | Exclusive reservations for high-risk scopes |
 | `scheduler.max_open_prs` | `8` | Admission backpressure on new implementation work |
+| `scheduler.min_free_disk_gb` | `10` | No new agent sessions while the worktree disk has less free space (`0` disables) |
+| `workspace.build_output` | `[]` | Ignored, untracked build output (e.g. `target`) pruned from idle worktrees |
 | `security.credential_store` | `system` | OS secret store |
 | `security.network` | `provider-and-github-only` | Remote calls only to configured providers and GitHub |
 | `index.embedding.consent_external` | `false` | No repository data to external embedding services |

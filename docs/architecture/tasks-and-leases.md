@@ -168,7 +168,8 @@ decide approvals.
    age (+0.5/h, max 20), deadline (+10/+25/+40), budget size (up to −10) and project share (up to −20). `fifo` and
    `strict-priority` are also available. Ties always break on the task ID.
 3. Capacity (`computeIntakeCapacity`): `min(global WIP or agents.max_parallel, project WIP, provider capacity)`, or
-   zero if a budget is exhausted. When open PRs reach `max_open_prs` or the oldest queue entry exceeds
+   zero if a budget is exhausted or the filesystem holding `dirs.worktrees` has less than `min_free_disk_gb` free
+   (`DISK_SPACE_LOW`, recovery work included). When open PRs reach `max_open_prs` or the oldest queue entry exceeds
    `max_queue_age_minutes`, new implementation is stopped (`BACKPRESSURE_*`) but recovery work keeps the full
    capacity. Otherwise `min(reserve_recovery_capacity, recovery demand)` slots are kept for recovery work. Repository,
    agent and account WIP, task budgets, and exclusive conflicts between tasks admitted in the same round are then
@@ -199,6 +200,11 @@ atomic recheck.
   and refuses with `CONFLICT` if anything changed since the preview. Commits reachable from locally present heads
   of merged PRs matching the repository and branch/task count as published, including squash merges whose remote
   task branch was deleted. Descendants not covered by that evidence remain protected as unpublished work.
+- **Build output**: `pruneBuildOutput` deletes each `workspace.build_output` path from worktrees with no active
+  lease, session or execution, only when it resolves inside the worktree without symlinks, `git check-ignore` reports it
+  ignored and `git ls-files` lists nothing under it. The default service runs it in the bounded cleanup worker after
+  finished worktrees are removed; injected maintenance cycles run hourly. Low space blocks new dispatch while cleanup
+  attempts pruning. If space stays below `scheduler.min_free_disk_gb`, one durable intervention is raised until space recovers.
 - **Bootstrap**: `workspace.setup_commands` and `install_commands` run through `runBounded` with an allowlisted
   environment, injected secret references (`npm-token` → `NPM_TOKEN`, resolved by the caller), a timeout and an
   output limit. Logs are scrubbed of secret values and stored as `bootstrap_log` artifacts. For untrusted

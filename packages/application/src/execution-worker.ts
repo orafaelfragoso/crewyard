@@ -11,7 +11,7 @@ import {
   withProcessLifecycle,
 } from '@crewyard/core';
 import { processIntegrationOutbox, syncRepository } from '@crewyard/integration';
-import { primaryRepository } from '@crewyard/projects';
+import { loadProjectConfig, primaryRepository } from '@crewyard/projects';
 import { reconcileLeases } from '@crewyard/recovery';
 import { failOrphanedReviews, requestInterventionInTx } from '@crewyard/reviews';
 import {
@@ -30,6 +30,7 @@ import {
 } from '@crewyard/storage';
 import { type OperationKind, recordOperation } from '@crewyard/telemetry';
 import { type Dispatch, dispatchTask } from './agents.ts';
+import { guardDiskSpace } from './disk-guard.ts';
 import { EXECUTION_LAUNCH_KIND, type ExecutionLaunch } from './execution.ts';
 import { recordExecutionProcess, stopExecutionProcesses } from './execution-processes.ts';
 import { finishExecutionResources } from './execution-worktrees.ts';
@@ -113,7 +114,14 @@ async function execute(
       const resumed = resumeSessionRetries(ctx, projectId, actor);
       const failedReviews = failOrphanedReviews(ctx, actor);
       const removed = await cleanFinishedWorkspaces(ctx, { repositoryId, actor });
-      return { reconciled, resumed, failedReviews, removed: removed.map((r) => r.workspace.id) };
+      const disk = await guardDiskSpace(ctx, {
+        projectId,
+        config: loadProjectConfig(ctx, projectId).config,
+        actor,
+        alert: true,
+        prune: 'always',
+      });
+      return { reconciled, resumed, failedReviews, removed: removed.map((r) => r.workspace.id), disk };
     }
     case 'dispatch': {
       const dispatch = await dispatchTask(ctx, {

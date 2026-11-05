@@ -72,12 +72,14 @@ export interface SchedulerSnapshot {
   recoveryDemand: number;
   budgets: BudgetStatus[];
   providerCapacity: number | null;
+  freeDiskBytes: number | null;
   projectShare: number;
 }
 
 export interface SnapshotOptions {
   config?: CrewConfig;
   providerCapacity?: number | null;
+  freeDiskBytes?: number | null;
   impactScopes?: Record<string, string[]>;
 }
 
@@ -230,6 +232,7 @@ export function buildSchedulerSnapshot(
     recoveryDemand: tasks.filter((t) => t.state === 'REVISION' && !t.hasActiveLease).length,
     budgets: budgetStatuses(ctx, projectId, at),
     providerCapacity: options.providerCapacity ?? null,
+    freeDiskBytes: options.freeDiskBytes ?? null,
     projectShare: leases.length === 0 ? 0 : projectLeases.length / leases.length,
   };
 }

@@ -15,7 +15,9 @@ import {
 } from '@crewyard/storage';
 import { showTask } from '@crewyard/tasks';
 import { recordOperation } from '@crewyard/telemetry';
+import { freeDiskBytes } from '@crewyard/workspaces';
 import { type Dispatch, dispatchTask, prepareDispatchExecution } from './agents.ts';
+import { guardDiskSpace } from './disk-guard.ts';
 import {
   DEFAULT_EXECUTION_LIMITS,
   type ExecutionLimits,
@@ -46,6 +48,7 @@ export interface ServiceOptions {
   tickSeconds?: number;
   dispatch?: boolean;
   execution?: ExecutionLimits;
+  freeDiskBytes?: (path: string) => number;
 }
 
 const SERVICE_ACTOR: Actor = { kind: 'service', id: `crew-service@${hostname()}` };
@@ -265,7 +268,15 @@ export class CrewService {
 
     if (workersPaused || intakePaused || this.options.dispatch === false) return;
     if (loaded.config.project.autonomy === 'observe') return;
-    const plan = planDispatch(this.ctx, projectId, { config: loaded.config });
+    const guard = await guardDiskSpace(this.ctx, {
+      projectId,
+      config: loaded.config,
+      actor: SERVICE_ACTOR,
+      alert: true,
+      prune: 'when-low',
+      ...(this.options.freeDiskBytes ? { measure: this.options.freeDiskBytes } : {}),
+    });
+    const plan = planDispatch(this.ctx, projectId, { config: loaded.config, freeDiskBytes: guard.freeDiskBytes });
     for (const admission of plan.admitted) {
       if (this.stopping) return;
       const agent = selectAgentForTask(this.ctx, admission.taskId);
@@ -338,7 +349,13 @@ export class CrewService {
       this.options.dispatch !== false &&
       loaded.config.project.autonomy !== 'observe'
     ) {
-      const plan = planDispatch(this.ctx, projectId, { config: loaded.config });
+      const plan = planDispatch(this.ctx, projectId, {
+        config: loaded.config,
+        freeDiskBytes:
+          loaded.config.scheduler.min_free_disk_gb === 0
+            ? null
+            : (this.options.freeDiskBytes ?? freeDiskBytes)(this.ctx.dirs.worktrees),
+      });
       for (const admission of plan.admitted) {
         const agent = selectAgentForTask(this.ctx, admission.taskId);
         if (agent)
