@@ -1,7 +1,18 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CrewConfig } from '@crewyard/config';
-import { type Actor, CrewError, ensureDir, git, nowIso, sha256 } from '@crewyard/core';
+import {
+  type Actor,
+  addSeconds,
+  CrewError,
+  ensureDir,
+  fingerprint,
+  git,
+  newId,
+  nowIso,
+  redact,
+  sha256,
+} from '@crewyard/core';
 import {
   assertRemoteMatches,
   type ConditionalCache,
@@ -12,7 +23,17 @@ import {
   type TokenProvider,
 } from '@crewyard/github';
 import { getProject, getRepository, projectConfig, type Repository } from '@crewyard/projects';
-import { type CrewContext, one, recordTransition } from '@crewyard/storage';
+import {
+  assertOutboxClaim,
+  type ClaimedOutboxOperation,
+  type CrewContext,
+  claimDueOutbox,
+  completeOutbox,
+  enqueueOutbox,
+  one,
+  recordTransition,
+  renewOutboxClaim,
+} from '@crewyard/storage';
 import type { GitHubClientFactory, IntegrationEnv, TaskHooks } from './types.ts';
 
 export const CREW_INTEGRATION_ACTOR: Actor = { kind: 'service', id: 'integration' };
@@ -115,31 +136,175 @@ export type PendingHook = {
   [K in keyof TaskHooks]-?: { name: K; event: Parameters<NonNullable<TaskHooks[K]>>[0] };
 }[keyof TaskHooks];
 
-export async function runHooks(ctx: CrewContext, hooks: TaskHooks | undefined, pending: PendingHook[]): Promise<void> {
-  if (!hooks) return;
-  for (const call of pending) {
-    const fn = hooks[call.name] as ((event: PendingHook['event']) => void | Promise<void>) | undefined;
-    if (!fn) continue;
+export const INTEGRATION_HOOK_KIND = 'integration.hook';
+
+export function hookIdempotencyKey(call: PendingHook): string {
+  return `integration-hook:${fingerprint(call)}`;
+}
+
+type HookOutcome = Parameters<typeof completeOutbox>[2];
+
+export async function processIntegrationHook(
+  ctx: CrewContext,
+  hooks: TaskHooks | undefined,
+  op: ClaimedOutboxOperation,
+): Promise<HookOutcome['status']> {
+  const call = op.intent as unknown as PendingHook;
+  const pr = one<{
+    state: string;
+    head_sha: string;
+    expected_remote_head: string | null;
+    merge_commit_sha: string | null;
+  }>(
+    ctx.store.db,
+    'SELECT state, head_sha, expected_remote_head, merge_commit_sha FROM pull_requests WHERE id = ?',
+    call.event.prId,
+  );
+  const entry = one<{ id: string; status: string }>(
+    ctx.store.db,
+    "SELECT id, status FROM queue_entries WHERE pr_id = ? AND status NOT IN ('removed', 'merged') ORDER BY enqueued_at DESC LIMIT 1",
+    call.event.prId,
+  );
+  const task = call.event.taskId
+    ? one<{ state: string }>(ctx.store.db, 'SELECT state FROM tasks WHERE id = ?', call.event.taskId)
+    : null;
+  const observed =
+    call.name === 'onMerged' &&
+    pr?.state === 'merged' &&
+    pr.merge_commit_sha === call.event.mergeCommitSha &&
+    task?.state === 'DONE';
+  const superseded =
+    !pr ||
+    (call.name !== 'onMerged' && pr.state !== 'open') ||
+    (call.name === 'onMerged' && (pr.state !== 'merged' || pr.merge_commit_sha !== call.event.mergeCommitSha)) ||
+    (call.name === 'onReviewRequired' && pr.head_sha !== call.event.headSha) ||
+    (call.name === 'onRemoteHeadAccepted' && pr.expected_remote_head !== call.event.headSha) ||
+    (call.name === 'onQueued' && entry?.id !== call.event.entryId) ||
+    (call.name === 'onValidating' &&
+      one<{ status: string }>(
+        ctx.store.db,
+        'SELECT status FROM integration_candidates WHERE id = ?',
+        call.event.candidateId,
+      )?.status !== 'validating') ||
+    (call.name === 'onBlocked' && entry?.status !== 'blocked') ||
+    (call.name === 'onEscalated' && entry?.status !== 'escalated') ||
+    (call.name === 'onRevisionRequired' && entry?.status !== 'blocked');
+  let outcome: HookOutcome;
+  const renewal = setInterval(() => {
     try {
-      await fn.call(hooks, call.event);
+      renewOutboxClaim(ctx.store, op, 120);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      ctx.logger.warn('task hook failed', { hook: call.name, prId: call.event.prId, error: message });
-      const at = nowIso(ctx.clock);
-      ctx.store.immediate((db) =>
+      ctx.logger.warn('hook claim renewal failed', { operationId: op.operationId, error: String(error) });
+    }
+  }, 40_000);
+  try {
+    ctx.store.immediate((db) => assertOutboxClaim(db, op, nowIso(ctx.clock)));
+    if (observed || superseded) {
+      outcome = {
+        status: 'succeeded',
+        remoteCorrelation: { reconciled: true, disposition: observed ? 'already_applied' : 'superseded' },
+      };
+    } else {
+      const fn = hooks?.[call.name] as ((event: PendingHook['event']) => void | Promise<void>) | undefined;
+      if (!fn) throw new CrewError('UNAVAILABLE', `Task hook ${call.name} is not configured`, { retryable: true });
+      await fn.call(hooks, call.event);
+      outcome = { status: 'succeeded', remoteCorrelation: { hook: call.name, delivered: true } };
+    }
+  } catch (error) {
+    if (error instanceof CrewError && error.code === 'STALE_LEASE') throw error;
+    const message = redact(error instanceof Error ? error.message : String(error));
+    outcome =
+      op.attempts >= op.maxAttempts
+        ? { status: 'failed', error: message }
+        : {
+            status: 'retry',
+            attempts: op.attempts,
+            error: message,
+            nextAttemptAt: addSeconds(nowIso(ctx.clock), Math.min(300, 2 ** op.attempts)),
+          };
+  } finally {
+    clearInterval(renewal);
+  }
+  ctx.store.immediate((db) => {
+    const at = nowIso(ctx.clock);
+    completeOutbox(db, op, outcome, at);
+    recordTransition(
+      db,
+      {
+        type: outcome.status === 'succeeded' ? 'integration.hook_delivered' : 'integration.hook_failed',
+        actor: CREW_INTEGRATION_ACTOR,
+        taskId: call.event.taskId,
+        prId: call.event.prId,
+        payload: {
+          hook: call.name,
+          operationId: op.operationId,
+          attempts: op.attempts,
+          exhausted: outcome.status === 'failed',
+          ...('error' in outcome ? { error: outcome.error } : {}),
+        },
+      },
+      { action: 'integration.hook', input: { hook: call.name }, decision: outcome.status },
+      at,
+    );
+  });
+  return outcome.status;
+}
+
+export async function runHooks(ctx: CrewContext, hooks: TaskHooks | undefined, pending: PendingHook[]): Promise<void> {
+  if (!hooks || pending.length === 0) return;
+  const at = nowIso(ctx.clock);
+  ctx.store.immediate((db) => {
+    for (const call of pending) {
+      if (!hooks[call.name]) continue;
+      const key = hookIdempotencyKey(call);
+      const existing = one<{ operation_id: string; status: string }>(
+        db,
+        'SELECT operation_id, status FROM outbox WHERE idempotency_key = ?',
+        key,
+      );
+      const task = call.event.taskId
+        ? one<{ state: string }>(db, 'SELECT state FROM tasks WHERE id = ?', call.event.taskId)
+        : null;
+      const repair =
+        call.name === 'onReviewRequired' ||
+        (task &&
+          ((call.name === 'onMerged' && task.state !== 'DONE') ||
+            (call.name === 'onQueued' && ['SUBMITTED', 'REVIEWING', 'BLOCKED', 'REVISION'].includes(task.state))));
+      if (existing?.status === 'succeeded' && repair) {
+        db.query(
+          "UPDATE outbox SET status = 'pending', attempts = 0, last_error = NULL, remote_correlation = NULL, next_attempt_at = ?, updated_at = ? WHERE operation_id = ?",
+        ).run(at, at, existing.operation_id);
         recordTransition(
           db,
           {
-            type: 'integration.hook_failed',
+            type: 'integration.hook_reconciliation_requested',
             actor: CREW_INTEGRATION_ACTOR,
-            taskId: call.event.taskId,
             prId: call.event.prId,
-            payload: { hook: call.name, error: message },
+            taskId: call.event.taskId,
+            payload: { operationId: existing.operation_id, hook: call.name, taskState: task?.state ?? null },
           },
-          { action: 'integration.hook', input: { hook: call.name }, decision: 'failed' },
+          { action: 'integration.hook_reconcile', input: { hook: call.name }, decision: 'pending' },
           at,
-        ),
+        );
+      }
+      enqueueOutbox(
+        db,
+        {
+          kind: INTEGRATION_HOOK_KIND,
+          subjectId: call.event.prId,
+          taskId: call.event.taskId,
+          intent: { name: call.name, event: call.event },
+          idempotencyKey: key,
+          maxAttempts: 5,
+        },
+        at,
       );
     }
+  });
+  const ownerId = newId('wrk');
+  for (let delivered = 0; delivered < pending.length; delivered++) {
+    const op = claimDueOutbox(ctx.store, { ownerId, limit: 1, kinds: [INTEGRATION_HOOK_KIND], ttlSeconds: 120 })[0];
+    if (!op) break;
+    await processIntegrationHook(ctx, hooks, op);
   }
 }

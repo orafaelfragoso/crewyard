@@ -40,8 +40,10 @@ import {
   autonomyFor,
   clientFor,
   configFor,
+  INTEGRATION_HOOK_KIND,
   leadershipScope,
   type PendingHook,
+  processIntegrationHook,
   repositoryFor,
   runHooks,
 } from './env.ts';
@@ -1391,7 +1393,18 @@ async function handleUpdateBranch(hc: HandlerContext, op: ClaimedOutboxOperation
   }
 }
 
-const HANDLERS: Record<GitHubOutboxKind, (hc: HandlerContext, op: ClaimedOutboxOperation) => Promise<void>> = {
+async function handleHook(hc: HandlerContext, op: ClaimedOutboxOperation): Promise<void> {
+  const status = await processIntegrationHook(hc.ctx, hc.env.hooks, op);
+  if (status === 'succeeded') hc.report.succeeded.push(op.operationId);
+  else if (status === 'retry') hc.report.deferred.push(op.operationId);
+  else hc.report.failed.push(op.operationId);
+}
+
+const HANDLERS: Record<
+  GitHubOutboxKind | typeof INTEGRATION_HOOK_KIND,
+  (hc: HandlerContext, op: ClaimedOutboxOperation) => Promise<void>
+> = {
+  [INTEGRATION_HOOK_KIND]: handleHook,
   'github.merge': handleMerge,
   'github.merge_async': handleMergeAsync,
   'github.enqueue': handleEnqueue,
@@ -1415,12 +1428,12 @@ export async function processIntegrationOutbox(ctx: CrewContext, options: Proces
     const op = claimDueOutbox(ctx.store, {
       ownerId: options.leaderId,
       limit: 1,
-      kinds: [...GITHUB_OUTBOX_KINDS],
+      kinds: [...GITHUB_OUTBOX_KINDS, INTEGRATION_HOOK_KIND],
       ttlSeconds: env.leaseTtlSeconds ?? 120,
     })[0];
     if (!op) break;
     report.processed++;
-    const handler = HANDLERS[op.kind as GitHubOutboxKind];
+    const handler = HANDLERS[op.kind as keyof typeof HANDLERS];
     const renewal = setInterval(
       () => {
         try {
