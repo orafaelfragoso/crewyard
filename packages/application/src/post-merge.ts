@@ -10,6 +10,7 @@ export type MergeHealth = 'unknown' | 'pending' | 'passed' | 'failed' | 'superse
 export interface MergeHealthObservation {
   repositoryId: string;
   mergeCommitSha: string;
+  baseBranch: string;
   currentBaseSha: string;
   requirements: BranchRequirements | null;
   checks: readonly CheckResult[];
@@ -67,6 +68,7 @@ export function recordMergeHealth(
   const incidentId = fingerprint({
     repositoryId: repository.id,
     mergeCommitSha: observation.mergeCommitSha,
+    baseBranch: observation.baseBranch,
     rules: observation.requirements?.fingerprint ?? null,
   });
   const healthFingerprint = fingerprint({ state, failingChecks });
@@ -74,9 +76,10 @@ export function recordMergeHealth(
     const at = nowIso(ctx.clock);
     const merged = one<{ id: string; number: number }>(
       db,
-      `SELECT id, number FROM pull_requests WHERE repository_id = ? AND merge_commit_sha = ? AND state = 'merged' ORDER BY number LIMIT 1`,
+      `SELECT id, number FROM pull_requests WHERE repository_id = ? AND merge_commit_sha = ? AND base_ref = ? AND state = 'merged' ORDER BY number LIMIT 1`,
       repository.id,
       observation.mergeCommitSha,
+      observation.baseBranch,
     );
     if (!merged) throw new CrewError('NOT_FOUND', 'Post-merge health requires an observed merged pull request');
     const prior = one<{ fingerprint: string }>(
@@ -109,7 +112,7 @@ export function recordMergeHealth(
             'Demonstrate the required checks on the proposed repair',
             'Obtain required approvals before implementation and integration',
           ],
-          baseBranch: repository.defaultBase,
+          baseBranch: observation.baseBranch,
           scopeHints: (pr.changedFiles ?? []).map((file) => file.path),
           scopeReason:
             'Post-merge diagnosis starts from the observed change; actual repair scope requires operator review.',
@@ -218,29 +221,36 @@ export async function scanPostMergeHealth(
     throw new CrewError('INVALID_INPUT', 'Post-merge scan limit must be between 1 and 100');
   const repository = getRepository(ctx, input.repositoryId);
   const client = await clientFor(ctx, env, repository);
-  const branch = await client.getBranch(repository.defaultBase);
-  const requirements = await client.getBranchRequirements(repository.defaultBase);
-  const merges = all<{ merge_commit_sha: string }>(
+  const merges = all<{ merge_commit_sha: string; base_ref: string }>(
     ctx.store.db,
-    `SELECT DISTINCT merge_commit_sha FROM pull_requests WHERE repository_id = ? AND state = 'merged' AND merge_commit_sha IS NOT NULL ORDER BY merged_at DESC LIMIT ?`,
+    `SELECT merge_commit_sha, base_ref FROM pull_requests WHERE repository_id = ? AND state = 'merged' AND merge_commit_sha IS NOT NULL GROUP BY merge_commit_sha, base_ref ORDER BY MAX(merged_at) DESC LIMIT ?`,
     repository.id,
     input.limit,
   );
   const results: MergeHealthResult[] = [];
-  for (const merge of merges)
+  const targets = new Map<string, { sha: string; requirements: BranchRequirements }>();
+  for (const merge of merges) {
+    let target = targets.get(merge.base_ref);
+    if (!target) {
+      const branch = await client.getBranch(merge.base_ref);
+      target = { sha: branch.sha, requirements: await client.getBranchRequirements(merge.base_ref) };
+      targets.set(merge.base_ref, target);
+    }
     results.push(
       recordMergeHealth(
         ctx,
         {
           repositoryId: repository.id,
           mergeCommitSha: merge.merge_commit_sha,
-          currentBaseSha: branch.sha,
-          requirements,
+          baseBranch: merge.base_ref,
+          currentBaseSha: target.sha,
+          requirements: target.requirements,
           checks: await client.listChecks(merge.merge_commit_sha),
           actor: input.actor,
         },
         env,
       ),
     );
+  }
   return results;
 }

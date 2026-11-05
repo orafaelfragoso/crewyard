@@ -1,8 +1,15 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { type MergeHealthObservation, mergeHealthState, recordMergeHealth } from '@crewyard/application';
-import type { BranchRequirements, CheckResult } from '@crewyard/github';
+import {
+  type MergeHealthObservation,
+  mergeHealthState,
+  recordMergeHealth,
+  scanPostMergeHealth,
+} from '@crewyard/application';
+import { git } from '@crewyard/core';
+import { type BranchRequirements, type CheckResult, GitHubClient, staticTokenProvider } from '@crewyard/github';
 import { computeMetrics } from '@crewyard/telemetry';
 import { createTestContext, type TestContext } from '../../helpers/index.ts';
+import { startMockGitHub } from '../../helpers/mock-github.ts';
 import { operator, seedProject, testConfig } from '../tasks/fixtures.ts';
 
 let ctx: TestContext | undefined;
@@ -28,7 +35,15 @@ function check(state: CheckResult['state']): CheckResult {
   return { name: 'ci', kind: 'check_run', state, appId: 1, headSha: sha, detailsUrl: null };
 }
 function observation(repositoryId: string, checks: CheckResult[]): MergeHealthObservation {
-  return { repositoryId, mergeCommitSha: sha, currentBaseSha: sha, requirements, checks, actor: operator };
+  return {
+    repositoryId,
+    mergeCommitSha: sha,
+    baseBranch: 'main',
+    currentBaseSha: sha,
+    requirements,
+    checks,
+    actor: operator,
+  };
 }
 function fixture(autonomy: 'observe' | 'guarded') {
   ctx = createTestContext();
@@ -43,6 +58,39 @@ function fixture(autonomy: 'observe' | 'guarded') {
 }
 
 describe('post-merge health', () => {
+  test('scans each observed target branch with its own SHA, requirements and repair base', async () => {
+    const f = fixture('guarded');
+    f.ctx.store.db.query("UPDATE pull_requests SET base_ref = 'release' WHERE id = 'pr'").run();
+    const mock = startMockGitHub();
+    try {
+      await git(f.ctx.root, ['init', '-q']);
+      await git(f.ctx.root, ['remote', 'add', 'origin', `https://github.com/${mock.owner}/${mock.name}.git`]);
+      f.ctx.store.db
+        .query(
+          'UPDATE repositories SET canonical_path = ?, remote_host = ?, remote_owner = ?, remote_name = ? WHERE id = ?',
+        )
+        .run(f.ctx.root, 'github.com', mock.owner, mock.name, f.repositoryId);
+      mock.setBranch('main', 'b'.repeat(40));
+      mock.setBranch('release', sha);
+      mock.requireChecks('release', ['release-ci']);
+      mock.setCheck(sha, 'release-ci', 'failure');
+      const client = new GitHubClient({
+        repository: { host: 'github.com', owner: mock.owner, name: mock.name },
+        token: staticTokenProvider(mock.token),
+        baseUrl: mock.url,
+      });
+      const result = await scanPostMergeHealth(
+        f.ctx,
+        { repositoryId: f.repositoryId, actor: operator, limit: 10 },
+        { ...f.env, github: () => client },
+      );
+      expect(result).toEqual([expect.objectContaining({ state: 'failed', repairTaskId: expect.any(String) })]);
+      expect(f.ctx.store.db.query('SELECT base_branch FROM tasks').get()).toEqual({ base_branch: 'release' });
+    } finally {
+      mock.stop();
+    }
+  });
+
   test('requires complete commit-bound required checks and visible protection before declaring success', () => {
     const obs = observation('repo', [check('success')]);
     expect(mergeHealthState(obs)).toBe('passed');
