@@ -398,13 +398,31 @@ export function prepareQueueExecution(
         'SELECT autonomy, workers_paused, intake_paused, policy_revision FROM projects WHERE id = ?',
         repository.projectId,
       ),
-      queues: all(db, 'SELECT * FROM integration_queues WHERE repository_id = ? ORDER BY id', repositoryId),
-      entries: all(
+      queues: all(
         db,
-        'SELECT e.* FROM queue_entries e JOIN integration_queues q ON q.id = e.queue_id WHERE q.repository_id = ? ORDER BY e.id',
+        'SELECT id, base_branch, mode, paused, capacity FROM integration_queues WHERE repository_id = ? ORDER BY id',
         repositoryId,
       ),
-      prs: all(db, "SELECT * FROM pull_requests WHERE repository_id = ? AND state = 'open' ORDER BY id", repositoryId),
+      entries: all(
+        db,
+        'SELECT e.id, e.queue_id, e.pr_id, e.priority, e.risk, e.stack_id, e.stack_order, e.status, e.attempts, e.last_validated_base_sha, e.last_validated_head_sha, e.enqueued_at FROM queue_entries e JOIN integration_queues q ON q.id = e.queue_id WHERE q.repository_id = ? ORDER BY e.id',
+        repositoryId,
+      ),
+      prs: all(
+        db,
+        "SELECT id, task_id, head_sha, base_ref, base_sha, expected_remote_head, state, is_draft, mergeable, merge_state_status, review_decision, checks_state, checks, reviews, rules, changed_files, external_divergence, stack_id, stack_order FROM pull_requests WHERE repository_id = ? AND state = 'open' ORDER BY id",
+        repositoryId,
+      ),
+      dependencies: all(
+        db,
+        'SELECT d.* FROM pr_dependencies d JOIN pull_requests p ON p.id = d.pr_id WHERE p.repository_id = ? ORDER BY d.pr_id, d.depends_on_pr_id',
+        repositoryId,
+      ),
+      approvals: all(
+        db,
+        'SELECT subject_kind, subject_id, status, created_at FROM approvals WHERE project_id = ? ORDER BY id',
+        repository.projectId,
+      ),
     }),
   };
 }

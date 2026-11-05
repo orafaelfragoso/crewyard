@@ -6,6 +6,7 @@ import {
   allocateTaskWorkspace,
   DEFAULT_EXECUTION_LIMITS,
   dispatchTask,
+  prepareQueueExecution,
   reviewPullRequest,
   submitExecution,
 } from '@crewyard/application';
@@ -21,6 +22,25 @@ import { fakeAgentSettings, seedAgent } from '../unit/agents/setup.ts';
 const CLI = join(import.meta.dir, '../../apps/cli/src/main.ts');
 const MCP = join(import.meta.dir, '../../apps/mcp/src/main.ts');
 const actor = { kind: 'operator', id: 'direct-test' } as const;
+
+test('queue execution identity tracks actionable inputs without rejecting an unchanged polling observation', async () => {
+  const f = await createGitHubFixture();
+  try {
+    await f.pushBranch('feature', { 'feature.ts': 'export const answer = 42;\n' });
+    f.mock.addPull({ headRef: 'feature' });
+    await syncRepository(f.ctx, f.repositoryId, f.env);
+    const options = { sync: false, maxCandidates: 3, processOutbox: false };
+    const before = prepareQueueExecution(f.ctx, f.repositoryId, options);
+    f.ctx.store.db
+      .query("UPDATE pull_requests SET updated_at = '2099-01-01T00:00:00Z', last_synced_at = '2099-01-01T00:00:00Z'")
+      .run();
+    expect(prepareQueueExecution(f.ctx, f.repositoryId, options)).toEqual(before);
+    f.ctx.store.db.query("UPDATE pull_requests SET head_sha = 'changed'").run();
+    expect(prepareQueueExecution(f.ctx, f.repositoryId, options).queueRevision).not.toBe(before.queueRevision);
+  } finally {
+    f.cleanup();
+  }
+});
 
 test.skipIf(process.platform === 'win32')(
   'CLI and MCP defaults execute durable review, queue and workspace workers without a service',
