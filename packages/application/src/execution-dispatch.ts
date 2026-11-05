@@ -1,8 +1,8 @@
-import { closeUnsupervisedSession, getSession } from '@crewyard/agents';
+import { closeUnsupervisedSession, getSession, listSessions } from '@crewyard/agents';
 import { addSeconds, CrewError, LEASED_TASK_STATES, nowIso, withProcessLifecycle } from '@crewyard/core';
 import { assertOutboxClaim, type ClaimedOutboxOperation, type CrewContext, recordTransition } from '@crewyard/storage';
 import { activeLeaseRow, applyTransition, requireTask } from '@crewyard/tasks';
-import { collectCommits, commitWorkspaceChanges } from '@crewyard/workspaces';
+import { collectCommits, commitWorkspaceChanges, listWorkspaces } from '@crewyard/workspaces';
 import type { Dispatch } from './agents.ts';
 import type { ExecutionLaunch } from './execution.ts';
 import { recordExecutionProcess } from './execution-processes.ts';
@@ -15,32 +15,59 @@ export async function recoverExecutionDispatch(
   reason: string,
 ): Promise<Record<string, unknown> | null> {
   if (launch.operation.kind !== 'dispatch') return null;
+  const operation = launch.operation;
   const progress = op.remoteCorrelation?.progress as Pick<Dispatch, 'claim' | 'session'> | undefined;
-  if (!progress) return null;
-  const { claim, session } = progress;
-  const recorded = getSession(ctx, session.sessionId);
+  const row = ctx.store.db
+    .query(
+      "SELECT payload FROM events WHERE type = 'lease.execution_bound' AND correlation_id = ? AND task_id = ? ORDER BY seq DESC LIMIT 1",
+    )
+    .get(launch.claim.attemptId, operation.taskId) as { payload: string } | null;
+  const binding = row
+    ? (JSON.parse(row.payload) as { leaseId: string; generation: number; holder: { kind: string; id: string } })
+    : null;
+  if (!progress && !binding) return null;
+  if (binding && (binding.holder.kind !== 'agent' || binding.holder.id !== operation.agentId))
+    throw new CrewError('CONFLICT', 'Execution task lease belongs to a different agent');
+  const taskId = operation.taskId;
+  const generation = binding?.generation ?? progress!.claim.leaseGeneration;
+  const sessions = progress
+    ? [getSession(ctx, progress.session.sessionId)]
+    : listSessions(ctx, { taskId, limit: 1000 }).filter((session) => session.leaseGeneration === generation);
   if (
-    claim.taskId !== launch.operation.taskId ||
-    recorded.taskId !== claim.taskId ||
-    recorded.leaseGeneration !== claim.leaseGeneration ||
-    recorded.workspaceId !== claim.workspaceId ||
-    recorded.agentId !== launch.operation.agentId
+    sessions.some(
+      (session) =>
+        session.taskId !== taskId || session.leaseGeneration !== generation || session.agentId !== operation.agentId,
+    ) ||
+    (progress &&
+      (progress.claim.taskId !== taskId ||
+        progress.claim.leaseGeneration !== generation ||
+        sessions[0]!.workspaceId !== progress.claim.workspaceId))
   )
     throw new CrewError('CONFLICT', 'Dispatch progress no longer matches its exact session and task lease');
-  const lease = activeLeaseRow(ctx.store.db, claim.taskId);
-  const task = requireTask(ctx.store.db, claim.taskId);
+  const lease = activeLeaseRow(ctx.store.db, taskId);
+  const task = requireTask(ctx.store.db, taskId);
   const current =
-    lease?.generation === claim.leaseGeneration &&
-    task.leaseGeneration === claim.leaseGeneration &&
+    lease?.generation === generation &&
+    task.leaseGeneration === generation &&
+    (!binding || lease.id === binding.leaseId) &&
     lease.holder_kind === 'agent' &&
-    lease.holder_id === recorded.agentId;
+    lease.holder_id === operation.agentId;
   const at = nowIso(ctx.clock);
   ctx.store.immediate((db) => {
     assertOutboxClaim(db, op, at);
-    closeUnsupervisedSession(db, recorded.id, 'cancelled', reason, launch.actor, at);
+    for (const session of sessions) closeUnsupervisedSession(db, session.id, 'cancelled', reason, launch.actor, at);
   });
   if (!current || (!LEASED_TASK_STATES.has(task.state) && task.state !== 'CANCEL_REQUESTED'))
     return { ...progress, outcome: { kind: 'handed_off', taskState: task.state } };
+  const workspaces = listWorkspaces(ctx, {
+    taskId,
+    states: ['allocating', 'ready', 'in_use', 'preserved', 'needs_reconciliation'],
+  });
+  if (workspaces.length > 1) throw new CrewError('CONFLICT', 'Dispatch recovery found multiple active task workspaces');
+  const workspaceId = progress?.claim.workspaceId ?? workspaces[0]?.id ?? null;
+  if (sessions.some((session) => session.workspaceId !== workspaceId))
+    throw new CrewError('CONFLICT', 'Dispatch recovery session workspace does not match its task workspace');
+  const claim = { taskId, leaseGeneration: generation, workspaceId };
   const assertOwner = () => {
     assertOutboxClaim(ctx.store.db, op, nowIso(ctx.clock));
     const active = activeLeaseRow(ctx.store.db, claim.taskId);
@@ -62,7 +89,7 @@ export async function recoverExecutionDispatch(
         actor: launch.actor,
         projectId: launch.projectId,
         taskId: claim.taskId,
-        sessionId: recorded.id,
+        ...(sessions[0] ? { sessionId: sessions[0].id } : {}),
         payload: { operationId: op.operationId, generation: claim.leaseGeneration },
       },
       { action: 'execution.recover_dispatch', input: { operationId: op.operationId }, decision: 'preserving' },
@@ -113,7 +140,7 @@ export async function recoverExecutionDispatch(
         to: currentTask.state === 'CANCEL_REQUESTED' ? 'CANCELLED' : 'READY',
         actor: launch.actor,
         reason,
-        payload: { operationId: op.operationId, sessionId: recorded.id, commits },
+        payload: { operationId: op.operationId, ...(sessions[0] ? { sessionId: sessions[0].id } : {}), commits },
       },
       nowIso(ctx.clock),
     );

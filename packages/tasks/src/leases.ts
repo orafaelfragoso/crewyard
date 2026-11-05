@@ -318,6 +318,21 @@ export function claimTask(ctx: CrewContext, input: ClaimInput): ClaimResult {
             at,
           ).task
         : claimRevision(db, task, actor, generation, input.holder, expiresAt, at);
+    if (ctx.execution) {
+      recordTransition(
+        db,
+        {
+          type: 'lease.execution_bound',
+          actor,
+          projectId: task.projectId,
+          taskId: task.id,
+          correlationId: ctx.execution.claim.attemptId,
+          payload: { leaseId, generation, holder: input.holder, executionAttemptId: ctx.execution.claim.attemptId },
+        },
+        { action: 'lease.bind_execution', input: { taskId: task.id, leaseId, generation }, decision: 'bound' },
+        at,
+      );
+    }
     return {
       taskId: task.id,
       leaseId,

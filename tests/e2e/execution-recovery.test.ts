@@ -15,7 +15,7 @@ import { gitText, isProcessAlive } from '@crewyard/core';
 import { requestIntegration, syncRepository } from '@crewyard/integration';
 import { recordPolicyRevision } from '@crewyard/projects';
 import { getExecutionClaim, getOutbox, registerExecutionWorktree } from '@crewyard/storage';
-import { addTask, showTask } from '@crewyard/tasks';
+import { addTask, claimTask, showTask } from '@crewyard/tasks';
 import { createGitHubFixture } from '../integration/github-fixture.ts';
 import { fakeAgentSettings, seedAgent } from '../unit/agents/setup.ts';
 
@@ -352,3 +352,92 @@ test('admission keeps repository identity and honors the strictest active pool l
     f.cleanup();
   }
 });
+
+test.skipIf(process.platform === 'win32')(
+  'forced cancellation before session progress preserves bootstrap changes and releases only the bound task lease',
+  async () => {
+    const f = await createGitHubFixture();
+    const ready = join(f.ctx.root, 'bootstrap-ready');
+    const release = join(f.ctx.root, 'bootstrap-release');
+    let workerPid = 0;
+    let result: Promise<Record<string, unknown>> | null = null;
+    try {
+      f.config.workspace.setup_commands = [
+        [process.execPath, '--eval', "await Bun.write('bootstrap.txt', 'saved before provider launch')"]
+          .map((part) => JSON.stringify(part))
+          .join(' '),
+        [process.execPath, join(import.meta.dir, '../../fixtures/processes/execution-barrier.ts'), ready, release]
+          .map((part) => JSON.stringify(part))
+          .join(' '),
+      ];
+      f.ctx.store.db.query('UPDATE repositories SET trusted = 1 WHERE id = ?').run(f.repositoryId);
+      mkdirSync(join(f.repo, '.crewyard'), { recursive: true });
+      writeFileSync(join(f.repo, '.crewyard/config.yaml'), JSON.stringify(f.config));
+      const { agentId } = await seedAgent(f.ctx, {
+        profiles: [{ name: 'unused', settings: fakeAgentSettings(['--sleep', '30000']) }],
+      });
+      const createTask = (title: string) =>
+        addTask(f.ctx, {
+          projectId: f.projectId,
+          repositoryId: f.repositoryId,
+          title,
+          objective: title,
+          acceptanceCriteria: ['preserve work'],
+          scopeHints: [],
+          risk: 'low',
+          initialState: 'READY',
+          origin: 'manual',
+          actor,
+        });
+      const unrelated = createTask('Unrelated active lease');
+      claimTask(f.ctx, { taskId: unrelated.id, holder: { kind: 'operator', id: actor.id } });
+      const task = createTask('Held bootstrap');
+      const handle = await startExecution(
+        f.ctx,
+        {
+          projectId: f.projectId,
+          repositoryId: f.repositoryId,
+          actor,
+          leaderId: actor.id,
+          operation: prepareDispatchExecution(f.ctx, { taskId: task.id, agent: agentId, actor }),
+        },
+        limits,
+      );
+      result = handle.result;
+      await waitFor(() => existsSync(ready), 10_000);
+      const op = getOutbox(f.ctx.store.db, handle.operationId)!;
+      expect(op.remoteCorrelation?.progress).toBeUndefined();
+      const domain = getExecutionClaim(f.ctx.store.db, (op.intent.claim as { scope: string }).scope)!;
+      const binding = f.ctx.store.db
+        .query("SELECT payload FROM events WHERE type = 'lease.execution_bound' AND correlation_id = ?")
+        .get(domain.attemptId) as { payload: string };
+      expect(JSON.parse(binding.payload)).toMatchObject({ leaseId: showTask(f.ctx, task.id).lease!.id, generation: 1 });
+      workerPid = domain.process!.pid;
+      f.ctx.store.immediate(() => process.kill(workerPid, 'SIGSTOP'));
+      cancelExecution(f.ctx, handle.operationId, 'cancel bootstrap');
+      expect((await result).outcome).toMatchObject({ kind: 'interrupted', commits: [expect.any(String)] });
+      expect(isProcessAlive(workerPid)).toBe(false);
+      expect(isProcessAlive(Number(readFileSync(ready, 'utf8')))).toBe(false);
+      expect(showTask(f.ctx, task.id).task.state).toBe('READY');
+      expect(showTask(f.ctx, task.id).lease).toBeNull();
+      expect(f.ctx.store.db.query('SELECT COUNT(*) AS n FROM sessions WHERE task_id = ?').get(task.id)).toEqual({
+        n: 0,
+      });
+      expect(showTask(f.ctx, unrelated.id).task.state).toBe('CLAIMED');
+      expect(showTask(f.ctx, unrelated.id).lease!.releasedAt).toBeNull();
+      const workspace = f.ctx.store.db.query('SELECT path FROM workspaces WHERE task_id = ?').get(task.id) as {
+        path: string;
+      };
+      expect(await gitText(workspace.path, ['show', 'HEAD:bootstrap.txt'])).toBe('saved before provider launch');
+      expect(f.ctx.store.db.query("SELECT status FROM outbox WHERE kind = 'execution.cancel'").get()).toEqual({
+        status: 'succeeded',
+      });
+    } finally {
+      writeFileSync(release, 'release');
+      if (workerPid && isProcessAlive(workerPid)) process.kill(workerPid, 'SIGCONT');
+      if (result) await result;
+      f.cleanup();
+    }
+  },
+  20_000,
+);

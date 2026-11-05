@@ -438,6 +438,8 @@ async function dispatchInWorker(ctx: CrewContext, input: DispatchTaskInput): Pro
     }
     if (completed) {
       if (failure) throw failure;
+      const outcome = (result as Record<string, unknown> | null)?.outcome as DispatchOutcome | undefined;
+      if (outcome?.kind === 'interrupted') throw new CrewError('CONFLICT', outcome.reason);
       throw new CrewError('INTERNAL', 'Task execution completed without session progress');
     }
     await Bun.sleep(25);
