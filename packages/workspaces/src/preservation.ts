@@ -1,7 +1,7 @@
 import { existsSync, rmSync, statSync } from 'node:fs';
 import { type Actor, CrewError, ensureDir, git, gitText, newId, nowIso, safeJoin, sha256 } from '@crewyard/core';
 import { fetchCommit } from '@crewyard/projects';
-import { type CrewContext, exec, recordTransition } from '@crewyard/storage';
+import { all, type CrewContext, exec, recordTransition } from '@crewyard/storage';
 import {
   assertManagedWorkspacePath,
   type RepositoryInfo,
@@ -49,6 +49,27 @@ async function isWorktree(path: string): Promise<boolean> {
   return result.exitCode === 0 && result.stdout.trim() === 'true';
 }
 
+async function mergedPullRequestHeads(
+  ctx: CrewContext,
+  path: string,
+  ws: { repositoryId: string; branch: string; taskId: string | null },
+): Promise<string[]> {
+  const heads = all<{ head_sha: string }>(
+    ctx.store.db,
+    `SELECT DISTINCT head_sha FROM pull_requests WHERE repository_id = ? AND state = 'merged'
+       AND (head_ref = ? OR (task_id IS NOT NULL AND task_id = ?))`,
+    ws.repositoryId,
+    ws.branch,
+    ws.taskId ?? '',
+  ).map((r) => r.head_sha);
+  const present = await Promise.all(
+    heads.map(
+      async (sha) => (await git(path, ['cat-file', '-e', `${sha}^{commit}`], { allowFailure: true })).exitCode === 0,
+    ),
+  );
+  return heads.filter((_, i) => present[i]);
+}
+
 export async function inspectWorkspace(ctx: CrewContext, workspaceId: string): Promise<WorkspaceInspection> {
   const ws = requireWorkspace(ctx, workspaceId);
   const repo = requireRepository(ctx, ws.repositoryId);
@@ -71,7 +92,8 @@ export async function inspectWorkspace(ctx: CrewContext, workspaceId: string): P
     (await git(path, ['symbolic-ref', '--quiet', '--short', 'HEAD'], { allowFailure: true })).stdout.trim() || null;
   const status = await git(path, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
   const sinceBase = await gitText(path, ['rev-list', '--count', `${ws.baseSha}..HEAD`]);
-  const unpushed = await gitText(path, ['rev-list', 'HEAD', '--not', ws.baseSha, '--remotes']);
+  const merged = await mergedPullRequestHeads(ctx, path, ws);
+  const unpushed = await gitText(path, ['rev-list', 'HEAD', '--not', ws.baseSha, '--remotes', ...merged]);
   return {
     ...base,
     exists: true,
