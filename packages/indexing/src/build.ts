@@ -47,6 +47,9 @@ export interface IndexStats {
   reusedBlobs: number;
   redactedBlobs: number;
   durationMs: number;
+  membershipLoadMs: number;
+  membershipWriteMs: number;
+  membershipRowsWritten: number;
 }
 
 export interface IndexResult {
@@ -257,8 +260,12 @@ export async function indexRepository(ctx: CrewContext, options: IndexOptions): 
     const files = new Map<string, PlannedFile>();
     let trackedFiles: number;
     let changedFiles: number;
+    let membershipLoadMs = 0;
+    let membershipWriteMs = 0;
+    let membershipRowsWritten = 0;
 
     if (parent) {
+      const loadStarted = performance.now();
       const parentRows = all<{ path: string; blob_sha: string; language: string | null; size: number; kind: FileKind }>(
         ctx.store.db,
         'SELECT path, blob_sha, language, size, kind FROM files WHERE snapshot_id = ?',
@@ -277,6 +284,7 @@ export async function indexRepository(ctx: CrewContext, options: IndexOptions): 
           parserLanguage: parserLanguageFor(row.path, row.language, config),
         });
       }
+      membershipLoadMs = performance.now() - loadStarted;
       const changes = await diffTrees(repo.canonicalPath, parent.snapshot.commitSha, commitSha);
       changedFiles = changes.length;
       const sizes = new Map<string, number>();
@@ -339,7 +347,13 @@ export async function indexRepository(ctx: CrewContext, options: IndexOptions): 
 
     const batchSize = options.batchSize ?? 250;
     const at = nowIso(ctx.clock);
-    for (const batch of chunked(ready, 2_000)) ctx.store.immediate((db) => writeFiles(db, claimed.id, batch));
+    const writeMembership = (db: Database, rows: readonly FileRow[]) => {
+      const writeStarted = performance.now();
+      writeFiles(db, claimed.id, rows);
+      membershipWriteMs += performance.now() - writeStarted;
+      membershipRowsWritten += rows.length;
+    };
+    for (const batch of chunked(ready, 2_000)) ctx.store.immediate((db) => writeMembership(db, batch));
     let parsedBlobs = 0;
     let redactedBlobs = 0;
     const flush = (records: BlobRecord[]) => {
@@ -347,7 +361,7 @@ export async function indexRepository(ctx: CrewContext, options: IndexOptions): 
       const rows = records.flatMap((r) => byBlob.get(r.sha) ?? []);
       parsedBlobs += ctx.store.immediate((db) => {
         const written = writeBlobs(db, records, replace, at);
-        writeFiles(db, claimed.id, rows);
+        writeMembership(db, rows);
         return written;
       });
       redactedBlobs += records.filter((r) => r.parseStatus === 'redacted').length;
@@ -387,6 +401,9 @@ export async function indexRepository(ctx: CrewContext, options: IndexOptions): 
         reusedBlobs: byBlob.size - parsedBlobs,
         redactedBlobs,
         durationMs: Math.round(performance.now() - started),
+        membershipLoadMs,
+        membershipWriteMs,
+        membershipRowsWritten,
       },
     };
   } catch (error) {
@@ -512,5 +529,8 @@ function noopStats(snapshot: Snapshot, started: number): IndexStats {
     reusedBlobs: 0,
     redactedBlobs: 0,
     durationMs: Math.round(performance.now() - started),
+    membershipLoadMs: 0,
+    membershipWriteMs: 0,
+    membershipRowsWritten: 0,
   };
 }

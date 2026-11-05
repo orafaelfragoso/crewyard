@@ -18,12 +18,23 @@ const { values } = parseArgs({
     json: { type: 'boolean', default: false },
     keep: { type: 'boolean', default: false },
     workdir: { type: 'string', default: tmpdir() },
+    'warm-runs': { type: 'string', default: '0' },
   },
 });
 
 const fileCount = Number(values.files);
 const changedCount = Number(values.changed);
 const queryCount = Number(values.queries);
+const warmRuns = Number(values['warm-runs']);
+for (const [name, count] of [
+  ['files', fileCount],
+  ['changed', changedCount],
+  ['queries', queryCount],
+  ['warm-runs', warmRuns],
+] as const) {
+  if (!Number.isSafeInteger(count) || count < (name === 'warm-runs' ? 0 : 1)) throw new Error(`Invalid --${name}`);
+}
+if (values.durability !== 'full' && values.durability !== 'normal') throw new Error('Invalid --durability');
 
 function write(root: string, path: string, content: string): void {
   const full = join(root, path);
@@ -145,7 +156,14 @@ try {
   const cold = await indexRepository(ctx, { repositoryId: repository.id });
   const coldMs = performance.now() - coldStart;
 
-  let incremental: { ms: number; changed: number; parsed: number } | null = null;
+  let incremental: {
+    ms: number;
+    changed: number;
+    parsed: number;
+    membershipLoadMs: number;
+    membershipWriteMs: number;
+    membershipRowsWritten: number;
+  } | null = null;
   if (generated) {
     const sha = await modifyFiles(repoPath, changedCount);
     const start = performance.now();
@@ -154,10 +172,33 @@ try {
       ms: performance.now() - start,
       changed: result.snapshot.changedCount,
       parsed: result.snapshot.parsedCount,
+      membershipLoadMs: result.stats.membershipLoadMs,
+      membershipWriteMs: result.stats.membershipWriteMs,
+      membershipRowsWritten: result.stats.membershipRowsWritten,
     };
   }
 
   const sel = { repositoryId: repository.id };
+  const warm: number[] = [];
+  for (let i = 0; i < warmRuns; i++) {
+    const start = performance.now();
+    await indexRepository(ctx, { repositoryId: repository.id });
+    warm.push(performance.now() - start);
+  }
+  const membershipCopy: number[] = [];
+  store.db.run('CREATE TABLE benchmark_membership AS SELECT * FROM files WHERE 0');
+  store.db.run('CREATE UNIQUE INDEX benchmark_membership_key ON benchmark_membership(snapshot_id, path)');
+  for (let i = 0; i < warmRuns; i++) {
+    const start = performance.now();
+    store.immediate((db) => {
+      db.query('INSERT INTO benchmark_membership SELECT * FROM files WHERE snapshot_id = ?').run(cold.snapshot.id);
+    });
+    membershipCopy.push(performance.now() - start);
+    store.immediate((db) => {
+      db.run('DELETE FROM benchmark_membership');
+    });
+  }
+  store.db.run('DROP TABLE benchmark_membership');
   const symbols = store.db
     .query<{ name: string }, []>('SELECT DISTINCT name FROM symbols WHERE length(name) > 3 ORDER BY random() LIMIT 500')
     .all()
@@ -192,8 +233,12 @@ try {
       trackedFiles: cold.stats.trackedFiles,
       indexedFiles: cold.stats.indexedFiles,
       parsedBlobs: cold.stats.parsedBlobs,
+      membershipWriteMs: round(cold.stats.membershipWriteMs),
+      membershipRowsWritten: cold.stats.membershipRowsWritten,
     },
     incremental: incremental ? { ...incremental, ms: Math.round(incremental.ms) } : null,
+    warmIndexMs: warm.map(round),
+    sqlMembershipCopyMs: membershipCopy.map(round),
     latencies,
     databaseMb: round(Bun.file(dirs.database).size / 1024 ** 2),
   };
