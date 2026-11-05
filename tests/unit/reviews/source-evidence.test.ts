@@ -1,6 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { chmodSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { rmSync } from 'node:fs';
 import { crewConfigSchema } from '@crewyard/config';
 import { git } from '@crewyard/core';
 import {
@@ -96,18 +95,32 @@ test('Git evidence preserves literal whitespace, indentation and terminal newlin
 test('Git manifest records binary, mode, NUL-delimited rename paths and gitlinks', async () => {
   const oldPath = 'odd\tname\n.txt';
   const newPath = 'renamed\tname\n.txt';
-  const { repo, base } = await fixture({
-    [oldPath]: 'same\n',
-    'binary.bin': 'old\0binary',
-    'run.sh': '#!/bin/sh\ntrue\n',
-  });
-  renameSync(join(repo, oldPath), join(repo, newPath));
-  writeFileSync(join(repo, 'binary.bin'), Buffer.from([0, 255, 1]));
-  chmodSync(join(repo, 'run.sh'), 0o755);
-  await git(repo, ['add', '-A']);
-  await git(repo, ['update-index', '--add', '--cacheinfo', `160000,${base},submodule`]);
-  await git(repo, ['commit', '-qm', 'all source kinds']);
-  const head = (await git(repo, ['rev-parse', 'HEAD'])).stdout.trim();
+  const { repo, base: initial } = await fixture({ 'seed.txt': 'seed\n' });
+  const blob = async (input: string) => (await git(repo, ['hash-object', '-w', '--stdin'], { input })).stdout.trim();
+  const same = await blob('same\n');
+  const script = await blob('#!/bin/sh\ntrue\n');
+  const oldBinary = await blob('old\0binary');
+  const newBinary = await blob('\0new binary');
+  // Git objects retain paths and modes that cannot be checked out on Windows.
+  const baseTree = (
+    await git(repo, ['mktree', '-z'], {
+      input:
+        `100644 blob ${same}\t${oldPath}\0` +
+        `100644 blob ${oldBinary}\tbinary.bin\0` +
+        `100644 blob ${script}\trun.sh\0`,
+    })
+  ).stdout.trim();
+  const base = (await git(repo, ['commit-tree', baseTree, '-p', initial], { input: 'source base\n' })).stdout.trim();
+  const headTree = (
+    await git(repo, ['mktree', '-z'], {
+      input:
+        `100644 blob ${same}\t${newPath}\0` +
+        `100644 blob ${newBinary}\tbinary.bin\0` +
+        `100755 blob ${script}\trun.sh\0` +
+        `160000 commit ${base}\tsubmodule\0`,
+    })
+  ).stdout.trim();
+  const head = (await git(repo, ['commit-tree', headTree, '-p', base], { input: 'all source kinds\n' })).stdout.trim();
   const result = await collectReviewSource(repo, base, head, 1024 * 1024);
   expect(result.source.changes).toEqual(
     expect.arrayContaining([

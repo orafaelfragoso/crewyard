@@ -8,6 +8,25 @@ export interface StartedExecution {
   result: Promise<Record<string, unknown>>;
 }
 
+async function retryExecutionControl<T>(
+  ctx: CrewContext,
+  deadline: number,
+  operation: () => T | Promise<T>,
+): Promise<T> {
+  for (;;) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!(error instanceof CrewError && error.code === 'BUSY' && error.retryable)) throw error;
+      const remainingMs = deadline - performance.now();
+      if (remainingMs <= 0) throw error;
+      ctx.logger.warn('execution control waiting for database contention', { error: error.message });
+      await Bun.sleep(Math.min(25, remainingMs));
+      if (performance.now() >= deadline) throw error;
+    }
+  }
+}
+
 export async function startExecution(
   ctx: CrewContext,
   request: ExecutionRequest,
@@ -19,10 +38,15 @@ export async function startExecution(
   let nextRecovery = 0;
   while (!operationId && performance.now() < deadline) {
     if (performance.now() >= nextRecovery) {
-      await supervisor.recover();
+      await retryExecutionControl(ctx, deadline, () => supervisor.recover());
       nextRecovery = performance.now() + 1_000;
     }
-    operationId = submitExecution(ctx, request, limits)?.operationId ?? null;
+    if (performance.now() >= deadline) break;
+    operationId = await retryExecutionControl(
+      ctx,
+      deadline,
+      () => submitExecution(ctx, request, limits)?.operationId ?? null,
+    );
     if (!operationId) await Bun.sleep(25);
   }
   if (!operationId) throw new CrewError('BUSY', 'Execution capacity did not become available before its deadline');
@@ -30,7 +54,7 @@ export async function startExecution(
   const result = (async () => {
     try {
       while (performance.now() < deadline) {
-        supervisor.pump(admittedId);
+        await retryExecutionControl(ctx, deadline, () => supervisor.pump(admittedId));
         const current = getOutbox(ctx.store.db, admittedId)!;
         if (
           ['succeeded', 'failed', 'cancelled'].includes(current.status) &&

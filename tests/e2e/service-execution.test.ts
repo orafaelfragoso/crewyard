@@ -1,3 +1,4 @@
+import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -220,8 +221,10 @@ test.skipIf(process.platform === 'win32')(
   30_000,
 );
 
-test('a finite cleanup worker recovers interrupted review artifacts without a resident service', async () => {
+test('a direct cleanup worker survives bounded database contention without duplicate admission', async () => {
   const ctx = createTestContext();
+  const blocker = new Database(ctx.dirs.database);
+  let pending: Promise<Record<string, unknown>> | null = null;
   try {
     const repo = await createTempGitRepo({ 'index.ts': 'export const answer = 42;\n' });
     const { project, repository } = await initRepository(ctx, { repoPath: repo, actor, index: false });
@@ -235,7 +238,8 @@ test('a finite cleanup worker recovers interrupted review artifacts without a re
          VALUES ('review-interrupted', ?, 'code', 'legacy', '{}', ?, 'running', 'legacy', 'legacy', 'legacy', 'normal', ?)`,
       )
       .run(repository.id, sha, at);
-    const result = await driveExecution(
+    blocker.exec('BEGIN IMMEDIATE');
+    pending = driveExecution(
       ctx,
       {
         projectId: project.id,
@@ -246,13 +250,51 @@ test('a finite cleanup worker recovers interrupted review artifacts without a re
       },
       { ...DEFAULT_EXECUTION_LIMITS },
     );
+    await waitFor(() => ctx.store.contention.busyFailures > 0, 5_000);
+    blocker.exec('ROLLBACK');
+    const result = await pending;
     expect(result.failedReviews).toEqual(['review-interrupted']);
     expect(ctx.store.db.query('SELECT status, invalidated_reason FROM review_artifacts').get()).toEqual({
       status: 'failed',
       invalidated_reason: 'unsupported_execution',
     });
     expect(listEvents(ctx.store, { types: ['review.failed'] })).toHaveLength(1);
+    expect(ctx.store.db.query("SELECT operation_id FROM outbox WHERE kind = 'execution.launch'").all()).toHaveLength(1);
   } finally {
+    if (blocker.inTransaction) blocker.exec('ROLLBACK');
+    blocker.close();
+    if (pending) await pending;
+    ctx.cleanup();
+  }
+}, 30_000);
+
+test('direct execution stops retrying database contention at its configured deadline', async () => {
+  const ctx = createTestContext();
+  const blocker = new Database(ctx.dirs.database);
+  try {
+    const repo = await createTempGitRepo({ 'index.ts': 'export const answer = 42;\n' });
+    const { project, repository } = await initRepository(ctx, { repoPath: repo, actor, index: false });
+    blocker.exec('BEGIN IMMEDIATE');
+    const started = performance.now();
+    await expect(
+      driveExecution(
+        ctx,
+        {
+          projectId: project.id,
+          repositoryId: repository.id,
+          actor,
+          leaderId: actor.id,
+          operation: { kind: 'cleanup' },
+        },
+        { ...DEFAULT_EXECUTION_LIMITS, timeoutSeconds: 1 },
+      ),
+    ).rejects.toMatchObject({ code: 'BUSY' });
+    expect(performance.now() - started).toBeLessThan(5_000);
+    expect(ctx.store.contention.busyFailures).toBeGreaterThan(0);
+    expect(ctx.store.db.query("SELECT operation_id FROM outbox WHERE kind = 'execution.launch'").all()).toHaveLength(0);
+  } finally {
+    if (blocker.inTransaction) blocker.exec('ROLLBACK');
+    blocker.close();
     ctx.cleanup();
   }
 }, 20_000);
