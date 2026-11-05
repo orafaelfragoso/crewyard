@@ -3,8 +3,10 @@ import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { sha256 } from '@crewyard/core';
+import { processIdentity, sha256 } from '@crewyard/core';
 import {
+  acquireExecutionClaim,
+  bindExecutionProcess,
   claimDueOutbox,
   enqueueOutbox,
   LATEST_SCHEMA_VERSION,
@@ -12,6 +14,7 @@ import {
   migrate,
   migrationStatus,
   openStore,
+  releaseExecutionClaim,
   type Store,
 } from '@crewyard/storage';
 import { createTestContext, ManualClock } from '../../helpers/index.ts';
@@ -126,6 +129,55 @@ test('upgrade refuses recorded live or unprovable remote writers before creating
     expect(() => migrate(store)).toThrow('Stop recorded Crewyard workers');
     store.db.query("UPDATE worker_heartbeats SET status = 'stopped'").run();
     expect(migrate(store).currentVersion).toBe(LATEST_SCHEMA_VERSION);
+  } finally {
+    store.close();
+    ctx.cleanup();
+  }
+});
+
+test('upgrade checks direct execution claims again under the DDL transaction', () => {
+  const ctx = createTestContext();
+  const store = openStore({ path: join(ctx.root, 'direct-writer.sqlite') });
+  try {
+    seedSchema(store, 4);
+    const at = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const claim = store.immediate((db) =>
+      acquireExecutionClaim(
+        db,
+        { scope: 'review:direct', attemptId: 'direct', ownerId: 'cli', inputIdentity: 'input', ttlSeconds: 600 },
+        at,
+      ),
+    )!;
+    store.immediate((db) =>
+      bindExecutionProcess(
+        db,
+        claim,
+        { host: hostname(), pid: process.pid, startIdentity: processIdentity(process.pid)! },
+        at,
+      ),
+    );
+    expect(() => migrate(store)).toThrow('Reconcile all active or unverified execution attempts');
+    expect(migrationStatus(store).currentVersion).toBe(4);
+    store.immediate((db) => releaseExecutionClaim(db, claim, at));
+    let intercepted = false;
+    const racing: Store = {
+      ...store,
+      immediate: (fn) => {
+        if (!intercepted) {
+          intercepted = true;
+          store.immediate((db) =>
+            acquireExecutionClaim(
+              db,
+              { scope: 'index:unbound', attemptId: 'racer', ownerId: 'cli', inputIdentity: 'other', ttlSeconds: 600 },
+              at,
+            ),
+          );
+        }
+        return store.immediate(fn);
+      },
+    };
+    expect(() => migrate(racing)).toThrow('Reconcile all active or unverified execution attempts');
+    expect(migrationStatus(store).currentVersion).toBe(4);
   } finally {
     store.close();
     ctx.cleanup();

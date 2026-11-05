@@ -108,6 +108,7 @@ export function migrate(store: Store, options: { dryRun?: boolean; backupDir?: s
   for (const pending of status.pending) {
     const migration = MIGRATIONS.find((m) => m.version === pending.version)!;
     store.immediate((db) => {
+      if (status.currentVersion > 0) assertUpgradeQuiescent(store);
       const already = all<{ version: number }>(
         db,
         'SELECT version FROM schema_migrations WHERE version = ?',
@@ -138,4 +139,24 @@ function assertUpgradeQuiescent(store: Store): void {
         'Stop the service and its children, close MCP hosts and direct CLI writers, then retry with the current build.',
       retryable: false,
     });
+  if (all(store.db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'execution_claims'").length) {
+    const claims = all<{ process_pid: number | null; process_host: string | null }>(
+      store.db,
+      'SELECT process_pid, process_host FROM execution_claims WHERE released_at IS NULL',
+    );
+    if (
+      claims.some(
+        (claim) => claim.process_pid === null || claim.process_host !== hostname() || isProcessAlive(claim.process_pid),
+      )
+    )
+      throw new CrewError(
+        'BUSY',
+        'Reconcile all active or unverified execution attempts before upgrading the database',
+        {
+          suggestion:
+            'Use the existing compatible build to stop or reconcile attempts, then quiesce all writers and retry the upgrade.',
+          retryable: false,
+        },
+      );
+  }
 }
