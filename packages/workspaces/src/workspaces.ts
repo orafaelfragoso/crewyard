@@ -153,7 +153,14 @@ export async function allocateWorkspace(ctx: CrewContext, input: AllocateInput):
     updatedAt: '',
   };
   assertManagedWorkspacePath(ctx, draft, repo);
-  ctx.store.immediate((db) => {
+  const concurrent = ctx.store.immediate((db) => {
+    const active = one<WorkspaceRow>(
+      db,
+      `SELECT * FROM workspaces WHERE task_id = ? AND state IN (${ACTIVE_STATES.map(() => '?').join(',')}) ORDER BY created_at DESC LIMIT 1`,
+      task.id,
+      ...ACTIVE_STATES,
+    );
+    if (active) return mapWorkspace(active);
     const at = nowIso(ctx.clock);
     exec(
       db,
@@ -171,7 +178,9 @@ export async function allocateWorkspace(ctx: CrewContext, input: AllocateInput):
       at,
     );
     emit(db, draft, repo, 'workspace.allocating', input.actor, { branch, baseRef, baseSha, path, branchExists }, at);
+    return null;
   });
+  if (concurrent) return { workspace: concurrent, reused: true };
 
   const args = branchExists
     ? ['worktree', 'add', '--', path, branch]
