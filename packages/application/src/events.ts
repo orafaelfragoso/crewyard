@@ -55,6 +55,7 @@ export function metricsCsv(report: MetricsReport): string {
     ['recoveries', String(report.recoveries)],
     ['escalations', String(report.escalations)],
     ['review_cache_hit_ratio', String(report.reviewCache.hitRatio.value ?? 'unknown')],
+    ['review_active_joins', String(report.reviewCache.joined)],
     ['context_token_reduction', String(report.contextTokenReduction.value ?? 'unknown')],
     ['local_validation_minutes_per_merge', String(report.localValidationMinutesPerMerge.value ?? 'unknown')],
     ['local_validation_reruns', String(report.localValidationReruns)],

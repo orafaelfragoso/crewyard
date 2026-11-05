@@ -188,6 +188,7 @@ export function registerSystemCommands(program: Command, version: string): void 
             leadTimeP50h: r.leadTimeHours.p50.value ?? 'unknown',
             integrationP95m: r.integrationMinutes.p95.value ?? 'unknown',
             reviewCacheHit: r.reviewCache.hitRatio.value ?? 'unknown',
+            reviewActiveJoins: r.reviewCache.joined,
             localValidationMinutesPerMerge: r.localValidationMinutesPerMerge.value ?? 'unknown',
             escalations: r.escalations,
             usage:

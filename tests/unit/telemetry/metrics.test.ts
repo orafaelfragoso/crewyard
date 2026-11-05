@@ -60,6 +60,33 @@ describe('metrics', () => {
     expect(report).not.toHaveProperty('queueWaitMinutes');
   });
 
+  test('active request joins are measured separately from completed cache reuse', () => {
+    ctx = createTestContext();
+    const c = ctx;
+    const at = c.clock.now().toISOString();
+    c.store.db.query('INSERT INTO projects (id,name,created_at,updated_at) VALUES (?,?,?,?)').run('p', 'p', at, at);
+    c.store.db
+      .query(
+        'INSERT INTO repositories (id,project_id,canonical_path,default_base,created_at,updated_at) VALUES (?,?,?,?,?,?)',
+      )
+      .run('r', 'p', '/metric-reviews', 'main', at, at);
+    for (const [id, scope, reused] of [
+      ['original', 'full', null],
+      ['join', 'joined', 'original'],
+      ['reuse', 'reused', 'original'],
+    ] as const)
+      c.store.db
+        .query(`INSERT INTO review_artifacts (id,repository_id,review_type,fingerprint,fingerprint_inputs,commit_sha,base_sha,status,reviewer_identity,policy_version,prompt_version,security_class,scope,reused_from,created_at,completed_at)
+        VALUES (?,'r','code','fp','{}','head','base','passed','fixture','p1','v1','[]',?,?,?,?)`)
+        .run(id, scope, reused, at, at);
+    expect(computeMetrics(c).reviewCache).toEqual({
+      reviews: 3,
+      reused: 1,
+      joined: 1,
+      hitRatio: { status: 'measured', value: 0.33 },
+    });
+  });
+
   test('aggregates measured operation durations and records an audit row without inventing percentiles', () => {
     ctx = createTestContext();
     for (const [durationMs, outcome] of [

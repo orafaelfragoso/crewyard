@@ -30,7 +30,7 @@ export interface MetricsReport {
   wip: Record<string, number>;
   recoveries: number;
   escalations: number;
-  reviewCache: { reviews: number; reused: number; hitRatio: Measured<number> };
+  reviewCache: { reviews: number; reused: number; joined: number; hitRatio: Measured<number> };
   contextTokenReduction: Measured<number>;
   localValidationMinutesPerMerge: Measured<number>;
   localValidationReruns: number;
@@ -117,9 +117,10 @@ export function computeMetrics(
       ...p,
     )!.n;
 
-  const reviews = one<{ total: number; reused: number }>(
+  const reviews = one<{ total: number; reused: number; joined: number }>(
     db,
-    `SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN ra.reused_from IS NOT NULL THEN 1 ELSE 0 END), 0) AS reused
+    `SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN ra.scope = 'reused' AND ra.reused_from IS NOT NULL THEN 1 ELSE 0 END), 0) AS reused,
+       COALESCE(SUM(CASE WHEN ra.scope = 'joined' THEN 1 ELSE 0 END), 0) AS joined
      FROM review_artifacts ra JOIN repositories r ON r.id = ra.repository_id WHERE ra.created_at >= ? ${repoFilter}`,
     since,
     ...p,
@@ -203,6 +204,7 @@ export function computeMetrics(
     reviewCache: {
       reviews: reviews.total,
       reused: reviews.reused,
+      joined: reviews.joined,
       hitRatio: reviews.total === 0 ? unknown('no reviews in window') : measured(round(reviews.reused / reviews.total)),
     },
     contextTokenReduction:

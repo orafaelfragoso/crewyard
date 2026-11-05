@@ -2,6 +2,7 @@ import { type Actor, CrewError, fingerprint, nowIso } from '@crewyard/core';
 import type { BranchRequirements, CheckResult } from '@crewyard/github';
 import { clientFor, configFor, type IntegrationEnv, pullRequestById } from '@crewyard/integration';
 import { getRepository } from '@crewyard/projects';
+import { requestInterventionInTx } from '@crewyard/reviews';
 import { all, type CrewContext, one, recordTransition } from '@crewyard/storage';
 import { insertTaskInTx } from '@crewyard/tasks';
 
@@ -166,6 +167,22 @@ export function recordMergeHealth(
         at,
       );
     }
+    if (state === 'failed')
+      requestInterventionInTx(
+        db,
+        {
+          projectId: repository.projectId,
+          title: `Inspect merge ${observation.mergeCommitSha.slice(0, 12)} on ${observation.baseBranch}`,
+          reasons: [
+            `Required checks failed for merged PR #${merged.number} at ${observation.mergeCommitSha}. Inspect the current target branch and recorded checks. Review any draft repair and its scope before approving execution.`,
+          ],
+          prId: merged.id,
+          taskId: repairTaskId,
+          once: true,
+        },
+        observation.actor,
+        at,
+      );
     if (changed) {
       recordTransition(
         db,

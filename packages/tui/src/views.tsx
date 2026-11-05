@@ -367,6 +367,7 @@ export function MetricsView({ theme, data }: ViewProps) {
         </Panel>
         <Panel theme={theme} title="Efficiency">
           <KeyValue theme={theme} label="Review cache hit" value={fmt(m.reviewCache.hitRatio)} />
+          <KeyValue theme={theme} label="Review active joins" value={m.reviewCache.joined} />
           <KeyValue theme={theme} label="Context reduction" value={fmt(m.contextTokenReduction)} />
           <KeyValue theme={theme} label="Local validation min / merge" value={fmt(m.localValidationMinutesPerMerge)} />
           <KeyValue theme={theme} label="Local validation reruns" value={m.localValidationReruns} />

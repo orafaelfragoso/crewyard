@@ -7,7 +7,7 @@ import {
 } from '@crewyard/application';
 import { git } from '@crewyard/core';
 import { type BranchRequirements, type CheckResult, GitHubClient, staticTokenProvider } from '@crewyard/github';
-import { computeMetrics } from '@crewyard/telemetry';
+import { computeMetrics, overviewProjection } from '@crewyard/telemetry';
 import { createTestContext, type TestContext } from '../../helpers/index.ts';
 import { startMockGitHub } from '../../helpers/mock-github.ts';
 import { operator, seedProject, testConfig } from '../tasks/fixtures.ts';
@@ -130,6 +130,9 @@ describe('post-merge health', () => {
     expect(first.state).toBe('failed');
     expect(first.repairTaskId).toBeString();
     expect(second).toEqual({ ...first, changed: false });
+    expect(overviewProjection(f.ctx, f.projectId).alerts).toEqual([
+      expect.objectContaining({ prId: 'pr', taskId: first.repairTaskId }),
+    ]);
     expect(f.ctx.store.db.query('SELECT state, risk, origin_ref FROM tasks').all()).toEqual([
       { state: 'DRAFT', risk: 'high', origin_ref: `postmerge:${first.incidentId}` },
     ]);
@@ -151,6 +154,8 @@ describe('post-merge health', () => {
     const f = fixture('observe');
     const obs = observation(f.repositoryId, [check('failure')]);
     expect(recordMergeHealth(f.ctx, obs, f.env)).toMatchObject({ state: 'failed', repairTaskId: null });
+    recordMergeHealth(f.ctx, obs, f.env);
+    expect(overviewProjection(f.ctx, f.projectId).alerts).toHaveLength(1);
     expect(recordMergeHealth(f.ctx, { ...obs, currentBaseSha: 'b'.repeat(40) }, f.env)).toMatchObject({
       state: 'superseded',
       repairTaskId: null,
