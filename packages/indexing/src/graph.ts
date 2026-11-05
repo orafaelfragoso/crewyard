@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite';
 import { fingerprint } from '@crewyard/core';
 import type { CrewContext, Store } from '@crewyard/storage';
 import { all } from '@crewyard/storage';
-import { requireSnapshot, type SnapshotRequest } from './freshness.ts';
+import { requireSnapshot, type SnapshotRequest, snapshotEnvelope } from './freshness.ts';
 import { joinPath, loadPackages, type PackageInfo, type SnapshotFileRow, snapshotFiles } from './manifests.ts';
 import { basenameOf, dirnameOf } from './rules.ts';
 import { DEFAULT_INDEX_CONFIG } from './store.ts';
@@ -368,7 +368,16 @@ export function traverse(
 }
 
 export async function dependencyGraph(ctx: CrewContext, input: DependencyGraphInput): Promise<DependencyGraphResult> {
-  const { snapshot, envelope } = await requireSnapshot(ctx, input);
+  const { snapshot } = await requireSnapshot(ctx, input);
+  return dependencyGraphFromSnapshot(ctx, input, snapshot);
+}
+
+export function dependencyGraphFromSnapshot(
+  ctx: CrewContext,
+  input: DependencyGraphInput,
+  snapshot: Snapshot,
+): DependencyGraphResult {
+  const envelope = snapshotEnvelope(ctx, snapshot);
   const model = snapshotModel(ctx.store, snapshot);
   const direction = input.direction ?? 'both';
   const depth = Math.min(Math.max(input.depth ?? 1, 0), 10);

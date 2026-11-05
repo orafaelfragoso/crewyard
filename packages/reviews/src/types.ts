@@ -77,6 +77,7 @@ export interface EvidenceInputs {
   version: 2;
   source: ReviewSource;
   context: ReviewContext;
+  contextOrigin: 'source' | 'provider';
   reviewerScope: 'whole-tree' | 'patch';
   repositoryId: string;
   reviewType: ReviewType;

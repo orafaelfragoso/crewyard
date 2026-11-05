@@ -1,9 +1,9 @@
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { awaitSession, getAgent, startManagedSession } from '@crewyard/agents';
-import { interfaceFingerprint } from '@crewyard/context';
+import { interfaceFingerprintFromSnapshot } from '@crewyard/context';
 import { type Actor, CrewError, ensureDir, fingerprint, git, newId, type TaskState, toCrewError } from '@crewyard/core';
-import { dependencyGraph } from '@crewyard/indexing';
+import { dependencyGraph, dependencyGraphFromSnapshot, indexRevision, snapshotByCommit } from '@crewyard/indexing';
 import {
   createClientFactory,
   type IntegrationEnv,
@@ -19,6 +19,7 @@ import { fetchCommit, getRepository, loadProjectConfig } from '@crewyard/project
 import {
   type ContextFingerprintProvider,
   type RequestReviewResult,
+  type ReviewContext,
   type Reviewer,
   type ReviewInput,
   type ReviewType,
@@ -121,12 +122,44 @@ export async function reconcileMergedTasks(
   return rows.map((r) => r.task_id);
 }
 
+export function currentReviewContext(
+  ctx: CrewContext,
+  repositoryId: string,
+  sha: string,
+  paths: readonly string[],
+): ReviewContext | null {
+  const repository = getRepository(ctx, repositoryId);
+  const config = loadProjectConfig(ctx, repository.projectId).config.index;
+  const snapshot = snapshotByCommit(ctx.store.db, repositoryId, sha);
+  if (snapshot?.status !== 'available' || snapshot.revision !== indexRevision(config)) return null;
+  const graph = dependencyGraphFromSnapshot(
+    ctx,
+    { repositoryId, sha, paths: [...paths], direction: 'both', depth: 1, limit: 500, config },
+    snapshot,
+  );
+  const interfaces = interfaceFingerprintFromSnapshot(ctx, snapshot, paths);
+  return {
+    contentFingerprint: graph.contentFingerprint,
+    dependencyFingerprint: graph.contentFingerprint,
+    interfaceFingerprint: interfaces.fingerprint,
+    symbolGraphRevision: graph.revision,
+    coverage: {
+      kind: 'bounded',
+      depth: graph.coverage.depth,
+      limit: graph.coverage.limit,
+      truncated: graph.truncated,
+      missingPaths: [...new Set([...graph.coverage.missingPaths, ...graph.coverage.incompletePaths])].sort(),
+      unresolvedImports: graph.coverage.unresolvedImports,
+    },
+  };
+}
+
 export function contextFingerprints(ctx: CrewContext): ContextFingerprintProvider {
   return {
     async collect(repositoryId, sha, paths) {
       const repository = getRepository(ctx, repositoryId);
       const config = loadProjectConfig(ctx, repository.projectId).config.index;
-      const graph = await dependencyGraph(ctx, {
+      await dependencyGraph(ctx, {
         repositoryId,
         sha,
         paths: [...paths],
@@ -136,27 +169,9 @@ export function contextFingerprints(ctx: CrewContext): ContextFingerprintProvide
         onDemand: true,
         config,
       });
-      const interfaces = await interfaceFingerprint(ctx, {
-        repositoryId,
-        sha,
-        paths: [...paths],
-        onDemand: true,
-        config,
-      });
-      return {
-        contentFingerprint: graph.contentFingerprint,
-        dependencyFingerprint: graph.contentFingerprint,
-        interfaceFingerprint: interfaces.fingerprint,
-        symbolGraphRevision: graph.revision,
-        coverage: {
-          kind: 'bounded',
-          depth: graph.coverage.depth,
-          limit: graph.coverage.limit,
-          truncated: graph.truncated,
-          missingPaths: [...new Set([...graph.coverage.missingPaths, ...graph.coverage.incompletePaths])].sort(),
-          unresolvedImports: graph.coverage.unresolvedImports,
-        },
-      };
+      const context = currentReviewContext(ctx, repositoryId, sha, paths);
+      if (context === null) throw new CrewError('INDEX_STALE', 'Review context changed during collection');
+      return context;
     },
   };
 }
@@ -311,6 +326,8 @@ export function integrationEnv(ctx: CrewContext, overrides: Partial<IntegrationE
   return {
     github: createClientFactory(ctx, baseUrl ? { baseUrl } : {}),
     hooks: taskHooks(ctx),
+    reviewContext: (repositoryId: string, commitSha: string, paths: readonly string[]) =>
+      currentReviewContext(ctx, repositoryId, commitSha, paths),
     reviewAcceptance: (repositoryId: string) => {
       const repo = getRepository(ctx, repositoryId);
       return reviewersFor(ctx, repo.projectId, repo.canonicalPath);

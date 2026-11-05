@@ -26,12 +26,14 @@ export {
   type ResolvedSnapshot,
   requireSnapshot,
   type SnapshotRequest,
+  snapshotEnvelope,
 } from './freshness.ts';
 export { collectGarbage, type GarbageCollectionInput, type GarbageCollectionResult } from './gc.ts';
 export {
   type DependencyGraphInput,
   type DependencyGraphResult,
   dependencyGraph,
+  dependencyGraphFromSnapshot,
   type GraphDirection,
   type GraphEdge,
   type GraphNode,

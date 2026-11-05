@@ -26,7 +26,7 @@ export function indexCommand(repositoryId: string, sha: string, force = false): 
   return `crew index update --repo ${repositoryId} --ref ${sha}${force ? ' --force' : ''}`;
 }
 
-function envelopeFor(ctx: CrewContext, snapshot: Snapshot): ResultEnvelope {
+export function snapshotEnvelope(ctx: CrewContext, snapshot: Snapshot): ResultEnvelope {
   return {
     repositoryId: snapshot.repositoryId,
     commitSha: snapshot.commitSha,
@@ -59,7 +59,7 @@ export async function requireSnapshot(ctx: CrewContext, request: SnapshotRequest
       suggestion: indexCommand(repo.id, commitSha, status === 'stale'),
     });
   }
-  return { repo, snapshot, envelope: envelopeFor(ctx, snapshot) };
+  return { repo, snapshot, envelope: snapshotEnvelope(ctx, snapshot) };
 }
 
 export interface IndexStatusReport {

@@ -5,9 +5,11 @@ import {
   isTestPath,
   type ResultEnvelope,
   requireSnapshot,
+  type Snapshot,
   type SnapshotModel,
   type SnapshotRequest,
   SYNTAX_NOTE,
+  snapshotEnvelope,
   snapshotModel,
   traverse,
 } from '@crewyard/indexing';
@@ -385,10 +387,19 @@ export async function interfaceFingerprint(
   ctx: CrewContext,
   input: InterfaceFingerprintInput,
 ): Promise<InterfaceFingerprint> {
-  const { snapshot, envelope } = await requireSnapshot(ctx, input);
+  const { snapshot } = await requireSnapshot(ctx, input);
+  return interfaceFingerprintFromSnapshot(ctx, snapshot, input.paths);
+}
+
+export function interfaceFingerprintFromSnapshot(
+  ctx: CrewContext,
+  snapshot: Snapshot,
+  paths: readonly string[],
+): InterfaceFingerprint {
+  const envelope = snapshotEnvelope(ctx, snapshot);
   const model = snapshotModel(ctx.store, snapshot);
   const files: FileInterface[] = [];
-  for (const path of [...new Set(input.paths)].sort()) {
+  for (const path of [...new Set(paths)].sort()) {
     const file = model.byPath.get(path);
     if (!file) {
       files.push({ path, basis: 'missing', fingerprint: fingerprint({ path, missing: true }), exportedSymbols: 0 });

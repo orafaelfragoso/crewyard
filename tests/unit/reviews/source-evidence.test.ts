@@ -224,3 +224,46 @@ test('evidence expiring during provider work completes as invalidated', async ()
   expect(result.outcomes[0]?.review?.status).toBe('invalidated');
   expect(ctx.store.db.query("SELECT id FROM events WHERE type = 'review.invalidated'").all()).toHaveLength(1);
 });
+
+test('summary acceptance requires the current provider context rather than stored context alone', async () => {
+  const { repo, base } = await fixture({ 'file.ts': 'a\n' });
+  const head = await commitFiles(repo, { 'file.ts': 'b\n' });
+  const source = await collectReviewSource(repo, base, head, 1024 * 1024);
+  const clock = new ManualClock();
+  const ctx = reviewContext(repo, clock);
+  let content = 'context-A';
+  const provider = {
+    async collect() {
+      return {
+        contentFingerprint: content,
+        dependencyFingerprint: content,
+        interfaceFingerprint: content,
+        symbolGraphRevision: 'extractor-1',
+        coverage: {
+          kind: 'bounded' as const,
+          depth: 1,
+          limit: 500,
+          truncated: false,
+          missingPaths: [],
+          unresolvedImports: [],
+        },
+      };
+    },
+  };
+  await requestReview(
+    ctx,
+    { repositoryId: 'repo', prId: 'pr', commitSha: head, baseSha: base, patch: source.patch, types: ['code'] },
+    { config, reviewers: { code: reviewer }, context: provider },
+  );
+  const expected = acceptance(clock, base);
+  const currentA = await provider.collect();
+  expect(
+    reviewSummary(ctx.store.db, 'pr', head, { ...expected, currentContext: () => currentA }).byType.code?.status,
+  ).toBe('passed');
+  expect(reviewSummary(ctx.store.db, 'pr', head, expected).byType.code?.status).toBe('invalidated');
+  content = 'context-B';
+  const currentB = await provider.collect();
+  expect(
+    reviewSummary(ctx.store.db, 'pr', head, { ...expected, currentContext: () => currentB }).byType.code?.status,
+  ).toBe('invalidated');
+});

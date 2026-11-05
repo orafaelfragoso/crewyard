@@ -1,6 +1,7 @@
 import type { CrewConfig } from '@crewyard/config';
 import { fingerprint } from '@crewyard/core';
-import type { CacheDecision, EvidenceInputs, ReviewArtifact, Reviewer, ReviewType } from './types.ts';
+import type { ReviewSource } from './patch.ts';
+import type { CacheDecision, EvidenceInputs, ReviewArtifact, ReviewContext, Reviewer, ReviewType } from './types.ts';
 
 export function evidenceFingerprint(inputs: EvidenceInputs): string {
   return fingerprint(inputs);
@@ -23,15 +24,54 @@ export interface ReviewAcceptancePolicy {
   cacheEnabled: boolean;
   requireReviewForHighRisk: boolean;
   expectedReviewers: Partial<Record<ReviewType, ReviewReviewerIdentity>>;
+  currentContext?: (review: ReviewArtifact) => ReviewContext | null;
 }
 
 export function isCurrentEvidence(inputs: EvidenceInputs): boolean {
-  return inputs.version === 2 && inputs.source !== undefined && inputs.context !== undefined;
+  return (
+    inputs.version === 2 &&
+    inputs.source !== undefined &&
+    inputs.context !== undefined &&
+    (inputs.contextOrigin === 'source' || inputs.contextOrigin === 'provider')
+  );
+}
+
+export function sourceReviewContext(source: ReviewSource): ReviewContext {
+  return {
+    contentFingerprint: source.kind === 'git' ? fingerprint(source) : null,
+    dependencyFingerprint: null,
+    interfaceFingerprint: null,
+    symbolGraphRevision: null,
+    coverage: {
+      kind: source.kind === 'git' ? 'whole-tree' : 'unavailable',
+      depth: null,
+      limit: null,
+      truncated: false,
+      missingPaths: [],
+      unresolvedImports: [],
+    },
+  };
+}
+
+export function reviewContextPaths(inputs: EvidenceInputs): string[] {
+  return inputs.source.kind === 'git'
+    ? [
+        ...new Set(
+          inputs.source.changes.flatMap((change) =>
+            [change.oldPath, change.newPath].filter((path): path is string => path !== null),
+          ),
+        ),
+      ].sort()
+    : Object.keys(inputs.fileHashes).sort();
 }
 
 export function reviewEvidenceValidity(review: ReviewArtifact, policy: ReviewAcceptancePolicy): string | null {
   const inputs = review.fingerprintInputs;
   if (!isCurrentEvidence(inputs) || inputs.source.kind !== 'git') return 'unsupported_evidence';
+  const currentContext =
+    inputs.contextOrigin === 'source' ? sourceReviewContext(inputs.source) : policy.currentContext?.(review);
+  if (!currentContext) return 'context_unavailable';
+  if (fingerprint(currentContext) !== fingerprint(inputs.context)) return 'context_changed';
   if (policy.expectedBaseSha === null || review.baseSha !== policy.expectedBaseSha) return 'base_changed';
   const expected = policy.expectedReviewers[review.reviewType];
   if (!expected) return 'reviewer_identity_unavailable';

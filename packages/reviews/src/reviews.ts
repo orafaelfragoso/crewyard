@@ -39,6 +39,7 @@ import {
   type ReviewAcceptancePolicy,
   reviewEvidenceValidity,
   reviewPolicyVersion,
+  sourceReviewContext,
 } from './cache.ts';
 import { classifyPaths } from './classify.ts';
 import { collectReviewSource, normalizePatch, parseUnifiedDiff, type ReviewSource } from './patch.ts';
@@ -216,20 +217,7 @@ async function resolveContext(
       throw new CrewError('INDEX_STALE', 'Review context is unavailable');
     return context;
   }
-  return {
-    contentFingerprint: source.kind === 'git' ? fingerprint(source) : null,
-    dependencyFingerprint: null,
-    interfaceFingerprint: null,
-    symbolGraphRevision: null,
-    coverage: {
-      kind: source.kind === 'git' ? 'whole-tree' : 'unavailable',
-      depth: null,
-      limit: null,
-      truncated: false,
-      missingPaths: [],
-      unresolvedImports: [],
-    },
-  };
+  return sourceReviewContext(source);
 }
 
 function candidate(row: ReviewRow | null, at: string): CacheCandidate | null {
@@ -715,6 +703,7 @@ export async function requestReview(
       version: 2,
       source,
       context,
+      contextOrigin: deps.context ? 'provider' : 'source',
       reviewerScope: reviewer.evidenceScope ?? 'whole-tree',
       repositoryId: input.repositoryId,
       reviewType: type,

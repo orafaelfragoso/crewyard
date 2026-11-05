@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+import { currentReviewContext } from '@crewyard/application';
 import { crewConfigSchema } from '@crewyard/config';
 import { dependencyGraph, indexRepository } from '@crewyard/indexing';
 import { commitFiles } from '../../helpers/index.ts';
@@ -23,6 +24,7 @@ test('dependency context fingerprints bodies and exposes depth, node, missing an
     limit: 500,
   };
   const graph = await dependencyGraph(fixture.ctx, input);
+  expect(currentReviewContext(fixture.ctx, fixture.repositoryId, input.sha, input.paths)).not.toBeNull();
   expect(graph.truncated).toBe(true);
   expect(graph.coverage).toMatchObject({ depth: 1, limit: 500, missingPaths: ['absent.ts'] });
   const deep = await dependencyGraph(fixture.ctx, { ...input, depth: 2 });
@@ -42,4 +44,5 @@ test('dependency context fingerprints bodies and exposes depth, node, missing an
   expect(revised.revision).not.toBe(graph.revision);
   expect(revised.contentFingerprint).not.toBe(graph.contentFingerprint);
   expect(revised.coverage.incompletePaths).toContain('a.ts');
+  expect(currentReviewContext(fixture.ctx, fixture.repositoryId, input.sha, input.paths)).toBeNull();
 });
