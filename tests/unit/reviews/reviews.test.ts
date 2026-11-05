@@ -379,3 +379,93 @@ describe('validation', () => {
     expect(slow).toMatchObject({ status: 'failed', failureClass: 'transient_ci' });
   }, 15_000);
 });
+
+describe('review acceptance gates', () => {
+  test.each(['forced', 'cache_disabled', 'expired', 'low_confidence', 'context_changed'] as const)(
+    '%s prevents incremental reuse and carried findings',
+    async (gate) => {
+      const { ctx: c, repositoryId, config } = setup();
+      const context = new Context();
+      let calls = 0;
+      const reviewer: Reviewer = {
+        identity: 'scoped',
+        model: 'fixture',
+        promptVersion: '1',
+        evidenceScope: 'patch',
+        review: async () => ({
+          confidence: gate === 'low_confidence' ? 0.1 : 0.9,
+          findings:
+            calls++ === 0 ? [{ severity: 'low', confidence: 0.9, path: 'src/a.ts', reason: 'old finding' }] : [],
+        }),
+      };
+      const input = {
+        repositoryId,
+        prId: 'pr_1',
+        commitSha: 'h1',
+        baseSha: 'b',
+        patch: diff('src/a.ts', ['a'], ['b']) + diff('src/b.ts', ['c'], ['d']),
+        types: ['code' as const],
+      };
+      const first = await requestReview(c, input, { reviewers: { code: reviewer }, config, context });
+      if (gate === 'cache_disabled') config.review.cache_enabled = false;
+      if (gate === 'expired')
+        c.store.db
+          .query('UPDATE review_artifacts SET expires_at = ? WHERE id = ?')
+          .run('2000-01-01T00:00:00.000Z', first.outcomes[0]!.review!.id);
+      if (gate === 'context_changed') context.schema = 'changed';
+      const next = await requestReview(
+        c,
+        {
+          ...input,
+          commitSha: 'h2',
+          patch: diff('src/a.ts', ['a'], ['b']) + diff('src/b.ts', ['c'], ['e']),
+          force: gate === 'forced',
+        },
+        { reviewers: { code: reviewer }, config, context },
+      );
+      expect(next.outcomes[0]?.decision).toBe('full');
+      expect(next.outcomes[0]?.review?.findings).toEqual([]);
+    },
+  );
+
+  test('missing context is a visible failure before the reviewer runs', async () => {
+    const { ctx: c, repositoryId, config } = setup();
+    const reviewer = new CountingReviewer();
+    await expect(
+      requestReview(
+        c,
+        { repositoryId, commitSha: 'head', baseSha: 'base', patch: PATCH },
+        {
+          reviewers: { code: reviewer },
+          config,
+          context: {
+            collect: async () => {
+              throw new Error('index unavailable');
+            },
+          },
+        },
+      ),
+    ).rejects.toThrow('index unavailable');
+    expect(reviewer.calls).toHaveLength(0);
+  });
+
+  test('changed context during provider work invalidates the completed review', async () => {
+    const { ctx: c, repositoryId, config } = setup();
+    const context = new Context();
+    const reviewer: Reviewer = {
+      identity: 'changing',
+      model: 'fixture',
+      promptVersion: '1',
+      review: async () => {
+        context.schema = 'new';
+        return { confidence: 0.9, findings: [] };
+      },
+    };
+    const result = await requestReview(
+      c,
+      { repositoryId, commitSha: 'head', baseSha: 'base', patch: PATCH, types: ['code'] },
+      { reviewers: { code: reviewer }, config, context },
+    );
+    expect(result.outcomes[0]?.review?.status).toBe('invalidated');
+  });
+});

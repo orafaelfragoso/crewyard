@@ -723,6 +723,38 @@ export function reviewSummary(
   return { commitSha, byType, blockingFindings };
 }
 
+export function invalidateUnusableReviewEvidenceInTx(
+  db: Database,
+  prId: string,
+  commitSha: string,
+  policy: ReviewAcceptancePolicy,
+  actor: Actor,
+): string[] {
+  const rows = all<ReviewRow>(
+    db,
+    "SELECT * FROM review_artifacts WHERE pr_id = ? AND commit_sha = ? AND status IN ('passed', 'changes_requested')",
+    prId,
+    commitSha,
+  );
+  const invalidated: string[] = [];
+  for (const row of rows) {
+    const reason = reviewEvidenceValidity(mapReview(db, row), policy);
+    if (reason === null) continue;
+    db.query("UPDATE review_artifacts SET status = 'invalidated', invalidated_reason = ? WHERE id = ?").run(
+      reason,
+      row.id,
+    );
+    recordTransition(
+      db,
+      { type: 'review.invalidated', actor, prId, taskId: row.task_id, payload: { reviewIds: [row.id], reason } },
+      { action: 'review.invalidate', input: { reviewId: row.id, reason }, decision: 'invalidated' },
+      policy.at,
+    );
+    invalidated.push(row.id);
+  }
+  return invalidated;
+}
+
 export interface InvalidateReviewsInput {
   prId?: string;
   taskId?: string;
