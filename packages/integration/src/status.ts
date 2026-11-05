@@ -64,6 +64,8 @@ export interface PullRequestReviewInput {
   prId: string;
   types?: ReviewType[];
   force?: boolean;
+  expectedHeadSha?: string;
+  expectedBaseSha?: string;
 }
 
 export async function requestPullRequestReview(
@@ -72,11 +74,15 @@ export async function requestPullRequestReview(
   deps: Omit<ReviewDeps, 'config'> & { env?: IntegrationEnv },
 ): Promise<RequestReviewResult> {
   const pr = requirePullRequest(ctx.store.db, input.prId);
+  if (input.expectedHeadSha && input.expectedHeadSha !== pr.headSha)
+    throw new CrewError('HEAD_MISMATCH', 'Review head changed after execution admission');
   const repository = repositoryFor(ctx, pr.repositoryId);
   const config = configFor(ctx, deps.env ?? {}, repository.projectId);
   const base = pr.governance?.integrationBase ?? pr.baseRef;
   const client = await clientFor(ctx, deps.env ?? {}, repository);
   const liveBase = await client.getBranch(base);
+  if (input.expectedBaseSha && input.expectedBaseSha !== liveBase.sha)
+    throw new CrewError('HEAD_MISMATCH', 'Review base changed after execution admission');
   const baseSha = await fetchIntegrationRefs(ctx, repository, liveBase.sha, [pr], { kind: 'service', id: 'reviews' });
   const patch = await collectPatch(repository.canonicalPath, baseSha, pr.headSha);
   return requestReview(

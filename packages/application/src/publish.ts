@@ -245,7 +245,7 @@ export async function publishTask(
   const finish = async (published: PullRequestRecord) => {
     const review: PublishResult['review'] = [];
     if (reviewing) {
-      const result = await reviewPullRequest(ctx, { prId: published.id }, env);
+      const result = await reviewPullRequest(ctx, { prId: published.id }, input.env);
       for (const o of result.outcomes) {
         review.push({
           type: o.reviewType,

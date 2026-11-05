@@ -339,7 +339,7 @@ export async function agentRequestReview(ctx: CrewContext, caller: Caller, input
   assertToolAllowed(caller, 'crew_request_review');
   ownedTask(ctx, caller, input.taskId);
   const pr = prForTask(ctx, input.taskId);
-  return reviewPullRequest(ctx, { prId: pr.id }, integrationEnv(ctx));
+  return reviewPullRequest(ctx, { prId: pr.id });
 }
 
 export async function agentRequestIntegration(ctx: CrewContext, caller: Caller, input: { taskId: string }) {

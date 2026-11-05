@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { listAgents } from '@crewyard/agents';
 import {
+  allocateTaskWorkspace,
   buildIndex,
   claimAndPrepare,
   commitTaskWorkspace,
@@ -780,8 +781,7 @@ export function registerWorkCommands(program: Command): void {
     .description('allocate a worktree for a task you already hold a lease on (normally done by claim)')
     .action(
       action(async (ctx, opts, taskId: string) => {
-        const { allocateWorkspace } = await import('@crewyard/workspaces');
-        const result = await allocateWorkspace(ctx, { taskId, actor: operatorActor() });
+        const result = await allocateTaskWorkspace(ctx, { taskId, actor: operatorActor() });
         emit(
           opts,
           result,

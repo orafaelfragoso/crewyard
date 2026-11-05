@@ -5,10 +5,15 @@ import { interfaceFingerprintFromSnapshot } from '@crewyard/context';
 import { type Actor, CrewError, ensureDir, fingerprint, git, newId, type TaskState, toCrewError } from '@crewyard/core';
 import { dependencyGraph, dependencyGraphFromSnapshot, indexRevision, snapshotByCommit } from '@crewyard/indexing';
 import {
+  clientFor,
   createClientFactory,
   type IntegrationEnv,
+  type OutboxReport,
   type PendingHook,
   type PullRequestReviewInput,
+  processIntegrationOutbox,
+  type QueueTickResult,
+  queueTick,
   requestPullRequestReview,
   requirePullRequest,
   runHooks,
@@ -30,6 +35,8 @@ import { all, appendEvent, type CrewContext } from '@crewyard/storage';
 import { showTask, transitionTask } from '@crewyard/tasks';
 import { listWorkspaces, setExpectedRemoteHead } from '@crewyard/workspaces';
 import { extractJson, sessionResultText } from './agents.ts';
+import { DEFAULT_EXECUTION_LIMITS, type ExecutionOperation } from './execution.ts';
+import { driveExecution } from './execution-driver.ts';
 import { sessionTooling } from './session-tooling.ts';
 
 export const INTEGRATION_ACTOR: Actor = { kind: 'service', id: 'crew-integration' };
@@ -293,16 +300,52 @@ export function reviewersFor(ctx: CrewContext, projectId: string, cwd: string): 
 
 export async function reviewPullRequest(
   ctx: CrewContext,
-  input: PullRequestReviewInput,
-  env: IntegrationEnv = {},
+  input: PullRequestReviewInput & { configurationFingerprint?: string },
+  env?: IntegrationEnv,
 ): Promise<RequestReviewResult> {
   const pr = requirePullRequest(ctx.store.db, input.prId);
   const repo = getRepository(ctx, pr.repositoryId);
+  const config = loadProjectConfig(ctx, repo.projectId).config;
+  const configurationFingerprint = fingerprint({
+    config,
+    reviewers: Object.entries(reviewersFor(ctx, repo.projectId, repo.canonicalPath)).map(([type, reviewer]) => ({
+      type,
+      identity: reviewer.identity,
+      model: reviewer.model,
+      promptVersion: reviewer.promptVersion,
+      configurationFingerprint: reviewer.configurationFingerprint ?? null,
+    })),
+  });
+  if (input.configurationFingerprint && input.configurationFingerprint !== configurationFingerprint)
+    throw new CrewError('CONFLICT', 'Review configuration changed after execution admission');
+  if (!ctx.execution && env === undefined) {
+    const client = await clientFor(ctx, integrationEnv(ctx), repo);
+    const base = await client.getBranch(pr.governance?.integrationBase ?? pr.baseRef);
+    return (await driveExecution(
+      ctx,
+      {
+        projectId: repo.projectId,
+        repositoryId: repo.id,
+        actor: INTEGRATION_ACTOR,
+        leaderId: INTEGRATION_ACTOR.id,
+        operation: {
+          kind: 'review',
+          prId: pr.id,
+          expectedHeadSha: pr.headSha,
+          expectedBaseSha: base.sha,
+          configurationFingerprint,
+          types: [...new Set(input.types ?? ['code', 'security'])].sort() as ReviewType[],
+          force: input.force === true,
+        },
+      },
+      { ...DEFAULT_EXECUTION_LIMITS },
+    )) as unknown as RequestReviewResult;
+  }
   const review = (cwd: string) =>
     requestPullRequestReview(ctx, input, {
       reviewers: reviewersFor(ctx, repo.projectId, cwd),
       context: contextFingerprints(ctx),
-      env,
+      env: env ?? integrationEnv(ctx),
     });
   if (!loadProjectConfig(ctx, repo.projectId).config.review.reviewer_agent) return review(repo.canonicalPath);
   await fetchCommit(ctx, {
@@ -319,6 +362,93 @@ export async function reviewPullRequest(
     await git(repo.canonicalPath, ['worktree', 'remove', '--force', worktree], { allowFailure: true });
     rmSync(worktree, { recursive: true, force: true });
   }
+}
+
+export interface IntegrationTickInput {
+  repositoryId: string;
+  leaderId: string;
+  actor: Actor;
+  sync: boolean;
+  maxCandidates: number;
+  processOutbox: boolean;
+  expected?: Extract<ExecutionOperation, { kind: 'queue' }>;
+}
+
+export interface IntegrationTickResult {
+  outbox: OutboxReport | null;
+  tick: QueueTickResult;
+  reconciled: string[];
+}
+
+export function prepareQueueExecution(
+  ctx: CrewContext,
+  repositoryId: string,
+  options: Pick<IntegrationTickInput, 'sync' | 'maxCandidates' | 'processOutbox'>,
+): Extract<ExecutionOperation, { kind: 'queue' }> {
+  const repository = getRepository(ctx, repositoryId);
+  const configurationFingerprint = fingerprint(loadProjectConfig(ctx, repository.projectId).config);
+  const db = ctx.store.db;
+  return {
+    kind: 'queue',
+    ...options,
+    configurationFingerprint,
+    queueRevision: fingerprint({
+      project: all(
+        db,
+        'SELECT autonomy, workers_paused, intake_paused, policy_revision FROM projects WHERE id = ?',
+        repository.projectId,
+      ),
+      queues: all(db, 'SELECT * FROM integration_queues WHERE repository_id = ? ORDER BY id', repositoryId),
+      entries: all(
+        db,
+        'SELECT e.* FROM queue_entries e JOIN integration_queues q ON q.id = e.queue_id WHERE q.repository_id = ? ORDER BY e.id',
+        repositoryId,
+      ),
+      prs: all(db, "SELECT * FROM pull_requests WHERE repository_id = ? AND state = 'open' ORDER BY id", repositoryId),
+    }),
+  };
+}
+
+export async function runIntegrationTick(
+  ctx: CrewContext,
+  input: IntegrationTickInput,
+  env?: IntegrationEnv,
+): Promise<IntegrationTickResult> {
+  if (!Number.isSafeInteger(input.maxCandidates) || input.maxCandidates < 1)
+    throw new CrewError('INVALID_INPUT', 'Integration candidate limit must be a positive integer');
+  const repository = getRepository(ctx, input.repositoryId);
+  const operation = prepareQueueExecution(ctx, repository.id, {
+    sync: input.sync,
+    maxCandidates: input.maxCandidates,
+    processOutbox: input.processOutbox,
+  });
+  if (input.expected && fingerprint(input.expected) !== fingerprint(operation))
+    throw new CrewError('CONFLICT', 'Integration queue inputs changed after execution admission');
+  if (!ctx.execution && env === undefined) {
+    return (await driveExecution(
+      ctx,
+      {
+        projectId: repository.projectId,
+        repositoryId: repository.id,
+        actor: input.actor,
+        leaderId: input.leaderId,
+        operation,
+      },
+      { ...DEFAULT_EXECUTION_LIMITS },
+    )) as unknown as IntegrationTickResult;
+  }
+  const runtime = env ?? integrationEnv(ctx);
+  const outbox = input.processOutbox
+    ? await processIntegrationOutbox(ctx, { leaderId: input.leaderId, env: runtime })
+    : null;
+  const tick = await queueTick(ctx, repository.id, {
+    leaderId: input.leaderId,
+    env: runtime,
+    sync: input.sync,
+    maxCandidates: input.maxCandidates,
+  });
+  const reconciled = await reconcileMergedTasks(ctx, repository.id, runtime);
+  return { outbox, tick, reconciled };
 }
 
 export function integrationEnv(ctx: CrewContext, overrides: Partial<IntegrationEnv> = {}): IntegrationEnv {

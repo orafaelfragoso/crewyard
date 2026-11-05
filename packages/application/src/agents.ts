@@ -7,12 +7,12 @@ import {
   stopSession,
   systemSecretStore,
 } from '@crewyard/agents';
-import { type Actor, CrewError, LEASED_TASK_STATES } from '@crewyard/core';
+import { type Actor, CrewError, fingerprint, LEASED_TASK_STATES, nowIso } from '@crewyard/core';
 import { repositoryProfile } from '@crewyard/indexing';
 import { explainPullRequest, listPullRequests } from '@crewyard/integration';
 import { loadProjectConfig, primaryRepository } from '@crewyard/projects';
 import { listFindings } from '@crewyard/reviews';
-import type { CrewContext } from '@crewyard/storage';
+import { type CrewContext, getOutbox } from '@crewyard/storage';
 import {
   getGoal,
   heartbeat,
@@ -23,8 +23,11 @@ import {
   report,
   showTask,
   startTask,
+  verifyLeaseInTx,
 } from '@crewyard/tasks';
 import { bootstrapWorkspace, collectCommits, commitWorkspaceChanges, mergeRemoteBranch } from '@crewyard/workspaces';
+import { DEFAULT_EXECUTION_LIMITS, type ExecutionOperation } from './execution.ts';
+import { cancelExecution, startExecution } from './execution-driver.ts';
 import { contextPack } from './retrieval.ts';
 import { clearSessionFailures, type RetryState, recordSessionFailure } from './session-retries.ts';
 import { sessionTooling } from './session-tooling.ts';
@@ -355,10 +358,19 @@ async function updateRevisionWorkspace(ctx: CrewContext, claim: PreparedClaim, a
   ].join('\n');
 }
 
-export async function dispatchTask(
+export interface DispatchTaskInput {
+  taskId: string;
+  agent: string;
+  actor: Actor;
+  model?: string | null;
+  expected?: Extract<ExecutionOperation, { kind: 'dispatch' }>;
+  inProcess?: boolean;
+}
+
+export function prepareDispatchExecution(
   ctx: CrewContext,
-  input: { taskId: string; agent: string; actor: Actor; model?: string | null },
-): Promise<Dispatch> {
+  input: DispatchTaskInput,
+): Extract<ExecutionOperation, { kind: 'dispatch' }> {
   const agent = getAgent(ctx, input.agent);
   if (!agent.managed) {
     throw new CrewError('POLICY_DENIED', `Agent ${agent.name} is unmanaged; Crewyard cannot launch it`, {
@@ -366,15 +378,117 @@ export async function dispatchTask(
     });
   }
   const task = showTask(ctx, input.taskId).task;
+  return {
+    kind: 'dispatch',
+    taskId: task.id,
+    agentId: agent.id,
+    model: input.model ?? null,
+    taskRevision: task.revision,
+    configurationFingerprint: fingerprint(loadProjectConfig(ctx, task.projectId).config),
+    agentConfigurationFingerprint: fingerprint(agent),
+  };
+}
+
+async function dispatchInWorker(ctx: CrewContext, input: DispatchTaskInput): Promise<Dispatch> {
+  const task = showTask(ctx, input.taskId).task;
+  const repository = primaryRepository(ctx, task.projectId);
+  const handle = await startExecution(
+    ctx,
+    {
+      projectId: task.projectId,
+      repositoryId: repository.id,
+      actor: input.actor,
+      leaderId: input.actor.id,
+      operation: prepareDispatchExecution(ctx, input),
+    },
+    { ...DEFAULT_EXECUTION_LIMITS },
+  );
+  let completed = false;
+  let result: Record<string, unknown> | null = null;
+  let failure: unknown = null;
+  const settled = handle.result.then(
+    (value) => {
+      result = value;
+      completed = true;
+    },
+    (error: unknown) => {
+      failure = error;
+      completed = true;
+    },
+  );
+  for (;;) {
+    const progress = getOutbox(ctx.store.db, handle.operationId)?.remoteCorrelation?.progress ?? result;
+    if (progress && typeof progress === 'object' && 'claim' in progress && 'session' in progress) {
+      const publicDispatch = progress as Pick<Dispatch, 'claim' | 'session'>;
+      const done = settled.then(() => {
+        if (failure) throw failure;
+        const outcome = result?.outcome;
+        if (!outcome || typeof outcome !== 'object' || !('kind' in outcome))
+          throw new CrewError('INTERNAL', 'Task execution completed without a dispatch outcome');
+        return outcome as DispatchOutcome;
+      });
+      return {
+        ...publicDispatch,
+        done,
+        async interrupt(reason) {
+          await cancelExecution(ctx, handle.operationId, reason);
+          return done;
+        },
+      };
+    }
+    if (completed) {
+      if (failure) throw failure;
+      throw new CrewError('INTERNAL', 'Task execution completed without session progress');
+    }
+    await Bun.sleep(25);
+  }
+}
+
+export async function dispatchTask(ctx: CrewContext, input: DispatchTaskInput): Promise<Dispatch> {
+  const operation = prepareDispatchExecution(ctx, input);
+  if (input.expected && fingerprint(input.expected) !== fingerprint(operation))
+    throw new CrewError('CONFLICT', 'Task or agent configuration changed after execution admission');
+  if (!ctx.execution && !input.inProcess) return dispatchInWorker(ctx, input);
+  const agent = getAgent(ctx, input.agent);
+  const task = showTask(ctx, input.taskId).task;
   const revision = task.state === 'REVISION' ? revisionBrief(ctx, task.id) : null;
   const claim = await claimAndPrepare(ctx, {
     taskId: task.id,
     holder: { kind: 'agent', id: agent.id },
     actor: input.actor,
+    ...(input.inProcess ? { inProcess: true } : {}),
   });
+  const credentials = { taskId: claim.taskId, generation: claim.leaseGeneration, token: claim.claimToken };
+  const preparation = new AbortController();
+  let preparationError: unknown = null;
+  const timer = setInterval(() => {
+    try {
+      const beat = heartbeat(ctx, credentials);
+      if (beat.cancelRequested || beat.paused)
+        throw new CrewError('CONFLICT', 'Task preparation was stopped by policy');
+    } catch (error) {
+      preparationError = error;
+      preparation.abort(error);
+    }
+  }, Math.max(5, claim.heartbeatIntervalSeconds) * 1000);
+  const preparedContext: CrewContext = {
+    ...ctx,
+    ...(ctx.execution
+      ? { execution: { ...ctx.execution, signal: AbortSignal.any([ctx.execution.signal, preparation.signal]) } }
+      : {}),
+    store: {
+      ...ctx.store,
+      immediate: (fn) =>
+        ctx.store.immediate((db) => {
+          preparation.signal.throwIfAborted();
+          verifyLeaseInTx(db, credentials, nowIso(ctx.clock));
+          return fn(db);
+        }),
+    },
+  };
   try {
     if (claim.workspaceId) {
-      const bootstrap = await bootstrapWorkspace(ctx, claim.workspaceId, {
+      const bootstrap = await bootstrapWorkspace(preparedContext, claim.workspaceId, {
         actor: input.actor,
         resolveSecret: (ref) => systemSecretStore.get(ref),
       });
@@ -383,9 +497,9 @@ export async function dispatchTask(
     }
     const remote =
       listPullRequests(ctx, { taskId: task.id, state: 'open' }).length > 0
-        ? await updateRevisionWorkspace(ctx, claim, input.actor)
+        ? await updateRevisionWorkspace(preparedContext, claim, input.actor)
         : null;
-    const pack = await contextPack(ctx, {
+    const pack = await contextPack(preparedContext, {
       projectId: task.projectId,
       query: `${task.title}\n${task.objective}`,
       ...(task.scopeHints.length ? { paths: task.scopeHints.filter((s) => !s.includes(':')) } : {}),
@@ -393,6 +507,8 @@ export async function dispatchTask(
     const packText = pack
       ? pack.excerpts.map((e) => `### ${e.path}:${e.startLine}-${e.endLine}\n${e.text}`).join('\n')
       : null;
+    if (preparationError) throw preparationError;
+    preparedContext.store.immediate((db) => verifyLeaseInTx(db, credentials, nowIso(ctx.clock)));
     const session = await startManagedSession(
       ctx,
       {
@@ -419,7 +535,11 @@ export async function dispatchTask(
         sessionId: session.sessionId,
       });
     } catch (error) {
-      ctx.logger.warn('could not mark task running', { taskId: claim.taskId, error: (error as Error).message });
+      await stopSession(ctx, session.sessionId, {
+        actor: input.actor,
+        reason: 'Task lease changed before session admission',
+      });
+      throw error;
     }
     const interruption: { reason: string | null } = { reason: null };
     const done = superviseLease(ctx, claim, session.sessionId, input.actor, interruption, {
@@ -440,5 +560,7 @@ export async function dispatchTask(
       reason: `session launch failed: ${(error as Error).message}`,
     });
     throw error;
+  } finally {
+    clearInterval(timer);
   }
 }

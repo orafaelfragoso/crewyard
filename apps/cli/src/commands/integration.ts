@@ -1,4 +1,10 @@
-import { integrationEnv, projectForRepositoryPath, publishTask, reviewPullRequest } from '@crewyard/application';
+import {
+  integrationEnv,
+  projectForRepositoryPath,
+  publishTask,
+  reviewPullRequest,
+  runIntegrationTick,
+} from '@crewyard/application';
 import { CrewError } from '@crewyard/core';
 import {
   acknowledgeDivergence,
@@ -11,8 +17,6 @@ import {
   listCandidates,
   listPullRequests,
   listQueues,
-  processIntegrationOutbox,
-  queueTick,
   requestIntegration,
   setQueuePaused,
   showPullRequest,
@@ -198,15 +202,11 @@ export function registerIntegrationCommands(program: Command): void {
     .action(
       action(async (ctx, opts, number: string) => {
         const id = await prId(ctx, opts, number);
-        const result = await reviewPullRequest(
-          ctx,
-          {
-            prId: id,
-            ...(opts.type ? { types: String(opts.type).split(',') as ReviewType[] } : {}),
-            ...(opts.force ? { force: true } : {}),
-          },
-          integrationEnv(ctx),
-        );
+        const result = await reviewPullRequest(ctx, {
+          prId: id,
+          ...(opts.type ? { types: String(opts.type).split(',') as ReviewType[] } : {}),
+          ...(opts.force ? { force: true } : {}),
+        });
         emit(opts, result, (d) =>
           table(
             d.outcomes.map((o) => ({
@@ -339,10 +339,15 @@ export function registerIntegrationCommands(program: Command): void {
       action(async (ctx, opts) => {
         const r = await repo(ctx, opts);
         const leaderId = operatorLeader(ctx, r.id, r.defaultBase);
-        const env = integrationEnv(ctx);
-        const outbox = await processIntegrationOutbox(ctx, { leaderId, env });
-        const tick = await queueTick(ctx, r.id, { leaderId, env, sync: true });
-        emit(opts, { outbox, tick }, (d) => JSON.stringify(d, null, 2));
+        const result = await runIntegrationTick(ctx, {
+          repositoryId: r.id,
+          leaderId,
+          actor: operatorActor(),
+          sync: true,
+          maxCandidates: 3,
+          processOutbox: true,
+        });
+        emit(opts, result, (d) => JSON.stringify(d, null, 2));
       }),
     );
   for (const [name, paused] of [
@@ -408,8 +413,15 @@ export function registerIntegrationCommands(program: Command): void {
       action(async (ctx, opts) => {
         const r = await repo(ctx, opts);
         const leaderId = operatorLeader(ctx, r.id, r.defaultBase);
-        const result = await queueTick(ctx, r.id, { leaderId, env: integrationEnv(ctx), sync: true, maxCandidates: 1 });
-        emit(opts, result, (d) => keyValues(d as unknown as Record<string, unknown>));
+        const result = await runIntegrationTick(ctx, {
+          repositoryId: r.id,
+          leaderId,
+          actor: operatorActor(),
+          sync: true,
+          maxCandidates: 1,
+          processOutbox: false,
+        });
+        emit(opts, result.tick, (d) => keyValues(d as unknown as Record<string, unknown>));
       }),
     );
 }
