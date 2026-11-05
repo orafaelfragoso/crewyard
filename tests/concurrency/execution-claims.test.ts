@@ -112,7 +112,8 @@ describe('multiprocess execution ownership', () => {
       child.start();
       const report = await child.report;
       expect(report.error).toBe('BUSY');
-      expect(report.elapsedMs).toBeLessThan(5_000);
+      expect(report.elapsedMs).toBeGreaterThanOrEqual(1_000);
+      expect(report.elapsedMs).toBeLessThan(2_000);
     } finally {
       if (ctx.store.db.inTransaction) ctx.store.db.exec('ROLLBACK');
       child.stop();

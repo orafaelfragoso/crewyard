@@ -19,7 +19,7 @@ interface WorkerInput {
 }
 
 const input = JSON.parse(process.argv[2]!) as WorkerInput;
-const store = openStore({ path: input.path, busyTimeoutMs: 5, clock: { now: () => new Date(input.at) } });
+const store = openStore({ path: input.path, clock: { now: () => new Date(input.at) } });
 await new Promise<void>((resolve) => {
   process.once('message', () => resolve());
   process.send!({ ready: true });
