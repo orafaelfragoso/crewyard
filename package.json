@@ -47,9 +47,9 @@
     "docs:cli": "bun scripts/gen-cli-reference.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.4",
+    "@biomejs/biome": "2.6.8",
     "@modelcontextprotocol/client": "2.4.0",
-    "@types/bun": "1.4.4",
+    "@types/bun": "1.4.5",
     "@types/node": "26.6.6",
     "@types/react": "19.3.0",
     "typescript": "7.0.2",
